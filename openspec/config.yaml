@@ -28,10 +28,10 @@ rules:
       - Follow existing code patterns once established
       - Default to venv + pip unless project later adopts uv/poetry/pipenv (see managing-python-dependencies skill)
     tdd: true            # Strict TDD Mode enabled globally for this user
-    test_command: ""      # UNRESOLVED — no test runner exists yet; first change must establish it (e.g. pytest)
+    test_command: '.venv\Scripts\python.exe -m pytest -m "not paid and not localmodel"'
   verify:
-    test_command: ""       # UNRESOLVED
-    build_command: ""      # UNRESOLVED
+    test_command: '.venv\Scripts\python.exe -m pytest -m "not paid and not localmodel"'
+    build_command: '.venv\Scripts\python.exe -m mypy src tests'
     coverage_threshold: 0
   archive:
     - Warn before merging destructive deltas

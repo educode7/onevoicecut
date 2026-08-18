@@ -1,0 +1,1 @@
+# Local ASR engine dependencies (faster-whisper). Populated in Slice 7.

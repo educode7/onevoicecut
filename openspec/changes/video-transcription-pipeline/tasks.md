@@ -65,38 +65,38 @@ Closes: `project-bootstrap` Dependency Manager Selection, Test Runner Configurat
 Plain-Text Export; `speech-transcription` TranscriptionPort Contract (fake path); `speech-transcription`
 Capability Declaration (type-level).
 
-- [ ] 1.1 Create `.venv`; write `requirements.txt` (fastapi, uvicorn, pydantic, pydantic-settings, httpx,
+- [x] 1.1 Create `.venv`; write `requirements.txt` (fastapi, uvicorn, pydantic, pydantic-settings, httpx,
       pinned `==`), `requirements-dev.txt` (pytest, pytest-asyncio, mypy), `requirements-local-asr.txt`,
       `requirements-diarization.txt` (both empty placeholders); install dev+core into `.venv`.
-- [ ] 1.2 Create `pytest.ini` with `--strict-markers`; register `integration`, `localmodel`, `paid` markers.
-- [ ] 1.3 Record the exact `test_command`/`build_command` values (below) for `sdd-apply` to write into
+- [x] 1.2 Create `pytest.ini` with `--strict-markers`; register `integration`, `localmodel`, `paid` markers.
+- [x] 1.3 Record the exact `test_command`/`build_command` values (below) for `sdd-apply` to write into
       `openspec/config.yaml` — this task does NOT edit the file.
       `test_command: .venv\Scripts\python.exe -m pytest -m "not paid and not localmodel"`
       `build_command: .venv\Scripts\python.exe -m mypy src tests`
-- [ ] 1.4 Add mypy config targeting `src` and `tests`.
-- [ ] 1.5 RED: `tests/unit/test_bootstrap.py::test_placeholder` — deliberately failing assertion, proves
+- [x] 1.4 Add mypy config targeting `src` and `tests`.
+- [x] 1.5 RED: `tests/unit/test_bootstrap.py::test_placeholder` — deliberately failing assertion, proves
       the runner executes and fails visibly.
-- [ ] 1.6 GREEN: fix the placeholder; confirm the suite is green and `mypy src tests` passes on empty `src/`.
-- [ ] 1.7 RED: `tests/unit/domain/test_ids.py` — `JobId`/`MediaId` reject a string failing
+- [x] 1.6 GREEN: fix the placeholder; confirm the suite is green and `mypy src tests` passes on empty `src/`.
+- [x] 1.7 RED: `tests/unit/domain/test_ids.py` — `JobId`/`MediaId` reject a string failing
       `^[0-9A-HJKMNP-TV-Z]{26}$`, accept a valid ULID.
-- [ ] 1.8 GREEN: `domain/ids.py` — `NewType` ids + regex validator.
-- [ ] 1.9 RED: `tests/unit/domain/test_{media,jobs,chunking,transcript,generation}.py` — construct every
+- [x] 1.8 GREEN: `domain/ids.py` — `NewType` ids + regex validator.
+- [x] 1.9 RED: `tests/unit/domain/test_{media,jobs,chunking,transcript,generation}.py` — construct every
       dataclass from the design's Domain Model table, assert `FrozenInstanceError` on mutation.
-- [ ] 1.10 GREEN: `domain/{media,jobs,chunking,transcript,generation,errors}.py` — all entities, `SpeakerMode`,
+- [x] 1.10 GREEN: `domain/{media,jobs,chunking,transcript,generation,errors}.py` — all entities, `SpeakerMode`,
       `EngineChoice`, job/chunk state enums, domain error types.
-- [ ] 1.11 RED: `tests/unit/ports/test_capabilities.py` — `TranscriptionCapabilities` field shape,
+- [x] 1.11 RED: `tests/unit/ports/test_capabilities.py` — `TranscriptionCapabilities` field shape,
       `DiarizationSupport` has exactly `UNSUPPORTED`/`REQUIRES_SETUP`/`AVAILABLE`.
-- [ ] 1.12 GREEN: `ports/{media_source,audio_extractor,transcription,text_generation,transcript_storage,
+- [x] 1.12 GREEN: `ports/{media_source,audio_extractor,transcription,text_generation,transcript_storage,
       capabilities}.py` — five `Protocol`s, no `@runtime_checkable`.
-- [ ] 1.13 RED: `tests/unit/usecases/test_ingest_media_walking_skeleton.py` — fake `MediaSourcePort`,
+- [x] 1.13 RED: `tests/unit/usecases/test_ingest_media_walking_skeleton.py` — fake `MediaSourcePort`,
       `AudioExtractorPort` (one chunk), `TranscriptionPort` (fixed segments, `diarization=UNSUPPORTED`),
       `TranscriptStoragePort` → real `Transcript` + `.txt` file end to end.
-- [ ] 1.14 GREEN: `tests/fakes/*` + `usecases/ingest_media.py` orchestrating the four sync ports.
-- [ ] 1.15 RED: `tests/test_architecture.py` seeded with a throwaway forbidden import in a fixture module,
+- [x] 1.14 GREEN: `tests/fakes/*` + `usecases/ingest_media.py` orchestrating the four sync ports.
+- [x] 1.15 RED: `tests/test_architecture.py` seeded with a throwaway forbidden import in a fixture module,
       proves the assertion fires.
-- [ ] 1.16 GREEN: land the `ast` walker asserting `domain`/`usecases`/`ports` never import
+- [x] 1.16 GREEN: land the `ast` walker asserting `domain`/`usecases`/`ports` never import
       `adapters`/`runtime`; remove the throwaway fixture.
-- [ ] 1.17 REFACTOR: extract shared fake-construction helpers into `tests/fakes/__init__.py`; suite green.
+- [x] 1.17 REFACTOR: extract shared fake-construction helpers into `tests/fakes/__init__.py`; suite green.
 
 ## Slice 2: Chunk Planning + Overlap Stitching (~300 lines)
 
