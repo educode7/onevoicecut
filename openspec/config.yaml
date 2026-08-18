@@ -38,7 +38,11 @@ rules:
 
 review:
   budget_lines: 400
-  delivery_strategy: ask-on-risk
+  delivery_strategy: auto-chain
+  chain_strategy: stacked-to-main
+  # Slice 1 shipped under an accepted size:exception (1273 lines vs main).
+  # Cause: slice estimates omitted the strict-TDD test multiplier.
+  # Empirical ratio from slice 1 — tests 714 / src 461 / config 98.
 
 execution_mode: interactive
 artifact_store: hybrid

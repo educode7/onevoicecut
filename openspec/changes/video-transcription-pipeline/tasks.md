@@ -1,65 +1,140 @@
 # Tasks: Video Transcription Pipeline
 
-> Phase: `sdd-tasks` · Artifact store: hybrid (mirror of Engram `sdd/video-transcription-pipeline/tasks`)
-> Inputs: `proposal.md` rev 2, `design.md`, all seven `specs/*/spec.md`, `openspec/config.yaml`.
-> **Deviation note**: this document exceeds the 530-word task-artifact budget. Ten slices, each expressed
-> as explicit RED-before-GREEN pairs (Strict TDD, no exceptions), each task naming its file and the spec
-> scenario it closes, plus a 400-line review-budget split and explicit open-question tracking, cannot
-> compress below roughly 3.5–4.5k words without turning tasks back into vague prose the skill itself
-> forbids ("no vague tasks like 'implement feature'"). Same tradeoff `design.md` already made and stated.
+> Phase: `sdd-tasks` (rev 3 — re-estimation) · Artifact store: hybrid (mirror of Engram `sdd/video-transcription-pipeline/tasks`)
+> Inputs: `proposal.md` rev 2, `design.md`, all seven `specs/*/spec.md`, `openspec/config.yaml`, and **slice 1's actual code on
+> disk** (`src/transcribe/`, `tests/`) as the calibration source for this revision.
+> **Deviation note**: this document exceeds the 530-word task-artifact budget, for the same reason rev 2 stated — ten-plus
+> slices expressed as explicit RED-before-GREEN pairs, each naming its file and spec scenario, plus a per-unit line-budget
+> split, cannot compress below several thousand words without turning tasks back into the vague prose the skill forbids.
+
+## Why This Revision Exists
+
+Slice 1 was estimated at ~380 lines and landed at **1,273** (`git diff --numstat main...HEAD`: 1,253 insertions + 20
+deletions, 47 files) — a **3.35x overrun** of the 400-line review budget. It shipped under a one-time user-accepted
+`size:exception`. The user then directed a proper re-estimation of slices 2–10b instead of firefighting per slice, on
+the explicit condition that this is **not** a flat 3.35x multiplier — each slice must be judged on what it actually
+requires, using slice 1's real code as calibration data.
+
+### Measured composition of slice 1 (ground truth)
+
+| Category | Lines | Share |
+| --- | --- | --- |
+| Tests | 714 | 56% |
+| Production `src/` | 461 | 36% |
+| Config / manifests | 98 | 8% |
+| **Total** | **1,273** | |
+
+### Calibration units derived from the actual code (not intuition)
+
+Read from `src/transcribe/{domain,ports,usecases}` and `tests/{unit,fakes,test_architecture.py}` on disk:
+
+| Unit | Measured cost | Evidence |
+| --- | --- | --- |
+| One frozen dataclass (construction test + separate `FrozenInstanceError` test) | ~20–30 lines total (prod + test) | `domain/chunking.py` (53 lines, 4 dataclasses + 1 enum) + `test_chunking.py` (102 lines, 8 tests) ≈ 31/entity |
+| One `Protocol` port method (protocol line + fake implementation line) | ~7–9 lines combined | `ports/transcript_storage.py` (39 lines / 12 methods) + `tests/fakes/transcript_storage.py` (63 lines / 12 methods) ≈ 8.5/method |
+| One use-case orchestrating 3–4 ports, single scenario | ~110–115 lines (prod + test) | `usecases/ingest_media.py` (63) + `test_ingest_media_walking_skeleton.py` (49) = 112 |
+| One `ast`-based architecture walker (one-time, already paid) | 59 lines | `tests/test_architecture.py` |
+
+**The decisive finding**: every domain dataclass the design specifies (`SourceMedia`, `AudioTrack`, `MediaProbe`,
+`JobRecord`, `ChunkPlan`, `PlannedChunk`, `AudioChunk`, `ChunkResult`, `TranscriptSegment`, `Transcript`,
+`ClipCandidate`, `ScriptVariant`, `GenerationResult`) **and all five ports already exist on disk**, built in slice 1.
+Confirmed by reading `src/transcribe/domain/generation.py` and `src/transcribe/domain/transcript.py` directly —
+`ClipCandidate`/`ScriptVariant`/`GenerationResult` (needed by slice 10a/10b) and `Transcript`/`TranscriptSegment`
+(needed by slices 7–9) are already there. **This means slices 2–10b do not pay slice 1's dominant cost driver** (12
+dataclass test pairs + 5 port/fake pairs ≈ 700+ of slice 1's 1,273 lines). A flat 3.35x multiplier would double-charge
+every remaining slice for scaffolding that is already sunk cost.
+
+**What remaining slices pay for instead** (per-slice, judged individually below):
+1. **Real adapter I/O surface** that slice 1 never built — ffmpeg subprocess (3), a real filesystem
+   `TranscriptStoragePort` (4), FastAPI streaming HTTP (5), `faster-whisper` (7), a cloud HTTP client (8), diarization
+   sub-adapters (9). Slice 1 has no measured comparable for this category, so a **+10–15% uncertainty margin** is
+   applied to adapter-heavy slices (3, 4, 5, 7, 8, 9) rather than treating them as precisely calibrated.
+2. **Threat-matrix breadth** — slice 5 alone carries 4 of the design's 4 applicable adversarial rows, each needing
+   multiple parametrized RED tests (hostile filename, oversized upload, non-media content, path traversal).
+3. **RED/GREEN pair count** — slice 4 has 10 pairs orchestrating a stateful chunk loop (resume, retry, timeout,
+   atomic write); that volume was always going to be large, and the original single-slice estimate (~400, "at the
+   ceiling, no headroom") is exactly the failure pattern already observed in slice 1.
+4. **One real gap found in rev 2's task list**: slice 4 never explicitly test-drove the filesystem
+   `TranscriptStoragePort`'s remaining 8 methods (job/plan/transcript/artifact CRUD) beyond the atomic-write and
+   single-writer tasks — it assumed them "used by this slice" without a RED task. Two new tasks (4.0a/4.0b) close
+   that gap in this revision.
+
+Pure-logic slices with **zero new dataclasses, zero new ports, zero new I/O** (2, 6, 10a, 10b) get no uncertainty
+margin — they are directly comparable to slice 1's well-measured domain/use-case test ratios.
 
 ## Review Workload Forecast
 
 | Field | Value |
 |-------|-------|
-| Estimated changed lines | ~3,110 (upper end of proposal's ~2,600–3,100 range; slice 10 split adds no new work, just a cut) |
-| 400-line budget risk | High |
+| Slice 1 actual (DONE) | 1,273 lines (461 prod / 714 test / 98 config) vs ~380 estimated — 3.35x, accepted `size:exception` |
+| Slices 2–10b calibrated estimate | ~4,885 lines |
+| **New total estimate** | **~6,158 lines** (was ~3,110 in rev 2 — 1.98x, not 3.35x, because scaffolding is sunk) |
+| Per-unit 400-line budget risk | **Low** — every one of the 20 remaining work units is individually estimated at 145–350 lines, with margin, not at the ceiling |
+| Aggregate 400-line budget risk | **High** by construction — this is why the change stays split into 21 work units total |
 | Chained PRs recommended | Yes |
-| Suggested split | 11 work units, PR 1 → PR 11 (slice 10 split into 10a/10b) |
-| Delivery strategy | ask-on-risk |
-| Chain strategy | pending — user decision required |
+| Suggested split | **21 work units**, PR 1 (slice 1, done) → PR 21 |
+| Delivery strategy | auto-chain |
+| Chain strategy | **stacked-to-main** (resolved this session — no longer pending) |
 
 ```text
-Decision needed before apply: Yes
+Decision needed before apply: No
 Chained PRs recommended: Yes
-Chain strategy: pending
-400-line budget risk: High
+Chain strategy: stacked-to-main
+400-line budget risk: Low
 ```
 
-**Individually over budget**: Slice 10 (~450) — split into 10a (~230, map-reduce summarization) and 10b
-(~220, clip candidates + N variants). **At the ceiling, no headroom**: Slice 1 (~380) and Slice 4 (~400)
-— any scope creep here (an unplanned edge case, a fixture that grows) needs a further split (e.g. Slice 1
-→ bootstrap-only vs domain+skeleton; Slice 4 → progress/failure vs resume/timeout) before it lands.
-`chain_strategy` is not yet selected — the orchestrator must collect **Stacked PRs to main** vs **Feature
-Branch Chain** vs **size:exception** from the user before `sdd-apply` starts slice 1.
+**Is this one change or should it split?** Twenty-one stacked PRs across ten domains is large but each unit is
+independently revertible, dependency order is linear (2 → 4 → {5,6} → {7,8} → 9 → 10a → 10b), and every unit ends
+green on the default suite. Nothing here requires two teams working concurrently or two independent release
+cadences — it is one coherent hexagonal build-out, not two products. **Recommendation: keep it one change**, delivered
+as a long stacked-PR chain, not split into separate OpenSpec changes. If the user wants a narrower blast radius per
+change instead, the natural split point is: **Change A** = bootstrap + core pipeline (slices 1–6, ingest through
+diarization gate, no real ASR yet) and **Change B** = engines + generation (slices 7–10b, real ASR adapters +
+summarization). That split is offered, not assumed.
 
 ### Suggested Work Units
 
 | Unit | Goal | PR | Focused test command | Runtime harness | Rollback boundary |
 |------|------|----|-----------------------|------------------|--------------------|
-| 1 | Bootstrap + walking skeleton (deps, pytest, domain, 5 ports, fakes, `.txt` export) | PR 1 | `pytest tests/unit tests/test_architecture.py -m "not paid and not localmodel"` | N/A — no real adapter exists yet; skeleton proven fake-only | `src/transcribe/{domain,ports,usecases/ingest_media.py}`, `tests/`, `pytest.ini`, `requirements*.txt` all removable together |
-| 2 | Chunk planning + overlap stitching (fake-driven) | PR 2 | `pytest tests/unit/usecases/test_plan_chunks.py tests/unit/usecases/test_stitch_transcript.py -m "not paid and not localmodel"` | N/A — pure functions, no I/O | `usecases/plan_chunks.py`, `usecases/stitch_transcript.py` |
-| 3 | ffmpeg extraction + slicing | PR 3 | `pytest tests/unit/adapters/ffmpeg -m "not paid and not localmodel"` | `pytest -m integration` against the checked-in fixture (real ffmpeg, skips if absent) | `adapters/ffmpeg/`, `README.md` ffmpeg section |
-| 4 | Headless job model (progress, failure, resume, timeout, worker entrypoint) | PR 4 | `pytest tests/unit/usecases/test_{transcribe_job,resume_job,progress}.py -m "not paid and not localmodel"` | `python -m transcribe.runtime.worker --job-id <fake-job>` against fakes | `usecases/{transcribe_job,resume_job,progress,purge_job_artifacts}.py`, `runtime/worker.py` |
-| 5 | Web upload + status | PR 5 | `pytest tests/unit/adapters/web -m "not paid and not localmodel"` | Real HTTP client E2E test: upload → poll → `.txt`, fake engines | `adapters/web/`, `runtime/app.py`, `adapters/storage/media_source.py` |
-| 6 | Per-job speaker mode + engine selection + diarization rejection | PR 6 | `pytest tests/unit/usecases/test_admit_job.py -m "not paid and not localmodel"` | Same E2E harness as unit 5, extended with a rejection-path scenario | `usecases/admit_job.py` guard clause; revertible without touching units 1–5 |
-| 7 | Local ASR adapter + watchdog | PR 7 | `pytest tests/unit -m "not paid and not localmodel"` (adapter itself is `localmodel`-marked) | `pytest -m localmodel` — real `faster-whisper`, real weights, manual/opt-in | `adapters/asr/local/`, `runtime/supervisor.py` watchdog |
-| 8 | Cloud ASR adapter + real byte cap + split-retry | PR 8 | `pytest tests/unit -m "not paid and not localmodel"` (adapter itself is `paid`-marked) | `pytest -m paid` — real API key, real billed call, manual/opt-in | `adapters/asr/cloud/` |
-| 9 | Opt-in diarization (both adapters) + `SpeakerResolver` seam | PR 9 | `pytest tests/unit -m "not paid and not localmodel"` | `pytest -m "localmodel or paid"` for the real diarization paths | `adapters/asr/{local,cloud}/` diarization branch, `usecases/stitch_transcript.py` resolver seam |
-| 10a | Map-reduce summarization | PR 10a | `pytest tests/unit/usecases/test_generate_artifacts_map.py -m "not paid and not localmodel"` | `pytest -m paid` for a real LLM call | `usecases/generate_artifacts.py` MAP/REDUCE |
-| 10b | Clip candidates + N script variants | PR 10b | `pytest tests/unit/usecases/test_generate_artifacts_variants.py -m "not paid and not localmodel"` | `pytest -m paid` for a real LLM call | `usecases/generate_artifacts.py` candidate/variant phase |
+| 1 (DONE) | Bootstrap + walking skeleton | PR 1 | `pytest tests/unit tests/test_architecture.py -m "not paid and not localmodel"` | N/A — fake-only skeleton | `src/transcribe/{domain,ports,usecases/ingest_media.py}`, `tests/`, config files |
+| 2a | Chunk planning: stride/overlap/byte-cap/tail-merge | PR 2 | `pytest tests/unit/usecases/test_plan_chunks.py -m "not paid and not localmodel"` | N/A — pure functions | `usecases/plan_chunks.py` |
+| 2b | Overlap stitching: match/fallback/straddling-segment | PR 3 | `pytest tests/unit/usecases/test_stitch_transcript.py -m "not paid and not localmodel"` | N/A — pure functions | `usecases/stitch_transcript.py` |
+| 3a | ffmpeg extraction: probe/extract + argv/path safety | PR 4 | `pytest tests/unit/adapters/ffmpeg/test_argv_composition.py tests/unit/adapters/ffmpeg/test_extract.py -m "not paid and not localmodel"` | `pytest -m integration` (real ffmpeg, skips if absent) | `adapters/ffmpeg/extractor.py` (probe/extract only) |
+| 3b | ffmpeg slicing + PATH check + integration + README | PR 5 | `pytest tests/unit/adapters/ffmpeg/test_slice.py -m "not paid and not localmodel"` | `pytest -m integration` slicing fixture | `adapters/ffmpeg/extractor.py` (slice), `README.md` |
+| 4a | Real filesystem `TranscriptStoragePort` adapter (CRUD + atomic write + single-writer) | PR 6 | `pytest tests/unit/adapters/storage/test_filesystem_transcript_storage.py -m "not paid and not localmodel"` | `pytest -m integration` — crash-simulated atomic write | `adapters/storage/filesystem_transcript_storage.py` |
+| 4b | `transcribe_job` core loop: happy path/failure isolation/retry/timeout/propagation | PR 7 | `pytest tests/unit/usecases/test_transcribe_job.py -m "not paid and not localmodel"` | N/A — fakes only, no real subprocess yet | `usecases/transcribe_job.py` |
+| 4c | Resume + derived progress | PR 8 | `pytest tests/unit/usecases/test_{resume_job,progress}.py -m "not paid and not localmodel"` | N/A — fakes only | `usecases/{resume_job,progress}.py` |
+| 4d | Worker entrypoint + purge seam + chunk-loop refactor | PR 9 | `pytest tests/unit -m "not paid and not localmodel"` | `python -m transcribe.runtime.worker --job-id <fake-job>` against fakes | `runtime/worker.py`, `usecases/purge_job_artifacts.py` |
+| 5a | Job creation + streaming upload (real `MediaSourcePort`) | PR 10 | `pytest tests/unit/adapters/web/test_admit_job_route.py tests/unit/adapters/web/test_upload_stream.py -m "not paid and not localmodel"` | Real HTTP client, constant-memory streaming assertion | `adapters/web/routers/jobs.py` (POST/PUT), `adapters/storage/media_source.py` |
+| 5b | Upload security threat-matrix (size limit, hostile filename, non-media content, traversal) | PR 11 | `pytest tests/unit/adapters/web/test_upload_security.py -m "not paid and not localmodel"` | Real HTTP client with hostile fixtures | Guard clauses inside `adapters/web/routers/jobs.py` and `adapters/storage/media_source.py` — revertible without touching PR 10's happy path |
+| 5c | Status route + app/lifespan wiring + E2E | PR 12 | `pytest tests/unit/adapters/web/test_status_route.py -m "not paid and not localmodel"` | Real HTTP client E2E: upload → poll → `.txt`, fake engines | `runtime/app.py`, `adapters/web/routers/jobs.py` (GET) |
+| 6 | Speaker mode + engine selection + diarization rejection | PR 13 | `pytest tests/unit/usecases/test_admit_job.py -m "not paid and not localmodel"` | Same E2E harness as PR 12, extended with a rejection-path scenario | `usecases/admit_job.py` guard clause |
+| 7a | Local ASR adapter + shared contract test | PR 14 | `pytest tests/unit -m "not paid and not localmodel"` (adapter is `localmodel`-marked) | `pytest -m localmodel` — real `faster-whisper`, real weights | `adapters/asr/local/faster_whisper_adapter.py`, `tests/contract/` |
+| 7b | Supervisory watchdog | PR 15 | `pytest tests/unit/runtime/test_supervisor.py -m "not paid and not localmodel"` | `pytest -m localmodel` real timeout-kill scenario | `runtime/supervisor.py` |
+| 8a | Cloud ASR adapter + real byte cap + contract test | PR 16 | `pytest tests/unit -m "not paid and not localmodel"` (adapter is `paid`-marked) | `pytest -m paid` — real API key, real billed call | `adapters/asr/cloud/*_adapter.py` |
+| 8b | `ChunkTooLarge` split-and-retry | PR 17 | `pytest tests/unit/usecases/test_transcribe_job_split_retry.py -m "not paid and not localmodel"` | `pytest -m paid` oversized-chunk scenario | `usecases/plan_chunks.py`/`transcribe_job.py` split-retry branch only |
+| 9a | Local diarization (capability probe + call) | PR 18 | `pytest tests/unit -m "not paid and not localmodel"` | `pytest -m localmodel` real diarization | `adapters/asr/local/` diarization branch |
+| 9b | Cloud diarization + `SpeakerResolver` seam | PR 19 | `pytest tests/unit/usecases/test_stitch_transcript_resolver.py -m "not paid and not localmodel"` | `pytest -m paid` real cloud diarization | `adapters/asr/cloud/` diarization branch, `usecases/stitch_transcript.py` resolver seam |
+| 10a | Map-reduce summarization | PR 20 | `pytest tests/unit/usecases/test_generate_artifacts_map.py -m "not paid and not localmodel"` | `pytest -m paid` real LLM call | `usecases/generate_artifacts.py` MAP/REDUCE |
+| 10b | Clip candidates + N script variants | PR 21 | `pytest tests/unit/usecases/test_generate_artifacts_variants.py -m "not paid and not localmodel"` | `pytest -m paid` real LLM call | `usecases/generate_artifacts.py` candidate/variant phase |
 
-## Open-Question Tracking (answerable later, none block earlier slices)
+## Open-Question Tracking (unchanged — task IDs referenced below are unaffected by the re-split)
 
 | Question | Where it lands | Blocking behavior |
 |---|---|---|
-| Q3 — script-variant target networks/formats | Task 10.16 | Ships with `settings.script_targets = ["generic"]`; answering Q3 edits config only, reopens nothing |
-| Q5 — storage location | Slices 4/5/9 filesystem `TranscriptStoragePort` adapter | Assumption baked in per design; a different answer changes the adapter + one setting, no task here reopens |
-| Q6 — retention/cleanup | Task 4.21 | Ships an unused `PurgeJobArtifacts` seam; answering Q6 wires a trigger, doesn't restructure |
-| New — cross-chunk speaker identity | Task 9.8 | Ships a no-op `SpeakerResolver` seam + namespaced `cNN/SNN` labels; real re-identification is future work pending a product decision |
-| New — concurrency (one job at a time) | Slice 4/7 supervisor | Assumption, not blocking; a second job needs a supervisor semaphore change only |
+| Q3 — script-variant target networks/formats | Task 10.16 | Ships with `settings.script_targets = ["generic"]`; answering Q3 edits config only |
+| Q5 — storage location | Slice 4a filesystem `TranscriptStoragePort` adapter | Assumption baked in per design; a different answer changes the adapter + one setting |
+| Q6 — retention/cleanup | Task 4.21 (now in slice 4d) | Ships an unused `PurgeJobArtifacts` seam |
+| New — cross-chunk speaker identity | Task 9.8 (now in slice 9b) | Ships a no-op `SpeakerResolver` seam + namespaced `cNN/SNN` labels |
+| New — concurrency (one job at a time) | Slice 4b/7b supervisor | Assumption, not blocking |
 
-## Slice 1: Bootstrap + Walking Skeleton (~380 lines)
+---
+
+## Slice 1: Bootstrap + Walking Skeleton — DONE
+
+**Actual: 1,273 lines (461 prod / 714 test / 98 config) vs ~380 estimated — 3.35x overrun, shipped under an accepted
+`size:exception`.** This is the calibration source for the rest of this document; see "Why This Revision Exists"
+above. Tasks unchanged from rev 2, all checked off — do not modify.
 
 Closes: `project-bootstrap` Dependency Manager Selection, Test Runner Configuration; `transcript-artifacts`
 Plain-Text Export; `speech-transcription` TranscriptionPort Contract (fake path); `speech-transcription`
@@ -69,39 +144,31 @@ Capability Declaration (type-level).
       pinned `==`), `requirements-dev.txt` (pytest, pytest-asyncio, mypy), `requirements-local-asr.txt`,
       `requirements-diarization.txt` (both empty placeholders); install dev+core into `.venv`.
 - [x] 1.2 Create `pytest.ini` with `--strict-markers`; register `integration`, `localmodel`, `paid` markers.
-- [x] 1.3 Record the exact `test_command`/`build_command` values (below) for `sdd-apply` to write into
-      `openspec/config.yaml` — this task does NOT edit the file.
-      `test_command: .venv\Scripts\python.exe -m pytest -m "not paid and not localmodel"`
-      `build_command: .venv\Scripts\python.exe -m mypy src tests`
+- [x] 1.3 Record the exact `test_command`/`build_command` values for `sdd-apply` to write into `openspec/config.yaml`.
 - [x] 1.4 Add mypy config targeting `src` and `tests`.
-- [x] 1.5 RED: `tests/unit/test_bootstrap.py::test_placeholder` — deliberately failing assertion, proves
-      the runner executes and fails visibly.
+- [x] 1.5 RED: `tests/unit/test_bootstrap.py::test_placeholder`.
 - [x] 1.6 GREEN: fix the placeholder; confirm the suite is green and `mypy src tests` passes on empty `src/`.
-- [x] 1.7 RED: `tests/unit/domain/test_ids.py` — `JobId`/`MediaId` reject a string failing
-      `^[0-9A-HJKMNP-TV-Z]{26}$`, accept a valid ULID.
+- [x] 1.7 RED: `tests/unit/domain/test_ids.py` — `JobId`/`MediaId` ULID validation.
 - [x] 1.8 GREEN: `domain/ids.py` — `NewType` ids + regex validator.
-- [x] 1.9 RED: `tests/unit/domain/test_{media,jobs,chunking,transcript,generation}.py` — construct every
-      dataclass from the design's Domain Model table, assert `FrozenInstanceError` on mutation.
-- [x] 1.10 GREEN: `domain/{media,jobs,chunking,transcript,generation,errors}.py` — all entities, `SpeakerMode`,
-      `EngineChoice`, job/chunk state enums, domain error types.
-- [x] 1.11 RED: `tests/unit/ports/test_capabilities.py` — `TranscriptionCapabilities` field shape,
-      `DiarizationSupport` has exactly `UNSUPPORTED`/`REQUIRES_SETUP`/`AVAILABLE`.
+- [x] 1.9 RED: `tests/unit/domain/test_{media,jobs,chunking,transcript,generation}.py` — construct every dataclass,
+      assert `FrozenInstanceError` on mutation.
+- [x] 1.10 GREEN: `domain/{media,jobs,chunking,transcript,generation,errors}.py`.
+- [x] 1.11 RED: `tests/unit/ports/test_capabilities.py`.
 - [x] 1.12 GREEN: `ports/{media_source,audio_extractor,transcription,text_generation,transcript_storage,
-      capabilities}.py` — five `Protocol`s, no `@runtime_checkable`.
-- [x] 1.13 RED: `tests/unit/usecases/test_ingest_media_walking_skeleton.py` — fake `MediaSourcePort`,
-      `AudioExtractorPort` (one chunk), `TranscriptionPort` (fixed segments, `diarization=UNSUPPORTED`),
-      `TranscriptStoragePort` → real `Transcript` + `.txt` file end to end.
-- [x] 1.14 GREEN: `tests/fakes/*` + `usecases/ingest_media.py` orchestrating the four sync ports.
-- [x] 1.15 RED: `tests/test_architecture.py` seeded with a throwaway forbidden import in a fixture module,
-      proves the assertion fires.
-- [x] 1.16 GREEN: land the `ast` walker asserting `domain`/`usecases`/`ports` never import
-      `adapters`/`runtime`; remove the throwaway fixture.
+      capabilities}.py` — five `Protocol`s.
+- [x] 1.13 RED: `tests/unit/usecases/test_ingest_media_walking_skeleton.py`.
+- [x] 1.14 GREEN: `tests/fakes/*` + `usecases/ingest_media.py`.
+- [x] 1.15 RED: `tests/test_architecture.py` seeded with a throwaway forbidden import.
+- [x] 1.16 GREEN: land the `ast` walker; remove the throwaway fixture.
 - [x] 1.17 REFACTOR: extract shared fake-construction helpers into `tests/fakes/__init__.py`; suite green.
 
-## Slice 2: Chunk Planning + Overlap Stitching (~300 lines)
+---
 
-Closes: `speech-transcription` Chunk Planning, Overlap Stitching, Cloud Adapter Request-Size Handling
-(planning half only — real cap value lands slice 8).
+## Slice 2a: Chunk Planning (~250 lines)
+
+Closes: `speech-transcription` Chunk Planning, Cloud Adapter Request-Size Handling (planning half only — real cap
+value lands slice 8a). Pure functions, no I/O, no new dataclasses/ports — directly comparable to slice 1's
+domain-test ratio (~1.8:1 test:prod), so no adapter-uncertainty margin applied.
 
 - [ ] 2.1 RED: `tests/unit/usecases/test_plan_chunks.py` — stride/overlap arithmetic against
       `target_chunk_seconds=600, overlap_s=5.0` fixture durations.
@@ -111,30 +178,45 @@ Closes: `speech-transcription` Chunk Planning, Overlap Stitching, Cloud Adapter 
 - [ ] 2.4 GREEN: extend planner with `bytes_per_second`/`cap_s` bridging logic (0.9 headroom factor).
 - [ ] 2.5 RED: tail-merge test — trailing chunk `< min_chunk_seconds` (30s) merges into predecessor.
 - [ ] 2.6 GREEN: implement tail merge.
+
+## Slice 2b: Overlap Stitching (~230 lines)
+
+Closes: `speech-transcription` Overlap Stitching. Split from planning because the matcher/fallback/straddling
+algorithm is independently testable and independently revertible from the planner — a bug in stitching should
+never require reverting planning.
+
 - [ ] 2.7 RED: `tests/unit/usecases/test_stitch_transcript.py` — matched suffix/prefix overlap (≥4 tokens,
       accents preserved) cuts once, no duplication or loss.
 - [ ] 2.8 GREEN: `usecases/stitch_transcript.py` — tokenize/match/cut per design algorithm.
 - [ ] 2.9 RED: no-match fallback — overlap cuts at the snapped midpoint, never loses more than `overlap_s`.
 - [ ] 2.10 GREEN: implement fallback branch.
-- [ ] 2.11 RED: straddling-segment test — a segment crossing the cut truncates, drops if empty, never
-      duplicated.
+- [ ] 2.11 RED: straddling-segment test — a segment crossing the cut truncates, drops if empty, never duplicated.
 - [ ] 2.12 GREEN: implement truncation/drop.
 - [ ] 2.13 REFACTOR: consolidate the tokenizer helper shared by matcher and fallback; suite green.
 
-## Slice 3: ffmpeg Extraction + Slicing (~250 lines)
+---
 
-Closes: `audio-extraction` Video to Normalized Audio, Chunk Slicing, ffmpeg Runtime Availability Check;
-`project-bootstrap` ffmpeg Declared as a System Dependency; threat-matrix row **ffmpeg subprocess argv**.
+## Slice 3a: ffmpeg Extraction + Argv/Path Safety (~200 lines)
+
+Closes: `audio-extraction` Video to Normalized Audio; `project-bootstrap` ffmpeg Declared as a System Dependency;
+threat-matrix row **ffmpeg subprocess argv**. First real subprocess adapter in the codebase — no slice 1 comparable,
++15% uncertainty margin applied.
 
 - [ ] 3.1 RED: `tests/unit/adapters/ffmpeg/test_argv_composition.py` — hostile filenames (`;`, `--`,
       leading `-`, spaces) produce list-form argv, never a shell string.
-- [ ] 3.2 GREEN: `adapters/ffmpeg/extractor.py` — `probe`/`extract`/`slice` via `subprocess.run([...])`,
-      never `shell=True`.
+- [ ] 3.2 GREEN: `adapters/ffmpeg/extractor.py` — `probe`/`extract` via `subprocess.run([...])`, never `shell=True`.
 - [ ] 3.3 RED: path-outside-job-dir test — a resolved path escaping the job directory is rejected before spawn.
 - [ ] 3.4 GREEN: add `Path.resolve()` containment check before every ffmpeg invocation.
 - [ ] 3.5 RED: `integration`-marked test against a tiny checked-in fixture — extraction produces a
       16kHz mono FLAC `AudioTrack`; skips via `ffmpeg_available` fixture when ffmpeg is absent.
-- [ ] 3.6 GREEN: wire the real ffmpeg command (`-nostdin -protocol_whitelist file`, explicit timeout).
+- [ ] 3.6 GREEN: wire the real ffmpeg extract command (`-nostdin -protocol_whitelist file`, explicit timeout).
+
+## Slice 3b: ffmpeg Slicing + Runtime Check + Integration Fixture (~190 lines)
+
+Closes: `audio-extraction` Chunk Slicing, ffmpeg Runtime Availability Check. Split from 3a because slicing depends
+on the chunk plan (slice 2a), while probe/extract do not — keeping them together would create an artificial
+dependency the design doesn't require.
+
 - [ ] 3.7 RED: `integration`-marked slicing test — an N-chunk plan produces N `AudioChunk`s matching
       boundaries/overlap.
 - [ ] 3.8 GREEN: implement `slice()` against the plan.
@@ -143,46 +225,78 @@ Closes: `audio-extraction` Video to Normalized Audio, Chunk Slicing, ffmpeg Runt
 - [ ] 3.11 Update `README.md` with ffmpeg install as a step distinct from `pip install -r requirements.txt`.
 - [ ] 3.12 REFACTOR: share the subprocess-invocation helper between `probe`/`extract`/`slice`; suite green.
 
-## Slice 4: Headless Job Model (~400 lines)
+---
 
-Closes: `transcription-jobs` all six requirements (compat-gate itself is slice 6); `transcript-artifacts`
-Intermediate Chunk Result Persistence, Retention Is Unbounded (seam only).
+## Slice 4a: Filesystem `TranscriptStoragePort` Adapter (~340 lines)
 
-- [ ] 4.1 RED: `tests/unit/usecases/test_transcribe_job.py` — job runs against fake ports through all
-      chunks, `JobRecord` transitions `PENDING→…→COMPLETED`.
-- [ ] 4.2 GREEN: `usecases/transcribe_job.py` orchestrating plan → slice → transcribe → persist per chunk.
-- [ ] 4.3 RED: `tests/unit/usecases/test_progress.py` — progress derived from `results/` listing vs
-      `ChunkPlan`, never a mutable counter; ETA `None` until first chunk done.
-- [ ] 4.4 GREEN: `usecases/progress.py` — pure derivation function.
-- [ ] 4.5 RED: chunk-84-of-87 failure test — chunks 1-83 remain persisted/intact, job record not terminated.
-- [ ] 4.6 GREEN: per-chunk error isolation in `transcribe_job.py`; `ChunkResult(state=FAILED)` recorded.
-- [ ] 4.7 RED: `tests/unit/usecases/test_resume_job.py` — resume after a simulated crash continues at the
-      first `!= DONE` chunk; completed chunks untouched.
-- [ ] 4.8 GREEN: `usecases/resume_job.py` — work-set = chunks where state != DONE.
-- [ ] 4.9 RED: transient-cloud-error retry test — only the failed chunk retries.
-- [ ] 4.10 GREEN: bounded per-chunk retry in `transcribe_job.py`.
-- [ ] 4.11 RED: per-chunk timeout test — a timed-out chunk marks `FAILED(TIMEOUT)`, job continues; a
-      3-hour job within per-chunk timeouts is never terminated on elapsed time alone.
-- [ ] 4.12 GREEN: `TranscriptionRequest.timeout_s` honored in-call (watchdog stub; real watchdog is slice 7).
-- [ ] 4.13 RED: job-record propagation test — `engine_choice=cloud, speaker_mode=multi-speaker` resolves
-      to the matching fake adapter and a diarized request.
-- [ ] 4.14 GREEN: `runtime/engine_resolver.py` stub (fakes only this slice) + propagation wiring.
+Closes: `transcript-artifacts` Intermediate Chunk Result Persistence, Storage Location (Q5 assumption). **Gap fix
+vs rev 2**: the port has 12 methods; rev 2's task list only explicitly RED-tested the atomic-write and
+single-writer behaviors, leaving 8 CRUD methods "used by this slice" with no test task. Tasks 4.0a/4.0b close that
+gap. First real filesystem adapter — no slice 1 comparable (only the fake existed), +15% uncertainty margin applied.
+
+- [ ] 4.0a **RED (new)**: `tests/unit/adapters/storage/test_filesystem_transcript_storage.py` — `create_job`/
+      `load_job`/`update_job`/`list_jobs` round-trip through real JSON files on disk; `save_chunk_plan`/
+      `load_chunk_plan`, `save_transcript`/`load_transcript`, `save_artifacts`, `export_text` round-trip.
+- [ ] 4.0b **GREEN (new)**: `adapters/storage/filesystem_transcript_storage.py` implementing all non-atomic
+      `TranscriptStoragePort` methods against `{TRANSCRIBE_DATA_DIR}/jobs/{job_id}/`.
 - [ ] 4.15 RED: atomic chunk-write test — a simulated crash between `.tmp` write and `os.replace` leaves
       the loader unaffected by a stale `.tmp`.
 - [ ] 4.16 GREEN: `save_chunk_result` — `os.replace`, fsync-before-replace, stale `.tmp` ignored by loader.
 - [ ] 4.17 RED: single-writer test — only the worker writes `job.json`; `control.json` cancellation flag
       is polled at chunk boundaries.
-- [ ] 4.18 GREEN: filesystem `TranscriptStoragePort` job/chunk persistence methods used by this slice.
+- [ ] 4.18 GREEN: `control.json` read path in the filesystem adapter.
+
+## Slice 4b: `transcribe_job` Core Loop (~350 lines)
+
+Closes: `transcription-jobs` Asynchronous Job Lifecycle, Chunk-Level Failure Isolation, Per-Chunk Timeout, Job
+Record Carries Speaker Mode and Engine Choice (propagation half). Highest RED/GREEN-pair density of any remaining
+slice (5 pairs) — this is the orchestration hub; kept separate from storage (4a) and resume/progress (4c) so a bug
+in retry logic never forces reverting the storage adapter or vice versa.
+
+- [ ] 4.1 RED: `tests/unit/usecases/test_transcribe_job.py` — job runs against fake ports through all
+      chunks, `JobRecord` transitions `PENDING→…→COMPLETED`.
+- [ ] 4.2 GREEN: `usecases/transcribe_job.py` orchestrating plan → slice → transcribe → persist per chunk.
+- [ ] 4.5 RED: chunk-84-of-87 failure test — chunks 1-83 remain persisted/intact, job record not terminated.
+- [ ] 4.6 GREEN: per-chunk error isolation in `transcribe_job.py`; `ChunkResult(state=FAILED)` recorded.
+- [ ] 4.9 RED: transient-cloud-error retry test — only the failed chunk retries.
+- [ ] 4.10 GREEN: bounded per-chunk retry in `transcribe_job.py`.
+- [ ] 4.11 RED: per-chunk timeout test — a timed-out chunk marks `FAILED(TIMEOUT)`, job continues; a
+      3-hour job within per-chunk timeouts is never terminated on elapsed time alone.
+- [ ] 4.12 GREEN: `TranscriptionRequest.timeout_s` honored in-call (watchdog stub; real watchdog is slice 7b).
+- [ ] 4.13 RED: job-record propagation test — `engine_choice=cloud, speaker_mode=multi-speaker` resolves
+      to the matching fake adapter and a diarized request.
+- [ ] 4.14 GREEN: `runtime/engine_resolver.py` stub (fakes only this slice) + propagation wiring.
+
+## Slice 4c: Resume + Derived Progress (~170 lines)
+
+Closes: `transcription-jobs` Resume From First Incomplete Chunk, Chunk-Level Progress Reporting. Pure-derivation
+and work-set-selection logic layered on top of 4a/4b — smallest remaining slice in this family, kept separate so
+progress-reporting changes never touch the resume state machine.
+
+- [ ] 4.3 RED: `tests/unit/usecases/test_progress.py` — progress derived from `results/` listing vs
+      `ChunkPlan`, never a mutable counter; ETA `None` until first chunk done.
+- [ ] 4.4 GREEN: `usecases/progress.py` — pure derivation function.
+- [ ] 4.7 RED: `tests/unit/usecases/test_resume_job.py` — resume after a simulated crash continues at the
+      first `!= DONE` chunk; completed chunks untouched.
+- [ ] 4.8 GREEN: `usecases/resume_job.py` — work-set = chunks where state != DONE.
+
+## Slice 4d: Worker Entrypoint + Purge Seam + Refactor (~160 lines)
+
+Closes: `transcript-artifacts` Retention Is Unbounded (seam only). Wiring/cleanup slice — depends on 4a/4b/4c all
+landing first.
+
 - [ ] 4.19 RED+GREEN: headless entrypoint `python -m transcribe.runtime.worker --job-id <id>` proven by
       an E2E-style test — real filesystem, fake engines.
 - [ ] 4.20 REFACTOR: extract the chunk-loop state machine shared by `transcribe_job`/`resume_job`; suite green.
 - [ ] 4.21 GREEN: add an unused `usecases/purge_job_artifacts.py` seam (`PurgeJobArtifacts(job_id, keep)`),
-      no caller wired. **Answers Q6 later** — retention policy wires a trigger to this seam, no restructure.
+      no caller wired. **Answers Q6 later**.
 
-## Slice 5: Web Upload + Status (~330 lines)
+---
 
-Closes: `media-ingest` Non-Blocking Upload Acceptance, Upload Size Limit; threat-matrix rows
-**Uploaded-file classification**, **HTTP routing/path params**, **Resource exhaustion at ingest**.
+## Slice 5a: Job Creation + Streaming Upload (~260 lines)
+
+Closes: `media-ingest` Non-Blocking Upload Acceptance. First real HTTP surface and first real `MediaSourcePort`
+implementation in the codebase (only the fake existed) — +15% uncertainty margin applied.
 
 - [ ] 5.1 RED: `tests/unit/adapters/web/test_admit_job_route.py` — `POST /api/jobs` with valid JSON
       returns `201 {job_id}`; missing engine returns `422`.
@@ -191,7 +305,15 @@ Closes: `media-ingest` Non-Blocking Upload Acceptance, Upload Size Limit; threat
 - [ ] 5.3 RED: `PUT /api/jobs/{id}/media` streams raw bytes to disk with constant memory (assert no
       `UploadFile`/multipart path exists).
 - [ ] 5.4 GREEN: `adapters/web/routers/jobs.py` — `async for part in request.stream()` writer;
-      `adapters/storage/media_source.py`.
+      `adapters/storage/media_source.py` (real, replacing the fake for this path).
+
+## Slice 5b: Upload Security Threat-Matrix (~270 lines)
+
+Closes: threat-matrix rows **Uploaded-file classification**, **HTTP routing/path params**, **Resource exhaustion
+at ingest**; `media-ingest` Upload Size Limit. Every applicable adversarial row from the design's threat matrix
+lands in this one slice — kept separate from 5a's happy path so a security-guard revert never removes the upload
+feature itself.
+
 - [ ] 5.5 RED: oversized-upload test — `Content-Length` precheck rejects before any bytes read; a lying
       header caught by a running byte counter aborts and deletes the partial file.
 - [ ] 5.6 GREEN: implement both checks against `TRANSCRIBE_MAX_UPLOAD_BYTES`.
@@ -201,10 +323,17 @@ Closes: `media-ingest` Non-Blocking Upload Acceptance, Upload Size Limit; threat
       container allowlist.
 - [ ] 5.9 RED: non-media-content-with-media-extension test — `ffprobe`-based validation rejects it, not
       the extension.
-- [ ] 5.10 GREEN: `probe()` call in the ingest path raises `UnsupportedContainer`.
+- [ ] 5.10 GREEN: `probe()` call (slice 3a) in the ingest path raises `UnsupportedContainer`.
 - [ ] 5.11 RED: `job_id` path-traversal test per route (`..`, `/`, URL-encoded separators) rejected
       before filesystem access.
 - [ ] 5.12 GREEN: route-level regex validation reusing `domain/ids.py`.
+
+## Slice 5c: Status Route + App Wiring + E2E (~250 lines)
+
+Closes: `transcription-jobs` Chunk-Level Progress Reporting (HTTP surface). Depends on 4c's progress derivation and
+5a's route skeleton — this is the slice that proves the whole ingest→worker→poll loop end to end for the first
+time.
+
 - [ ] 5.13 RED: `GET /api/jobs/{id}` status test — chunk-derived progress + ETA surfaced over HTTP.
 - [ ] 5.14 GREEN: status route reading `usecases/progress.py` output.
 - [ ] 5.15 GREEN: wire `runtime/app.py` lifespan — spawn `Supervisor`, startup reconciliation
@@ -213,13 +342,17 @@ Closes: `media-ingest` Non-Blocking Upload Acceptance, Upload Size Limit; threat
 - [ ] 5.17 GREEN: close any wiring gap the E2E test exposes.
 - [ ] 5.18 REFACTOR: extract shared Pydantic schemas into `adapters/web/schemas.py`; suite green.
 
-## Slice 6: Per-Job Speaker Mode + Engine Selection + Diarization Rejection (~250 lines)
+---
+
+## Slice 6: Per-Job Speaker Mode + Engine Selection + Diarization Rejection (~300 lines)
 
 Closes: `media-ingest` Per-Job Speaker Mode Input, Per-Job ASR Engine Selection, Reject Incompatible
 Engine/Speaker-Mode Combination at Admission (all 3 scenarios); `speech-transcription` Reject Speaker-Mode
-Jobs the Adapter Cannot Satisfy (defense-in-depth half). **Moved forward from slice 9 per design refinement 1**
-— every adapter already ships `DiarizationSupport.UNSUPPORTED` since slice 1, so this rejection is real
-and testable now, before either real ASR adapter exists.
+Jobs the Adapter Cannot Satisfy (defense-in-depth half). **Stays a single, un-split slice per explicit
+constraint** — it is almost entirely validation logic reusing existing pieces (the fake `TranscriptionPort` already
+raises `DiarizationUnsupported` on `speaker_mode=MULTI`, built in slice 1), so it does not carry the adapter/I/O
+tax that forced other slices to split. No uncertainty margin applied — directly comparable to slice 1's use-case
+test ratio.
 
 - [ ] 6.1 RED: speaker-mode-omitted test — defaults to single-voice.
 - [ ] 6.2 GREEN: schema default + domain default.
@@ -240,36 +373,49 @@ and testable now, before either real ASR adapter exists.
 - [ ] 6.15 RED: port-level defense-in-depth test — a fake `diarization=UNSUPPORTED` adapter refuses
       (names the capability) if asked to transcribe with `speaker_mode=multi`, simulating an admission bypass.
 - [ ] 6.16 GREEN: guard clause at the top of every adapter's `transcribe()` (fakes now; real adapters
-      inherit it in slices 7/8).
+      inherit it in slices 7a/8a).
 - [ ] 6.17 REFACTOR: extract the compatibility check into one `usecases/admit_job.py` helper reused by
       the schema-level and port-level checks; suite green.
 
-## Slice 7: Local ASR Adapter (~250 lines)
+---
+
+## Slice 7a: Local ASR Adapter + Contract Test (~260 lines)
 
 Closes: `speech-transcription` TranscriptionPort Contract (local), Contract Parity and Declared Divergence
-(local half). Real-engine work is `localmodel`-marked, excluded from the default suite.
+(local half, single-speaker path). Real-engine work is `localmodel`-marked, excluded from the default run — but
+the contract-test body is still authored/committed code and counted here. First real ASR adapter — no slice 1
+comparable, +15% uncertainty margin applied.
 
 - [ ] 7.1 RED: `localmodel`-marked contract test — real `faster-whisper` adapter satisfies the shared
       single-speaker contract body.
 - [ ] 7.2 GREEN: `adapters/asr/local/faster_whisper_adapter.py` implementing `TranscriptionPort`;
-      `capabilities()` still returns `DiarizationSupport.UNSUPPORTED` (diarization lands slice 9), real
+      `capabilities()` still returns `DiarizationSupport.UNSUPPORTED` (diarization lands slice 9a), real
       `max_chunk_bytes=None`, real `max_chunk_duration_s`.
-- [ ] 7.3 RED: shared contract test parametrized to include the local adapter alongside the existing
-      fake, `localmodel`-marked, excluded from the default run.
+- [ ] 7.3 RED: shared `tests/contract/` module, parametrized to include the local adapter alongside the
+      existing fake, `localmodel`-marked, excluded from the default run.
 - [ ] 7.4 GREEN: register the adapter in `runtime/engine_resolver.py` for `EngineChoice.LOCAL`.
+
+## Slice 7b: Supervisory Watchdog (~250 lines)
+
+Closes: `transcription-jobs` Per-Chunk Timeout (uninterruptible-inference case). Split from 7a because the
+watchdog is a process-supervision subsystem (`multiprocessing`, mtime polling, kill), not an ASR concern — rev 2
+under-scoped this as a sub-task of "Local ASR Adapter" when it is really independent infrastructure.
+
 - [ ] 7.5 RED: supervisory watchdog test — no progress past `chunk_timeout_s` kills the worker process,
       chunk recorded `FAILED(TIMEOUT)`.
 - [ ] 7.6 GREEN: `runtime/supervisor.py` watchdog watching `results/` mtime.
-- [ ] 7.7 REFACTOR: extract adapter-construction/secret-read logic shared with the cloud adapter (slice 8)
+- [ ] 7.7 REFACTOR: extract adapter-construction/secret-read logic shared with the cloud adapter (slice 8a)
       into a resolver helper; suite green.
 
-## Slice 8: Cloud ASR Adapter + Real Byte Cap + Split-Retry (~250 lines)
+---
+
+## Slice 8a: Cloud ASR Adapter + Real Byte Cap + Contract Test (~260 lines)
 
 Closes: `speech-transcription` TranscriptionPort Contract (cloud), Contract Parity and Declared Divergence
-(cloud half), Cloud Adapter Request-Size Handling (real cap + `ChunkTooLarge` recovery). **Moved forward per
-design refinement 2** — slice 2 already implemented the byte-cap-aware planning formula against a fake
-`max_chunk_bytes=25_000_000`; this slice supplies the real value and the split-and-retry recovery only.
-Real-engine work is `paid`-marked, excluded from the default suite.
+(cloud half), Cloud Adapter Request-Size Handling (real cap). Slice 2a already implemented the byte-cap-aware
+planning formula against a fake `max_chunk_bytes=25_000_000`; this slice supplies the real value only.
+Real-engine work is `paid`-marked, excluded from the default run. First real HTTP-client ASR adapter, +15%
+uncertainty margin applied.
 
 - [ ] 8.1 RED: `paid`-marked contract test — real cloud adapter satisfies the shared single-speaker
       contract body.
@@ -278,18 +424,29 @@ Real-engine work is `paid`-marked, excluded from the default suite.
       `DiarizationSupport.UNSUPPORTED`), reads `CLOUD_ASR_API_KEY` at construction.
 - [ ] 8.3 GREEN: register in `engine_resolver.py` for `EngineChoice.CLOUD`.
 - [ ] 8.4 RED: within-limit test — a plan sized against the real 25MB cap never exceeds it on submission.
-- [ ] 8.5 GREEN: `paid`-marked assertion confirming the slice-2 planner logic already holds against the
+- [ ] 8.5 GREEN: `paid`-marked assertion confirming the slice-2a planner logic already holds against the
       real capability value.
+
+## Slice 8b: `ChunkTooLarge` Split-and-Retry (~145 lines)
+
+Closes: `speech-transcription` Cloud Adapter Request-Size Handling (recovery half). Smallest remaining unit — kept
+separate because it is a narrow recovery-path addition to two already-shipped files (`plan_chunks.py`,
+`transcribe_job.py`), independently revertible without touching the cloud adapter itself.
+
 - [ ] 8.6 RED: `ChunkTooLarge` split-and-retry test — an oversized actual chunk triggers a half-split
       re-slice instead of a failed job.
 - [ ] 8.7 GREEN: `plan_chunks.py`/`transcribe_job.py` — catch `ChunkTooLarge`, split, re-slice, retry.
 - [ ] 8.8 REFACTOR: unify in-call-timeout construction between local/cloud resolver branches; suite green.
 
-## Slice 9: Opt-In Diarization (~250 lines)
+---
 
-Closes: `speech-transcription` Reject Speaker-Mode Jobs the Adapter Cannot Satisfy (positive path),
-Contract Parity and Declared Divergence (diarization scenario). Flips capable adapters from
-`UNSUPPORTED`/`REQUIRES_SETUP` to `AVAILABLE`; the rejection path itself was already proven in slice 6.
+## Slice 9a: Local Diarization (~230 lines)
+
+Closes: `speech-transcription` Reject Speaker-Mode Jobs the Adapter Cannot Satisfy (positive path, local),
+Contract Parity and Declared Divergence (diarization scenario, local half). Flips the local adapter from
+`UNSUPPORTED`/`REQUIRES_SETUP` to `AVAILABLE`; the rejection path itself was already proven in slice 6. No new
+domain dataclasses (`TranscriptSegment.speaker` already exists from slice 1); +15% margin applied for the real
+`pyannote`/WhisperX integration surface.
 
 - [ ] 9.1 RED: `localmodel`-marked test — local adapter declares `AVAILABLE` when `pyannote.audio`/WhisperX
       is installed and the licence accepted, `REQUIRES_SETUP` otherwise.
@@ -298,24 +455,36 @@ Contract Parity and Declared Divergence (diarization scenario). Flips capable ad
 - [ ] 9.3 RED: diarizing-adapter-receives-multi-speaker-job test — returned segments include a speaker
       label per segment, namespaced `c{chunk_index:02d}/S{speaker:02d}`.
 - [ ] 9.4 GREEN: implement the diarization call + namespaced label assignment.
+
+## Slice 9b: Cloud Diarization + `SpeakerResolver` Seam (~210 lines)
+
+Closes: Contract Parity and Declared Divergence (diarization scenario, cloud half). Introduces the
+`SpeakerResolver` seam design flagged as a discovered risk (cross-chunk speaker identity) — split from 9a because
+the cloud provider's diarization divergence and the stitcher-level resolver seam are independently revertible from
+the local adapter's diarization support.
+
 - [ ] 9.5 RED: cloud diarization test (`paid`-marked) — asserts the declared divergence per provider
       (e.g. flips to `AVAILABLE`, or a Whisper-API-based adapter stays `UNSUPPORTED` and still refuses).
 - [ ] 9.6 GREEN: implement or explicitly document the divergence for the chosen cloud provider.
 - [ ] 9.7 RED: `SpeakerResolver` seam test — stitcher accepts a no-op default resolver passing namespaced
       labels through unchanged; a stub resolver substitutes without touching the stitching algorithm.
 - [ ] 9.8 GREEN: `usecases/stitch_transcript.py` — inject `SpeakerResolver` protocol, default no-op impl.
-      **Answers the new cross-chunk speaker identity question later** — this seam ships now; a real
-      voice-embedding re-identification resolver is future work pending a product decision.
+      **Answers the new cross-chunk speaker identity question later**.
 - [ ] 9.9 GREEN: extend slice-6's admission tests to also cover now-`AVAILABLE` engines admitting normally.
 - [ ] 9.10 REFACTOR: consolidate the two adapters' capability-probing pattern; suite green.
 
-## Slice 10a: Map-Reduce Summarization (~230 lines)
+---
 
-Closes: `script-generation` Map-Reduce Summarization.
+## Slice 10a: Map-Reduce Summarization (~320 lines)
+
+Closes: `script-generation` Map-Reduce Summarization. **No new domain dataclasses** — `GenerationResult`,
+`ClipCandidate`, `ScriptVariant`, and `TextGenerationPort` all already exist from slice 1 (confirmed by reading
+`src/transcribe/domain/generation.py` and `src/transcribe/ports/text_generation.py`). This is the cheapest
+remaining category of work: pure use-case logic over an already-built port. A modest +10% margin (not +15%)
+applies only for the yet-to-be-built fake `TextGenerationPort` test double.
 
 - [ ] 10.1 RED: fake `TextGenerationPort`-based test — `complete()` call shape only, no summary logic yet.
-- [ ] 10.2 GREEN: confirm `ports/text_generation.py` (slice 1) is sufficient; add `adapters/llm/*` fake
-      wiring stub if missing.
+- [ ] 10.2 GREEN: `tests/fakes/text_generation.py` — new fake conforming to the existing port.
 - [ ] 10.3 RED: `tests/unit/usecases/test_generate_artifacts_map.py` — a transcript exceeding
       `map_window_tokens` windows by estimated char/4 budget, 200-token overlap, rendered with segment ids.
 - [ ] 10.4 GREEN: `usecases/generate_artifacts.py` MAP phase.
@@ -329,10 +498,10 @@ Closes: `script-generation` Map-Reduce Summarization.
 - [ ] 10.10 GREEN: implement halving retry.
 - [ ] 10.11 REFACTOR: extract token-estimation helper; suite green.
 
-## Slice 10b: Clip Candidates + N Script Variants (~220 lines)
+## Slice 10b: Clip Candidates + N Script Variants (~240 lines)
 
 Closes: `script-generation` Clip Candidate Output, N Script Variants Per Clip Candidate, Scope Boundary —
-No Rendering.
+No Rendering. Same no-new-dataclass calibration as 10a; builds directly on its MAP/REDUCE infrastructure.
 
 - [ ] 10.12 RED: clip-candidate test — candidate carries `start_s`/`end_s` mapping into the source
       transcript plus a short script.
@@ -341,8 +510,7 @@ No Rendering.
       without a schema change when count > 1.
 - [ ] 10.15 GREEN: one `complete()` call per `(candidate, target)` pair, `target` sourced from
       `settings.script_targets`.
-- [ ] 10.16 GREEN: ship `settings.script_targets` defaulting to `["generic"]`. **Answers Q3 later** —
-      the concrete target list is a config change only, no task here reopens.
+- [ ] 10.16 GREEN: ship `settings.script_targets` defaulting to `["generic"]`. **Answers Q3 later**.
 - [ ] 10.17 RED: scope-boundary test — generation output is summary + candidates + variants only, no
       video file produced.
 - [ ] 10.18 GREEN: assert `GenerationResult` shape excludes any media artifact.
