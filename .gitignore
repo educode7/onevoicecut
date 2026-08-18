@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Test / tooling caches
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Environment / secrets (API keys for cloud ASR and LLM adapters)
+.env
+.env.*
+!.env.example
+
+# Uploaded media and generated artifacts — never commit source video/audio
+uploads/
+media/
+output/
+transcripts/
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.mp3
+*.wav
+*.m4a
+
+# Local ASR model weights
+models/
+*.bin
+*.gguf
+
+# OS
+Thumbs.db
+.DS_Store

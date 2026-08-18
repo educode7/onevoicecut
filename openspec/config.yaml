@@ -1,0 +1,45 @@
+schema: spec-driven
+
+context: |
+  Tech stack: Python (declared, not yet scaffolded — greenfield, empty directory)
+  Architecture: unresolved — planned pipeline: upload video/audio -> transcribe ->
+    text file -> LLM summary/script generation for short-form social/ad video
+  Testing: unresolved — no test runner, dependency manager, or source files exist yet
+  Style: unresolved
+  Repo: git repository, default branch `main` (initialized 2026-08-17; .gitignore excludes uploaded
+    media, local ASR model weights, and .env). Nothing committed yet.
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - First change must select and record a Python dependency manager (uv/poetry/pipenv/venv+pip) per managing-python-dependencies skill before any pip install
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+    - Respect the 400-line review budget (delivery_strategy: ask-on-risk)
+  apply:
+    guidelines:
+      - Follow existing code patterns once established
+      - Default to venv + pip unless project later adopts uv/poetry/pipenv (see managing-python-dependencies skill)
+    tdd: true            # Strict TDD Mode enabled globally for this user
+    test_command: ""      # UNRESOLVED — no test runner exists yet; first change must establish it (e.g. pytest)
+  verify:
+    test_command: ""       # UNRESOLVED
+    build_command: ""      # UNRESOLVED
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
+
+review:
+  budget_lines: 400
+  delivery_strategy: ask-on-risk
+
+execution_mode: interactive
+artifact_store: hybrid
+strict_tdd: true
