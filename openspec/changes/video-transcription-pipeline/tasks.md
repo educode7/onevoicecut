@@ -329,20 +329,49 @@ never require reverting planning.
 
 ---
 
-## Slice 3a: ffmpeg Extraction + Argv/Path Safety (~200 lines)
+## Slice 3a: ffmpeg Extraction + Argv/Path Safety — DONE (split into 3a-i, 3a-ii, 3a-iii)
+
+**Actual: 786 lines vs ~200 estimated — 3.9x, the worst overrun since slice 1.** Suite 165 passed +
+10 skipped, `mypy src tests` clean over 54 files.
+
+| Unit | Commit | Lines |
+| --- | --- | --- |
+| 3a-i | `feat(adapters): compose ffmpeg argv and contain paths…` | 260 |
+| 3a-ii | `feat(adapters): implement AudioExtractorPort over the ffmpeg binaries` | 342 |
+| 3a-iii | `test(integration): exercise ffmpeg extraction against the real binary` | 184 |
+
+**⚠ THE INTEGRATION TESTS ARE SKIPPED, NOT PASSING.** ffmpeg is not installed on the development
+machine, so all 10 `integration`-marked tests skip. The argv composition, the failure mapping and the
+containment checks are proven; **that ffmpeg accepts these exact flags is not**. The flag set
+(`-protocol_whitelist file`, `-map 0:a:0`, `-c:a flac`, `mpeg4`/`aac` for fixture synthesis) is written
+from documentation, never executed. First run on a machine with ffmpeg is a real verification step,
+not a formality — treat a failure there as expected-to-be-possible, not as a regression.
+
+**Deviation — the fixture is generated, not checked in.** Task 3.5 called for "a tiny checked-in
+fixture", but `.gitignore` lines 25/29/30 exclude `*.mp4`/`*.mp3`/`*.wav` to keep operator media out of
+the repository. A committed media fixture would have been silently ignored by git: the test would have
+looked present and never run. It is synthesized with `-f lavfi` instead, which needs no `.gitignore`
+negation and puts no binary in the history.
+
+**Why 3.9x.** The estimate treated "first adapter" as a +10-15% uncertainty margin on a
+pure-logic baseline. It is not a margin, it is a different category: an injected process runner, a
+recording double, JSON parsing with four failure paths, 15 parametrized hostile filenames, and a
+second whole test tier (integration) that did not exist before. **Revised unit: a first-of-its-kind
+adapter ≈ 700-800 lines.** Slices 4a, 5a, 7a and 8a each introduce one and are still estimated on the
+old margin.
 
 Closes: `audio-extraction` Video to Normalized Audio; `project-bootstrap` ffmpeg Declared as a System Dependency;
 threat-matrix row **ffmpeg subprocess argv**. First real subprocess adapter in the codebase — no slice 1 comparable,
 +15% uncertainty margin applied.
 
-- [ ] 3.1 RED: `tests/unit/adapters/ffmpeg/test_argv_composition.py` — hostile filenames (`;`, `--`,
+- [x] 3.1 RED: `tests/unit/adapters/ffmpeg/test_argv_composition.py` — hostile filenames (`;`, `--`,
       leading `-`, spaces) produce list-form argv, never a shell string.
-- [ ] 3.2 GREEN: `adapters/ffmpeg/extractor.py` — `probe`/`extract` via `subprocess.run([...])`, never `shell=True`.
-- [ ] 3.3 RED: path-outside-job-dir test — a resolved path escaping the job directory is rejected before spawn.
-- [ ] 3.4 GREEN: add `Path.resolve()` containment check before every ffmpeg invocation.
-- [ ] 3.5 RED: `integration`-marked test against a tiny checked-in fixture — extraction produces a
+- [x] 3.2 GREEN: `adapters/ffmpeg/extractor.py` — `probe`/`extract` via `subprocess.run([...])`, never `shell=True`.
+- [x] 3.3 RED: path-outside-job-dir test — a resolved path escaping the job directory is rejected before spawn.
+- [x] 3.4 GREEN: add `Path.resolve()` containment check before every ffmpeg invocation.
+- [x] 3.5 RED: `integration`-marked test against a tiny checked-in fixture — extraction produces a
       16kHz mono FLAC `AudioTrack`; skips via `ffmpeg_available` fixture when ffmpeg is absent.
-- [ ] 3.6 GREEN: wire the real ffmpeg extract command (`-nostdin -protocol_whitelist file`, explicit timeout).
+- [x] 3.6 GREEN: wire the real ffmpeg extract command (`-nostdin -protocol_whitelist file`, explicit timeout).
 
 ## Slice 3b: ffmpeg Slicing + Runtime Check + Integration Fixture (~190 lines)
 
