@@ -125,9 +125,35 @@ def _fallback_cut(
     return min(boundaries, key=lambda boundary: abs(boundary - midpoint))
 
 
+def _require_complete(plan: ChunkPlan, results: tuple[ChunkResult, ...]) -> None:
+    """Every planned chunk, exactly once.
+
+    A hole in the results stitches into a transcript that reads as complete — the
+    words either side of the gap simply run together. Chunk 84 of 87 failing is a
+    designed-for case; delivering the remainder as if it were the transcript is
+    not. Callers that want a partial view must ask for one explicitly.
+    """
+    planned_indices = {chunk.index for chunk in plan.chunks}
+    seen = [result.index for result in results]
+
+    missing = sorted(planned_indices - set(seen))
+    if missing:
+        raise ValueError(f"cannot stitch: no result for planned chunk(s) {missing}")
+
+    duplicated = sorted({index for index in seen if seen.count(index) > 1})
+    if duplicated:
+        raise ValueError(f"cannot stitch: more than one result for chunk(s) {duplicated}")
+
+    unplanned = sorted(set(seen) - planned_indices)
+    if unplanned:
+        raise ValueError(f"cannot stitch: result for unplanned chunk(s) {unplanned}")
+
+
 def stitch_transcript(
     plan: ChunkPlan, results: tuple[ChunkResult, ...]
 ) -> tuple[TranscriptSegment, ...]:
+    _require_complete(plan, results)
+
     planned: dict[int, PlannedChunk] = {chunk.index: chunk for chunk in plan.chunks}
     ordered = sorted(results, key=lambda result: result.index)
 

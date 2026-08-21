@@ -6,6 +6,8 @@ survives. Getting it wrong is invisible in the artifact: a duplicated phrase rea
 like the speaker repeated themselves, and a lost one reads like they never said it.
 """
 
+import pytest
+
 from transcribe.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
 from transcribe.domain.ids import make_job_id
 from transcribe.domain.transcript import SegmentKind, TranscriptSegment
@@ -130,6 +132,26 @@ def test_matched_overlap_loses_no_words() -> None:
         assert phrase in joined
 
 
+def test_output_is_ordered_by_start_time() -> None:
+    stitched = stitch_transcript(
+        PLAN,
+        (
+            _result(
+                0,
+                _seg(590.0, 597.0, "esto es lo que quiero decir"),
+                _seg(597.0, 605.0, "y ahora viene la parte importante"),
+            ),
+            _result(
+                1,
+                _seg(0.0, 5.0, "y ahora viene la parte importante"),
+                _seg(5.0, 40.0, "porque esto cambia todo"),
+            ),
+        ),
+    )
+    starts = [s.start_s for s in stitched]
+    assert starts == sorted(starts)
+
+
 def test_results_are_sorted_by_chunk_index_not_arrival_order() -> None:
     """Slice 4 retries chunks, so results can arrive out of order."""
     out_of_order = (
@@ -195,6 +217,89 @@ def test_fallback_uses_the_raw_midpoint_when_no_boundary_is_inside() -> None:
     assert any(s.end_s == 602.5 or s.start_s == 602.5 for s in stitched)
 
 
+def test_fallback_keeps_content_outside_the_contested_window() -> None:
+    """The cut is bounded by the window, so nothing beyond it can be discarded."""
+    stitched = stitch_transcript(
+        PLAN,
+        (
+            _result(
+                0,
+                _seg(100.0, 200.0, "muy anterior"),
+                _seg(598.0, 604.0, "desacuerdo"),
+            ),
+            _result(
+                1,
+                _seg(0.0, 5.0, "otra version"),
+                _seg(300.0, 320.0, "muy posterior"),
+            ),
+        ),
+    )
+    joined = _text(stitched)
+    assert "muy anterior" in joined
+    assert "muy posterior" in joined
+
+
+def test_fallback_is_deterministic() -> None:
+    results = (
+        _result(0, _seg(598.0, 604.0, "algo distinto")),
+        _result(1, _seg(0.0, 5.0, "otra cosa"), _seg(5.0, 20.0, "sigue")),
+    )
+    assert stitch_transcript(PLAN, results) == stitch_transcript(PLAN, results)
+
+
+def test_music_in_the_overlap_window_falls_back_cleanly() -> None:
+    """Two decodes of the same song rarely agree; this is the routine path."""
+    stitched = stitch_transcript(
+        PLAN,
+        (
+            _result(0, _seg(598.0, 604.0, "y volare sin ti", SegmentKind.MUSIC)),
+            _result(
+                1,
+                _seg(0.0, 5.0, "volare junto a ti", SegmentKind.MUSIC),
+                _seg(5.0, 30.0, "retomamos entonces", SegmentKind.SPEECH),
+            ),
+        ),
+    )
+    assert "retomamos entonces" in _text(stitched)
+    assert all(s.end_s > s.start_s for s in stitched)
+
+
+def test_chunk_with_nothing_in_the_window_does_not_discard_our_copy() -> None:
+    """A music-only chunk can transcribe to nothing; that is not a reason to cut."""
+    stitched = stitch_transcript(
+        PLAN,
+        (
+            _result(0, _seg(598.0, 605.0, "lo que dijo al final")),
+            _result(1, _seg(20.0, 40.0, "mucho despues")),
+        ),
+    )
+    joined = _text(stitched)
+    assert "lo que dijo al final" in joined
+    assert "mucho despues" in joined
+
+
+def test_chunk_result_with_no_segments_at_all_is_survivable() -> None:
+    stitched = stitch_transcript(
+        PLAN,
+        (
+            _result(0, _seg(590.0, 605.0, "unico contenido")),
+            _result(1),
+        ),
+    )
+    assert "unico contenido" in _text(stitched)
+
+
+def test_no_empty_segment_is_ever_emitted() -> None:
+    stitched = stitch_transcript(
+        PLAN,
+        (
+            _result(0, _seg(598.0, 604.0, "algo distinto")),
+            _result(1, _seg(0.0, 5.0, "otra cosa"), _seg(5.0, 20.0, "sigue")),
+        ),
+    )
+    assert all(s.end_s > s.start_s for s in stitched)
+
+
 # --- Straddling segments, kind preservation, and plan integrity ---------------
 
 
@@ -211,6 +316,90 @@ def test_segment_straddling_the_cut_is_truncated_not_duplicated() -> None:
     assert straddler.start_s == 604.0
     assert straddler.end_s == 605.0
     assert [s.text for s in stitched].count("su version") == 1
+
+
+def test_segment_entirely_before_the_cut_survives_untouched() -> None:
+    original = _seg(100.0, 200.0, "intacto")
+    stitched = stitch_transcript(
+        PLAN,
+        (
+            _result(0, original, _seg(598.0, 604.0, "desacuerdo")),
+            _result(1, _seg(0.0, 5.0, "otra"), _seg(5.0, 20.0, "sigue")),
+        ),
+    )
+    assert stitched[0] == original
+
+
+def test_kind_survives_the_cut() -> None:
+    """A relabelled segment would let lyrics into the message export."""
+    stitched = stitch_transcript(
+        PLAN,
+        (
+            _result(
+                0,
+                _seg(500.0, 560.0, "la cancion entera", SegmentKind.MUSIC),
+                _seg(598.0, 604.0, "hablado", SegmentKind.SPEECH),
+            ),
+            _result(
+                1,
+                _seg(0.0, 5.0, "otra version", SegmentKind.UNCERTAIN),
+                _seg(5.0, 20.0, "y sigue", SegmentKind.SPEECH),
+            ),
+        ),
+    )
+    by_text = {s.text: s.kind for s in stitched}
+    assert by_text["la cancion entera"] is SegmentKind.MUSIC
+    assert by_text["hablado"] is SegmentKind.SPEECH
+    assert by_text["otra version"] is SegmentKind.UNCERTAIN
+    assert by_text["y sigue"] is SegmentKind.SPEECH
+
+
+def test_speaker_and_confidence_survive_the_cut() -> None:
+    stitched = stitch_transcript(
+        PLAN,
+        (
+            _result(0, _seg(598.0, 604.0, "hablado", speaker="c00/S01")),
+            _result(1, _seg(0.0, 5.0, "otra", speaker="c01/S00"), _seg(5.0, 20.0, "x")),
+        ),
+    )
+    truncated = next(s for s in stitched if s.text == "otra")
+    assert truncated.speaker == "c01/S00"
+    assert truncated.confidence == 0.9
+
+
+def test_a_missing_chunk_result_is_refused_not_silently_stitched() -> None:
+    """A hole in the results would produce a transcript that reads as complete.
+
+    Chunk 84 of 87 failing is a designed-for case; stitching around it and
+    delivering the result as the transcript is not.
+    """
+    three = ChunkPlan(
+        job_id=JOB_ID,
+        stride_s=600.0,
+        overlap_s=5.0,
+        chunks=(
+            PlannedChunk(index=0, start_s=0.0, end_s=605.0),
+            PlannedChunk(index=1, start_s=600.0, end_s=1205.0),
+            PlannedChunk(index=2, start_s=1200.0, end_s=1800.0),
+        ),
+    )
+    with pytest.raises(ValueError, match="1"):
+        stitch_transcript(
+            three,
+            (_result(0, _seg(0.0, 10.0, "a")), _result(2, _seg(0.0, 10.0, "c"))),
+        )
+
+
+def test_a_duplicated_chunk_result_is_refused() -> None:
+    with pytest.raises(ValueError):
+        stitch_transcript(
+            PLAN,
+            (
+                _result(0, _seg(0.0, 10.0, "a")),
+                _result(0, _seg(0.0, 10.0, "a again")),
+                _result(1, _seg(0.0, 10.0, "b")),
+            ),
+        )
 
 
 def test_punctuation_and_case_do_not_prevent_a_match() -> None:
