@@ -1,7 +1,10 @@
 # Design: Video Transcription Pipeline
 
 > Phase: `sdd-design` · Artifact store: hybrid (mirror of Engram `sdd/video-transcription-pipeline/design`)
-> Binding input: `proposal.md` rev 2 (Engram 643). Verified state: greenfield, no application code, git `main` @ `d4c43b3`.
+> Binding input: `proposal.md` rev 3. Original verified state: greenfield, no application code, git `main` @ `d4c43b3`.
+> **Rev 2 delta**: slice 1 has since shipped (`domain/`, `ports/`, `usecases/ingest_media.py`, fakes; no `adapters/`
+> or `runtime/` yet), and proposal Open Question 8 was answered — music and singing are normal source input. That
+> answer adds the `SegmentKind` decision below and the `TranscriptionCapabilities` membership-rule amendment.
 > Deviation note: this document exceeds the 800-word design budget. The orchestrator's brief enumerates
 > five port contracts, a domain model, a chunk-aware job model, two sequence diagrams, an algorithm, and
 > toolchain decisions. Compressing that below 800 words would produce gestures instead of decisions.
@@ -52,12 +55,17 @@ class DiarizationSupport(StrEnum):
     REQUIRES_SETUP = "requires_setup"  # engine could, this install cannot yet (pyannote absent / HF licence unaccepted)
     AVAILABLE      = "available"
 
+class ClassificationSupport(StrEnum):
+    UNSUPPORTED = "unsupported"  # engine exposes no VAD / hallucination control; output is all UNCERTAIN
+    AVAILABLE   = "available"    # engine can distinguish speech from music
+
 @dataclass(frozen=True, slots=True)
 class TranscriptionCapabilities:
-    engine_id: str                       # provenance, recorded on the job record
-    diarization: DiarizationSupport      # (a) rejection rule
-    max_chunk_bytes: int | None          # (b) planning rule — None = bounded only by the machine
-    max_chunk_duration_s: float | None   # (b) planning rule
+    engine_id: str                                  # provenance, recorded on the job record
+    diarization: DiarizationSupport                 # (a) rejection rule
+    non_speech_classification: ClassificationSupport # (a) admission-warning rule — see amendment below
+    max_chunk_bytes: int | None                     # (b) planning rule — None = bounded only by the machine
+    max_chunk_duration_s: float | None              # (b) planning rule
 ```
 
 **Alternatives rejected**: `diarizes: bool` — loses the difference between *impossible* and *not
@@ -73,6 +81,65 @@ and stable for the process lifetime.
 **Where the check runs**: `AdmitJob` use case, at job creation — *before* upload processing completes
 and before any extraction. A speaker-mode job against a non-diarizing engine fails in milliseconds,
 not after an hour of audio extraction and a billed API call.
+
+**Amendment (non-speech classification).** `non_speech_classification` does not fit the membership rule
+as originally written: it neither rejects a job nor feeds the planner. Rather than smuggle it in, the
+rule is **widened deliberately, once**, to:
+
+> A field belongs in `TranscriptionCapabilities` only if a use case must read it to (a) **reject or warn
+> about** a job before work starts, or (b) compute a chunk plan.
+
+**Rationale**: rejection and warning are the same structural read — the use case must consult the
+adapter *before work begins* — differing only in severity. The alternative was to carry no capability
+field and let the adapter self-declare purely through its output (all `UNCERTAIN`). That was rejected
+because it defers the operator's discovery until after transcription: choosing a non-classifying engine
+for music-heavy footage would cost a full multi-hour run, and on the cloud path a billed one, before the
+operator learns the message export is unreliable. That is precisely the failure the fail-fast admission
+check exists to prevent. The widening is recorded here rather than applied silently, because the value
+of this rule is that it stays narrow.
+
+### Decision: non-speech classification is a segment property, not a filter
+
+Source audio routinely contains a singer alongside the speaker, or music under and between spoken
+passages (proposal Open Question 8). Three things follow, and the third is the one that decides the shape.
+
+1. Whisper-family decoders **hallucinate on non-speech**: with no speech to condition on, the decoder
+   falls back on a training prior saturated with subtitle tracks, emitting Spanish subtitle boilerplate
+   that was never spoken. The design already acknowledged this narrowly — short tail chunks are merged
+   for exactly this reason — but treated it as a chunk-geometry concern rather than a content one.
+2. **Sung lyrics decode as speech.** Nothing at the ASR boundary distinguishes them from the message.
+3. **The product wants both outcomes at once.** The `.txt` and the summary must contain the *message*
+   only. But the operator is cutting short-form video, and the singer's moment is often the best clip in
+   the footage. So the musical range must stay addressable.
+
+(3) rules out filtering at the boundary. If non-speech is dropped where it is detected, the timestamps
+go with it and the clip is unrecoverable. So: **`TranscriptSegment` carries `kind: SegmentKind`
+(`SPEECH | MUSIC | UNCERTAIN`)**, every segment keeps its timestamps, and each consumer decides:
+
+| Consumer | Policy |
+| --- | --- |
+| Structured `Transcript` | Keeps everything. Source of truth, unchanged in spirit. |
+| `.txt` message export | `SPEECH` only. |
+| Map-reduce MAP windows | `SPEECH` only — see the pollution note below. |
+| Clip candidates | Any range. Timestamps are valid regardless of `kind`. |
+
+**`UNCERTAIN` is the honest default, and it is load-bearing.** An adapter that cannot classify MUST
+return `UNCERTAIN`, never `SPEECH`. Asserting "this is the message" on the basis of never having checked
+is the same silent degradation as returning unlabeled segments for a diarization request, and produces
+the same symptom: an artifact indistinguishable from a correct one. `UNCERTAIN` makes "I did not check"
+a representable, testable state rather than an invisible one.
+
+**Why this could not wait for slice 10.** `TranscriptSegment` is the entity that crosses every layer —
+`TranscriptionPort`, the stitcher, the storage adapter, both ASR adapters, and generation. Adding a field
+to it now, while `adapters/` and `runtime/` do not exist yet, touches two production files. Adding it
+after slice 9 touches the stitcher, the filesystem storage adapter, both ASR adapters, the map-reduce
+use case, and every test around them. This is the identical argument the proposal used to pull chunking
+forward to slices 2 and 4 instead of retrofitting the job model, and it applies here with less ambiguity.
+
+**Map-reduce pollution.** Excluding `MUSIC` from MAP windows is a correctness requirement, not a token
+saving. A polluted window yields a polluted partial summary, which REDUCE folds into the final summary —
+after which the contamination cannot be traced to the segment that caused it. Same failure class as the
+hallucinated timestamp handled below: fluent, plausible, wrong.
 
 ### Decision: one supervised worker **process** per job (not a thread, not a queue)
 
@@ -223,7 +290,7 @@ milliseconds happens at export.
 | `PlannedChunk` | `index, start_s, end_s` (`end_s` includes the overlap tail) |
 | `AudioChunk` | `job_id, index, path, start_s, end_s, size_bytes` |
 | `ChunkResult` | `job_id, index, state, segments, engine_id, attempts, error, finished_at` |
-| `TranscriptSegment` | `start_s, end_s, text, speaker: str \| None, confidence: float \| None` |
+| `TranscriptSegment` | `start_s, end_s, text, speaker: str \| None, confidence: float \| None, kind: SegmentKind` |
 | `Transcript` | `job_id, language="es", segments, engine_id, diarized: bool` |
 | `ClipCandidate` | `start_s, end_s, hook, quote, rationale, score, variants: tuple[ScriptVariant, ...]` |
 | `ScriptVariant` | `target: str, format: str, body: str, duration_target_s: float` |
@@ -232,6 +299,8 @@ milliseconds happens at export.
 
 `SpeakerMode` = `SINGLE | MULTI` (default `SINGLE`). `EngineChoice` = `LOCAL | CLOUD`, with **no default** —
 it is a required field on the create-job request, per the binding decision that there is no global default.
+`SegmentKind` = `SPEECH | MUSIC | UNCERTAIN`, **defaulting to `UNCERTAIN`** so that an adapter which
+never sets it cannot accidentally assert speech — the default is the safe answer, not the common one.
 
 `ScriptVariant.target` is a free string, and N variants comes from `settings.script_targets: list[str]`.
 **Open Question 3 (which networks/formats) therefore changes a config list, not a type.**
@@ -339,7 +408,9 @@ of context on each side, so the boundary word exists intact in at least one of t
    overlap is spoken once in the output, and the version kept is the one with fuller right-context.
 5. **Fallback when no match reaches the minimum** (silence, music, or a genuine disagreement): cut at the
    midpoint of the overlap window, snapped to the nearest segment boundary. Deterministic, and it can
-   never lose more than `overlap_s` of audio.
+   never lose more than `overlap_s` of audio. Note this fallback fires *often* on this material rather
+   than rarely, since music in the overlap window is normal input — it is a routine path, not an
+   exceptional one, and `SegmentKind` is what keeps its output out of the message.
 6. A segment straddling the cut is truncated at the cut, never emitted twice; if truncation leaves it
    empty it is dropped.
 
@@ -356,8 +427,10 @@ Lives entirely in `usecases/generate_artifacts.py`, above a `TextGenerationPort`
 about it — that is what makes an LLM provider swap an adapter-only change.
 
 - **MAP**: window the transcript by estimated token budget (`map_window_tokens`, default 3000, 200-token
-  overlap). Each window is rendered with **segment ids**, and the model is asked to return partial
-  summary text plus candidate moments referenced **by segment id**.
+  overlap). Windows are built from `kind == SPEECH` segments only; `MUSIC` and `UNCERTAIN` are excluded
+  before windowing, so lyrics never reach the model as message content. Each window is rendered with
+  **segment ids**, and the model is asked to return partial summary text plus candidate moments
+  referenced **by segment id**.
 - **Timestamp integrity**: the LLM never emits a timestamp. It emits segment ids, which the use case
   resolves against the real `Transcript`; any id not present in the window is rejected. LLMs hallucinate
   numbers, and a fabricated timestamp would point the operator at the wrong moment in a three-hour
@@ -533,6 +606,7 @@ default. Answering Q6 wires it to a schedule or a UI action; it does not restruc
 | --- | --- | --- |
 | Unit | Chunk planning arithmetic, byte-cap derivation, tail merge, overlap reconciliation (match, no-match fallback, straddling segment), progress/ETA derivation, state transitions | Pure functions + frozen dataclasses, no I/O, no fakes needed |
 | Unit | Use cases: admit/reject on capabilities, resume work-set selection, map-reduce folding, segment-id rejection | Fakes behind all five ports; the whole default suite |
+| Unit | `SegmentKind` propagation: message export excludes `MUSIC`, MAP windows exclude non-`SPEECH`, clip candidates may still span `MUSIC` ranges, a non-classifying fake adapter yields `UNCERTAIN` and never `SPEECH` | Pure functions + fakes; no real engine needed, which is the whole point of landing it early |
 | Architecture | No `domain`/`usecases`/`ports` module imports `adapters`/`runtime` | `ast` walk in `tests/test_architecture.py` |
 | Contract | One shared test body run against both ASR adapters on the single-speaker path; declared divergence asserted on the diarization path per `capabilities()` | Parametrized over adapters; `localmodel` / `paid` marked |
 | Integration | ffmpeg extract + slice against a tiny checked-in fixture; atomic write survives a simulated crash between `.tmp` and `os.replace` | `integration` marker, skipped when ffmpeg absent |

@@ -1,7 +1,8 @@
 # Proposal: Video Transcription Pipeline
 
-> Phase: `sdd-propose` · Artifact store: hybrid (mirror of Engram `sdd/video-transcription-pipeline/proposal`)
-> Inputs: `exploration.md`, Engram 637/639/640/641, plus the answered proposal question round (rev 2).
+> Phase: `sdd-propose` (rev 3 — non-speech audio) · Artifact store: hybrid (mirror of Engram `sdd/video-transcription-pipeline/proposal`)
+> Inputs: `exploration.md`, Engram 637/639/640/641, the answered proposal question round (rev 2), plus the
+> **rev 3 answer to Open Question 8** (music and singing in the source audio), given after slice 1 shipped.
 > **[BINDING]** = user decision, not re-openable. **[ANSWERED]** = resolved in the question round.
 
 ## Intent
@@ -38,6 +39,11 @@ slice 1 onward.
   asymmetry in *Diarization Reality* below.
 - **Spanish-only source audio** **[ANSWERED]** — promoted from assumption to stated requirement. No
   multi-language handling, no code-switching support. This narrows model and provider selection.
+- **Mixed speech and non-speech audio** **[ANSWERED]** — source footage routinely contains a singer
+  accompanying the speaker, or music under/between spoken passages. Non-speech audio is a **normal
+  property of the input, not a defect**. Segments MUST therefore carry a content classification
+  (speech / music / uncertain), and the spoken *message* MUST be separable from sung or musical audio.
+  See *Non-Speech Audio Reality* below.
 - **Structured transcript** — segments with start/end timestamps — as the internal domain object;
   plain `.txt` is one **export** of it **[BINDING]**. Timestamps MUST NOT be discarded at the ASR boundary.
 - **Long-audio handling as a first-class constraint** (see dedicated section), in the use-case layer,
@@ -104,6 +110,52 @@ This is also the first genuine crack in "the two adapters satisfy the port ident
 tests must therefore assert *identical behavior on the single-speaker default path*, and *declared,
 tested divergence* on the diarization path.
 
+## Non-Speech Audio Reality (music and singing are input, not noise)
+
+**[ANSWERED]** The source footage is a speaker who is *sometimes* accompanied by a singer, and who
+*sometimes* has music underneath or between spoken passages. This is normal material, not a rare defect,
+and it breaks three assumptions that were implicit everywhere else in this proposal.
+
+| Failure | Why it happens | Where the damage lands |
+| --- | --- | --- |
+| **Hallucinated text on non-speech audio** | Whisper-family decoders are autoregressive. Given music or near-silence there is no speech to condition on, so the decoder falls back on its training prior — which was saturated with subtitle tracks. In Spanish it emits plausible subtitle boilerplate (channel sign-offs, thanks-for-watching, subtitle-credit lines) that **was never said**. | The transcript, then everything downstream of it. |
+| **Sung lyrics transcribed as speech** | A singing voice is speech-like enough to decode. The lyrics enter the transcript indistinguishable from the speaker's message. | The `.txt` "message" export and the LLM input. |
+| **Diarization labels the singer as a speaker** | Diarizers segment by voice, not by intent. In interview mode with a singer present, `SpeakerMode.MULTI` cannot distinguish "second interviewee" from "person singing". | Speaker labels, and any clip candidate attributed to a speaker. |
+
+**Why this is the dangerous class of failure, not a cosmetic one.** It is the same shape as undeclared
+diarization and as a hallucinated timestamp, both already called out in this change: *the artifact looks
+correct*. A summary built over transcribed lyrics reads fluently. A clip candidate pointing at a chorus
+carries a real, resolvable timestamp. Nothing in the output announces that the "message" being summarized
+was a song. Under map-reduce this is worse than a local defect — a polluted MAP window produces a polluted
+partial summary, which is folded into the REDUCE output, at which point the contamination is no longer
+traceable to its source.
+
+**Design response: classify and mark, never silently drop.** Deleting non-speech audio would be the
+obvious fix and it is the wrong one for this product. The operator is producing short-form video: a
+musical passage or the singer's moment can be *excellent* clip material. The requirement is not "remove
+music", it is "**do not let music enter the message**".
+
+Therefore:
+
+- `TranscriptSegment` gains a content classification (`speech` / `music` / `uncertain`). Timestamps are
+  retained for every segment regardless of class, so a non-speech range still points back into the footage.
+- The `.txt` **message** export and the LLM summarization input are built from speech segments only.
+- Clip candidates MAY reference ranges containing non-speech audio, because the timestamps remain valid.
+- **An adapter that cannot classify MUST report `uncertain`, never `speech`.** This is the same
+  no-silent-degradation invariant already binding on diarization, applied to a second axis. An adapter
+  asserting "this is speech" when it merely failed to check is precisely the failure this section exists
+  to prevent.
+
+**Adapter asymmetry, again.** Non-speech handling is a second axis on which the two adapters are *not* at
+parity, and it does not partition the same way diarization does. The local engine (`faster-whisper`)
+exposes real controls — a VAD filter, plus the decoder guards (`no_speech_threshold`,
+`compression_ratio_threshold`, and disabling `condition_on_previous_text`) that break the degenerate
+repetition loops characteristic of hallucination on non-speech. A raw cloud Whisper API exposes far fewer
+of these knobs; other cloud providers apply their own VAD server-side and expose different signals again.
+The concrete controls per provider are an implementation question for slices 7a/8a, but the *contract*
+consequence is settled here: classification is declared per adapter and asserted in the shared contract
+suite, not assumed.
+
 ## Capabilities
 
 ### New Capabilities
@@ -112,9 +164,9 @@ tested divergence* on the diarization path.
 - `media-ingest`: local web UI HTTP upload, accepted containers, size limits, timeout behavior, **plus the two per-job inputs — speaker mode (default single) and ASR engine selection (local vs cloud)** — including their validation at the boundary.
 - `transcription-jobs`: async job lifecycle; **chunk-level progress**, chunk-level failure, **resume**, per-chunk timeouts; **persistence of speaker mode and engine choice on the job record** and their propagation into the use case.
 - `audio-extraction`: video container to normalized audio track via ffmpeg adapter, **plus chunk slicing**.
-- `speech-transcription`: `TranscriptionPort` contract, two adapters, **capability declaration**, chunk planning, overlap stitching, timestamp preservation, opt-in diarization.
-- `transcript-artifacts`: structured `Transcript`/`TranscriptSegment` (with optional speaker), **intermediate chunk results**, storage, `.txt` export.
-- `script-generation`: summary + timestamped clip candidates + N script variants, map-reduce over long transcripts.
+- `speech-transcription`: `TranscriptionPort` contract, two adapters, **capability declaration**, chunk planning, overlap stitching, timestamp preservation, opt-in diarization, **non-speech segment classification and hallucination containment**.
+- `transcript-artifacts`: structured `Transcript`/`TranscriptSegment` (with optional speaker **and a content classification**), **intermediate chunk results**, storage, `.txt` export **restricted to the spoken message**.
+- `script-generation`: summary + timestamped clip candidates + N script variants, map-reduce over long transcripts, **summarizing speech segments only**.
 
 ### Modified Capabilities
 
@@ -128,7 +180,7 @@ Hexagonal architecture. The swappability requirement is the reason for the shape
 | --- | --- |
 | `MediaSourcePort` | Accept an uploaded media stream, persist it, return a stable media reference. Hides HTTP entirely from the core. |
 | `AudioExtractorPort` | `SourceMedia` → normalized `AudioTrack`, and `AudioTrack` + chunk plan → `AudioChunk`s. ffmpeg lives behind this and nowhere else. |
-| `TranscriptionPort` | `AudioChunk` + requested speaker mode → segments with **start/end timestamps**, text, optional speaker. Provider-neutral. **Declares its capabilities** (diarization: yes/no) so the use case can reject an impossible job up front instead of degrading silently. |
+| `TranscriptionPort` | `AudioChunk` + requested speaker mode → segments with **start/end timestamps**, text, optional speaker, **and a content classification (speech/music/uncertain)**. Provider-neutral. **Declares its capabilities** (diarization: yes/no; non-speech classification: yes/no) so the use case can reject an impossible job up front instead of degrading silently. An adapter that cannot classify reports `uncertain`, never `speech`. |
 | `TextGenerationPort` | Prompt/context → text completion. Provider-neutral. Knows nothing about summaries, clips, or chunking. |
 | `TranscriptStoragePort` | Persist and retrieve the job record, **per-chunk intermediate results**, the assembled `Transcript`, and generated artifacts, by job id. Resume is built on this. |
 
@@ -152,7 +204,7 @@ adapters on the single-speaker path; diarization behavior is asserted per declar
 | `pytest.ini` / `pyproject.toml` | New | pytest config, `integration` marker registration |
 | `openspec/config.yaml` | Modified | Fill `test_command`, `build_command` (currently `""`) |
 | `.gitignore` | Exists | Already excludes uploaded media, local ASR model weights, `.env` |
-| `src/transcribe/domain/` | New | `SourceMedia`, `AudioTrack`, `AudioChunk`, `ChunkPlan`, `ChunkResult`, `Transcript`, `TranscriptSegment`, `SpeakerMode`, `EngineChoice`, `JobRecord`, `ClipCandidate`, `ScriptVariant` |
+| `src/transcribe/domain/` | New | `SourceMedia`, `AudioTrack`, `AudioChunk`, `ChunkPlan`, `ChunkResult`, `Transcript`, `TranscriptSegment`, `SegmentKind`, `SpeakerMode`, `EngineChoice`, `JobRecord`, `ClipCandidate`, `ScriptVariant` |
 | `src/transcribe/ports/` | New | Five port protocols + capability declaration |
 | `src/transcribe/usecases/` | New | Ingest, chunk plan/transcribe/stitch/resume, map-reduce generate |
 | `src/transcribe/adapters/` | New | web/upload, ffmpeg, local ASR, cloud ASR, LLM, filesystem storage |
@@ -204,6 +256,10 @@ clip candidates + variants). **Slices 1 and 4 sit at the ceiling** and have no h
 | **Multi-hour as the normal case makes every long-audio defect a routine defect, not an edge case** | High | Chunking and the chunk-aware job model move to slices 2 and 4, ahead of any real engine |
 | **Local diarization needs an extra component (`pyannote.audio`/`WhisperX`, extra weights, gated license)** — not parity with the cloud flag | High | Stated plainly above; capability declaration on the port; rejection instead of silent single-speaker output |
 | Silent degradation: an adapter returning unlabeled output for a speaker-mode job looks like success | Med | Explicit rejection path is a spec requirement, tested in slice 9 |
+| **ASR hallucination on music/near-silence injects text that was never spoken** — and the output looks entirely plausible | **High** (music is normal input, not an edge case) | `SegmentKind` classification landed before any real engine; engine-level VAD/decoder guards in slices 7a/8a; hallucination-containment scenario in `speech-transcription` |
+| **Sung lyrics enter the "message" and are summarized as if the speaker said them**; under map-reduce the pollution folds into REDUCE and stops being traceable | **High** | Message export and LLM input are speech-only by spec; classification asserted in the shared contract suite |
+| **Diarization attributes segments to a singer** in interview-plus-music material | Med | Documented limitation; speaker labels stay namespaced per chunk; classification lets the operator see which labelled segments are musical |
+| Retrofit cost if `SegmentKind` were deferred — `TranscriptSegment` crosses ports, stitcher, storage adapter, both ASR adapters and generation | Med | **Mitigated by ordering**: landed as slice 1b, before `adapters/` and `runtime/` exist at all |
 | Disk consumption from multi-hour source video + extracted audio + chunk files | Med | Flagged as Open Question 6, now sharper; `.gitignore` already keeps media out of the repo |
 | ffmpeg missing/not on PATH at runtime | Med | Explicit install step + startup verification with an actionable error |
 | Resume correctness (partial chunk writes, duplicated work after crash) | Med | Chunk results written atomically; resume tested against fakes in slice 4 |
@@ -247,6 +303,8 @@ clip candidates + variants). **Slices 1 and 4 sit at the ceiling** and have no h
 | 5 | Where do transcripts and outputs live between steps? | **OPEN.** Assumed local filesystem, per-job directory behind `TranscriptStoragePort`, no database. Now also has to hold intermediate chunk results. |
 | 6 | Is retention/cleanup of uploaded video required? | **OPEN — and sharper now.** With multi-hour video as the normal case, each job stores a large source file plus extracted audio plus chunk files. Without a retention policy, disk consumption grows without bound. Assumed for now: no automatic deletion. This assumption is the most likely to cause a real operational problem. |
 | 7 | Local vs cloud ASR as the default adapter? | **ANSWERED — no global default; selectable per job.** Content-dependent: sensitive material goes local, the rest may go cloud. Both adapters are first-class from slice 6 onward. |
+| 8 | Does the source audio contain non-speech (music, singing)? | **ANSWERED — yes, routinely.** The speaker is sometimes accompanied by a singer, sometimes over background music. Music is normal input. Drives `SegmentKind`, speech-only message export, speech-only summarization input, and hallucination containment. See *Non-Speech Audio Reality*. |
+| 9 | Should musical/sung ranges be actively **promoted** as clip candidates, or merely permitted? | **OPEN.** Settled so far: they are *permitted* — timestamps are retained and a candidate MAY reference a non-speech range. Whether generation should additionally *favor* them (a singer's moment is often strong short-form material) is a ranking-policy question that changes prompt and scoring in slice 10b only, not any type. |
 
 ## Success Criteria
 
@@ -258,6 +316,9 @@ clip candidates + variants). **Slices 1 and 4 sit at the ceiling** and have no h
 - [ ] The speaker-mode option defaults to single voice, and declaring two or more speakers produces speaker-labelled segments — or an explicit rejection when the selected adapter cannot diarize.
 - [ ] The same use-case tests pass against both ASR adapters on the single-speaker path, swapped by configuration only.
 - [ ] Transcript segments retain start/end timestamps end to end, and clip candidates reference them.
+- [ ] Every transcript segment carries a content classification, and an adapter that cannot classify reports `uncertain` rather than asserting `speech`.
+- [ ] The `.txt` message export and the LLM summarization input contain no segment classified as music.
+- [ ] A source passage that is music or singing does not contribute invented text to the transcript, and its timestamps remain available to clip candidates.
 - [ ] A multi-hour transcript produces a summary via map-reduce without exceeding LLM context.
 - [ ] The generation output can carry more than one script variant without a structural change.
 - [ ] The default `pytest` run invokes no paid API and no real local model.

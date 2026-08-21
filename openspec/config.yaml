@@ -1,13 +1,30 @@
 schema: spec-driven
 
 context: |
-  Tech stack: Python (declared, not yet scaffolded — greenfield, empty directory)
-  Architecture: unresolved — planned pipeline: upload video/audio -> transcribe ->
-    text file -> LLM summary/script generation for short-form social/ad video
-  Testing: unresolved — no test runner, dependency manager, or source files exist yet
-  Style: unresolved
-  Repo: git repository, default branch `main` (initialized 2026-08-17; .gitignore excludes uploaded
-    media, local ASR model weights, and .env). Nothing committed yet.
+  Tech stack: Python 3.12, venv + pip (split requirements files + frozen lock), FastAPI/Uvicorn,
+    pydantic. ffmpeg is a SYSTEM binary, never a pip dependency.
+  Architecture: hexagonal. src/transcribe/{domain,ports,usecases} is the core (domain has zero
+    third-party imports); adapters/ and runtime/ are planned but DO NOT EXIST YET. runtime/ is the
+    composition root — the only place adapters may be constructed. The boundary is enforced by
+    tests/test_architecture.py, an ast walker that fails if the core imports adapters/runtime.
+    Pipeline: upload video/audio -> ffmpeg extract + chunk -> transcribe (local or cloud ASR,
+    selected per job) -> stitch -> structured Transcript -> .txt export + LLM summary, timestamped
+    clip candidates and N script variants for short-form social/ad video.
+  Domain constraints: source audio is SPANISH ONLY; source videos are ALWAYS MULTI-HOUR (this drives
+    chunking, chunk-level progress/failure/resume, per-chunk timeouts); source audio routinely
+    contains MUSIC AND SINGING alongside the speaker, so segments carry a SegmentKind
+    (speech/music/uncertain) and the message export/LLM input are speech-only. Interview mode
+    (multiple speakers) is opt-in per job via SpeakerMode.
+  Testing: pytest with --strict-markers; markers integration/localmodel/paid. The default run
+    excludes `paid` and `localmodel`, so it never invokes a billed API or loads real model weights.
+    mypy strict over src and tests. Strict TDD: every change is RED before GREEN.
+  Style: frozen slotted dataclasses in domain; typing.Protocol for ports (not ABCs); domain errors in
+    domain/errors.py raised across port boundaries — adapters never leak provider exceptions upward.
+    No silent degradation: an adapter that cannot diarize refuses, and one that cannot classify
+    non-speech reports `uncertain`, never `speech`.
+  Repo: git repository, default branch `main` (initialized 2026-08-17). Slice 1 (bootstrap + walking
+    skeleton) is committed and green on branch `slice-1-bootstrap-walking-skeleton`. .gitignore
+    excludes uploaded media, local ASR model weights, and .env.
 
 rules:
   proposal:
