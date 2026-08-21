@@ -15,11 +15,12 @@ from pathlib import Path
 import pytest
 
 from transcribe.adapters.ffmpeg.extractor import FfmpegAudioExtractor
-from transcribe.domain.ids import make_media_id
+from transcribe.domain.ids import make_job_id, make_media_id
 from transcribe.domain.media import SourceMedia
 
 pytestmark = pytest.mark.integration
 
+JOB_ID = make_job_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 MEDIA_ID = make_media_id("01BX5ZZKBKACTAV9WEVGEMMVRZ")
 CLIP_SECONDS = 2
 
@@ -75,7 +76,7 @@ def test_probe_reads_a_real_container(ffmpeg_available: None, job_dir: Path) -> 
     source = job_dir / "source.mp4"
     _synthesize(source)
 
-    probe = FfmpegAudioExtractor(job_dir).probe(_media(source))
+    probe = FfmpegAudioExtractor(job_dir, job_id=JOB_ID).probe(_media(source))
     assert probe.has_audio is True
     assert probe.duration_s == pytest.approx(CLIP_SECONDS, abs=0.5)
 
@@ -87,7 +88,7 @@ def test_extraction_produces_a_real_normalized_track(
     _synthesize(source)
     dest = job_dir / "audio.flac"
 
-    track = FfmpegAudioExtractor(job_dir).extract(_media(source), dest)
+    track = FfmpegAudioExtractor(job_dir, job_id=JOB_ID).extract(_media(source), dest)
 
     assert track.path.exists()
     assert track.size_bytes > 0
@@ -105,7 +106,7 @@ def test_the_extracted_file_really_is_16k_mono_flac(
     source = job_dir / "source.mp4"
     _synthesize(source)
     dest = job_dir / "audio.flac"
-    FfmpegAudioExtractor(job_dir).extract(_media(source), dest)
+    FfmpegAudioExtractor(job_dir, job_id=JOB_ID).extract(_media(source), dest)
 
     completed = subprocess.run(
         [
@@ -124,7 +125,7 @@ def test_video_stream_is_dropped(ffmpeg_available: None, job_dir: Path) -> None:
     source = job_dir / "source.mp4"
     _synthesize(source)
     dest = job_dir / "audio.flac"
-    FfmpegAudioExtractor(job_dir).extract(_media(source), dest)
+    FfmpegAudioExtractor(job_dir, job_id=JOB_ID).extract(_media(source), dest)
 
     completed = subprocess.run(
         [
@@ -146,7 +147,7 @@ def test_hostile_filenames_survive_a_real_invocation(
     source = job_dir / name
     _synthesize(source)
 
-    track = FfmpegAudioExtractor(job_dir).extract(
+    track = FfmpegAudioExtractor(job_dir, job_id=JOB_ID).extract(
         _media(source, original_filename=name), job_dir / "audio.flac"
     )
     assert track.size_bytes > 0
@@ -162,4 +163,4 @@ def test_a_non_media_file_is_refused(ffmpeg_available: None, job_dir: Path) -> N
     source.write_text("this is plainly not a video", encoding="utf-8")
 
     with pytest.raises(UnsupportedContainer):
-        FfmpegAudioExtractor(job_dir).probe(_media(source))
+        FfmpegAudioExtractor(job_dir, job_id=JOB_ID).probe(_media(source))

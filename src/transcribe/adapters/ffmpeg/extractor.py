@@ -22,6 +22,7 @@ from transcribe.adapters.ffmpeg.argv import (
     SAMPLE_RATE_HZ,
     build_extract_argv,
     build_probe_argv,
+    build_slice_argv,
     resolve_inside,
 )
 from transcribe.domain.chunking import AudioChunk, PlannedChunk
@@ -30,6 +31,7 @@ from transcribe.domain.errors import (
     FfmpegUnavailable,
     UnsupportedContainer,
 )
+from transcribe.domain.ids import JobId
 from transcribe.domain.media import AudioTrack, MediaProbe, SourceMedia
 
 # Generous, because multi-hour input is the normal case: this bounds a hung
@@ -72,9 +74,15 @@ class FfmpegAudioExtractor:
         self,
         job_dir: Path,
         *,
+        job_id: JobId,
         runner: ProcessRunner = _run,
         timeout_s: float | None = DEFAULT_TIMEOUT_S,
     ) -> None:
+        # `AudioChunk` carries a job id that none of `slice()`'s arguments has:
+        # `AudioTrack` knows only its media id and `PlannedChunk` is pure geometry.
+        # The adapter is per-job already, so it belongs here rather than being
+        # inferred from the directory name.
+        self._job_id = job_id
         self._job_dir = job_dir
         self._runner = runner
         self._timeout_s = timeout_s
@@ -126,7 +134,28 @@ class FfmpegAudioExtractor:
     def slice(
         self, track: AudioTrack, planned: PlannedChunk, dest: Path
     ) -> AudioChunk:
-        raise NotImplementedError("chunk slicing lands in slice 3b")
+        source = resolve_inside(self._job_dir, track.path)
+        destination = resolve_inside(self._job_dir, dest)
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        self._invoke(build_slice_argv(source, planned, destination), ExtractionFailed)
+
+        if not destination.exists():
+            raise ExtractionFailed(
+                f"ffmpeg reported success but produced no output at {destination}"
+            )
+
+        return AudioChunk(
+            job_id=self._job_id,
+            index=planned.index,
+            path=destination,
+            # The plan's boundaries, not the file's: the stitcher computes its
+            # contested window from the plan, so reporting anything else here
+            # would desynchronise the two.
+            start_s=planned.start_s,
+            end_s=planned.end_s,
+            size_bytes=destination.stat().st_size,
+        )
 
     def _require_available(self, binary: str) -> None:
         """Fail with an instruction, not a stack trace, when the binary is gone.

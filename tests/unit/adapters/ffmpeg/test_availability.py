@@ -18,9 +18,10 @@ import pytest
 
 from transcribe.adapters.ffmpeg.extractor import FfmpegAudioExtractor
 from transcribe.domain.errors import FfmpegUnavailable
-from transcribe.domain.ids import make_media_id
+from transcribe.domain.ids import make_job_id, make_media_id
 from transcribe.domain.media import SourceMedia
 
+JOB_ID = make_job_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 MEDIA_ID = make_media_id("01BX5ZZKBKACTAV9WEVGEMMVRZ")
 
 
@@ -70,14 +71,14 @@ def test_missing_binary_raises_a_domain_error(
     without_ffmpeg: None, job_dir: Path, media: SourceMedia
 ) -> None:
     with pytest.raises(FfmpegUnavailable):
-        FfmpegAudioExtractor(job_dir, runner=NeverCalled()).probe(media)
+        FfmpegAudioExtractor(job_dir, job_id=JOB_ID, runner=NeverCalled()).probe(media)
 
 
 def test_the_error_names_the_missing_binary(
     without_ffmpeg: None, job_dir: Path, media: SourceMedia
 ) -> None:
     with pytest.raises(FfmpegUnavailable, match="ffprobe"):
-        FfmpegAudioExtractor(job_dir, runner=NeverCalled()).probe(media)
+        FfmpegAudioExtractor(job_dir, job_id=JOB_ID, runner=NeverCalled()).probe(media)
 
 
 def test_the_error_tells_the_operator_what_to_do(
@@ -86,7 +87,7 @@ def test_the_error_tells_the_operator_what_to_do(
     """A message that only says 'not found' leaves the operator guessing whether
     it is a pip package."""
     with pytest.raises(FfmpegUnavailable) as caught:
-        FfmpegAudioExtractor(job_dir, runner=NeverCalled()).probe(media)
+        FfmpegAudioExtractor(job_dir, job_id=JOB_ID, runner=NeverCalled()).probe(media)
     message = str(caught.value).lower()
     assert "install" in message
     assert "path" in message
@@ -98,7 +99,7 @@ def test_nothing_is_spawned_when_the_binary_is_missing(
 ) -> None:
     runner = NeverCalled()
     with pytest.raises(FfmpegUnavailable):
-        FfmpegAudioExtractor(job_dir, runner=runner).probe(media)
+        FfmpegAudioExtractor(job_dir, job_id=JOB_ID, runner=runner).probe(media)
     assert runner.calls == []
 
 
@@ -106,7 +107,7 @@ def test_extract_also_checks_availability(
     without_ffmpeg: None, job_dir: Path, media: SourceMedia
 ) -> None:
     with pytest.raises(FfmpegUnavailable):
-        FfmpegAudioExtractor(job_dir, runner=NeverCalled()).extract(
+        FfmpegAudioExtractor(job_dir, job_id=JOB_ID, runner=NeverCalled()).extract(
             media, job_dir / "audio.flac"
         )
 
@@ -123,7 +124,7 @@ def test_a_binary_removed_after_the_check_still_fails_cleanly(
         raise FileNotFoundError(2, "The system cannot find the file specified")
 
     with pytest.raises(FfmpegUnavailable, match="ffprobe"):
-        FfmpegAudioExtractor(job_dir, runner=vanished).probe(media)
+        FfmpegAudioExtractor(job_dir, job_id=JOB_ID, runner=vanished).probe(media)
 
 
 def test_availability_is_checked_once_per_binary(
@@ -138,7 +139,7 @@ def test_availability_is_checked_once_per_binary(
 
     monkeypatch.setattr(shutil, "which", counting_which)
 
-    extractor = FfmpegAudioExtractor(job_dir, runner=NeverCalled())
+    extractor = FfmpegAudioExtractor(job_dir, job_id=JOB_ID, runner=NeverCalled())
     with pytest.raises(Exception):  # probe fails on empty stdout, which is fine here
         extractor.probe(media)
     with pytest.raises(Exception):

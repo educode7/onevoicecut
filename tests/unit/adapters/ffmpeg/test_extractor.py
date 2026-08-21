@@ -14,9 +14,10 @@ import pytest
 
 from transcribe.adapters.ffmpeg.extractor import FfmpegAudioExtractor
 from transcribe.domain.errors import ExtractionFailed, UnsupportedContainer
-from transcribe.domain.ids import make_media_id
+from transcribe.domain.ids import make_job_id, make_media_id
 from transcribe.domain.media import SourceMedia
 
+JOB_ID = make_job_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 MEDIA_ID = make_media_id("01BX5ZZKBKACTAV9WEVGEMMVRZ")
 
 PROBE_JSON = json.dumps(
@@ -99,7 +100,7 @@ def test_probe_reports_duration_container_and_audio_presence(
     job_dir: Path, media: SourceMedia
 ) -> None:
     runner = RecordingRunner()
-    probe = FfmpegAudioExtractor(job_dir, runner=runner).probe(media)
+    probe = FfmpegAudioExtractor(job_dir, job_id=JOB_ID, runner=runner).probe(media)
     assert probe.duration_s == 3600.5
     assert probe.has_audio is True
     assert probe.container == "mov,mp4,m4a"
@@ -110,13 +111,13 @@ def test_probe_reports_a_container_with_no_audio_stream(
 ) -> None:
     """A video-only upload is detectable here rather than failing mid-extraction."""
     runner = RecordingRunner(probe_stdout=SILENT_JSON)
-    assert FfmpegAudioExtractor(job_dir, runner=runner).probe(media).has_audio is False
+    assert FfmpegAudioExtractor(job_dir, job_id=JOB_ID, runner=runner).probe(media).has_audio is False
 
 
 def test_probe_rejects_unparseable_output(job_dir: Path, media: SourceMedia) -> None:
     runner = RecordingRunner(probe_stdout="this is not json")
     with pytest.raises(UnsupportedContainer):
-        FfmpegAudioExtractor(job_dir, runner=runner).probe(media)
+        FfmpegAudioExtractor(job_dir, job_id=JOB_ID, runner=runner).probe(media)
 
 
 def test_probe_failure_becomes_a_domain_error(
@@ -124,13 +125,13 @@ def test_probe_failure_becomes_a_domain_error(
 ) -> None:
     runner = RecordingRunner(probe_returncode=1, probe_stderr="Invalid data found")
     with pytest.raises(UnsupportedContainer, match="Invalid data"):
-        FfmpegAudioExtractor(job_dir, runner=runner).probe(media)
+        FfmpegAudioExtractor(job_dir, job_id=JOB_ID, runner=runner).probe(media)
 
 
 def test_extract_returns_a_normalized_track(job_dir: Path, media: SourceMedia) -> None:
     dest = job_dir / "audio.flac"
     runner = RecordingRunner(writes=dest)
-    track = FfmpegAudioExtractor(job_dir, runner=runner).extract(media, dest)
+    track = FfmpegAudioExtractor(job_dir, job_id=JOB_ID, runner=runner).extract(media, dest)
     assert track.media_id == MEDIA_ID
     assert track.path == dest.resolve()
     assert track.duration_s == 3600.5
@@ -143,7 +144,7 @@ def test_extract_failure_becomes_a_domain_error(
 ) -> None:
     runner = RecordingRunner(extract_returncode=1, extract_stderr="Output file is empty")
     with pytest.raises(ExtractionFailed, match="Output file is empty"):
-        FfmpegAudioExtractor(job_dir, runner=runner).extract(media, job_dir / "a.flac")
+        FfmpegAudioExtractor(job_dir, job_id=JOB_ID, runner=runner).extract(media, job_dir / "a.flac")
 
 
 def test_extract_fails_when_ffmpeg_reports_success_but_writes_nothing(
@@ -152,7 +153,7 @@ def test_extract_fails_when_ffmpeg_reports_success_but_writes_nothing(
     """A zero-exit run that produced no file is a failure, not an empty track."""
     runner = RecordingRunner()  # succeeds, but writes nothing
     with pytest.raises(ExtractionFailed, match="no output"):
-        FfmpegAudioExtractor(job_dir, runner=runner).extract(media, job_dir / "a.flac")
+        FfmpegAudioExtractor(job_dir, job_id=JOB_ID, runner=runner).extract(media, job_dir / "a.flac")
 
 
 def test_a_timeout_becomes_a_domain_error(job_dir: Path, media: SourceMedia) -> None:
@@ -160,7 +161,7 @@ def test_a_timeout_becomes_a_domain_error(job_dir: Path, media: SourceMedia) -> 
         raise subprocess.TimeoutExpired(cmd=argv, timeout=timeout_s or 0.0)
 
     with pytest.raises(ExtractionFailed, match="timed out"):
-        FfmpegAudioExtractor(job_dir, runner=runner).extract(media, job_dir / "a.flac")
+        FfmpegAudioExtractor(job_dir, job_id=JOB_ID, runner=runner).extract(media, job_dir / "a.flac")
 
 
 def test_the_configured_timeout_reaches_the_runner(
@@ -168,7 +169,7 @@ def test_the_configured_timeout_reaches_the_runner(
 ) -> None:
     """An unbounded ffmpeg call would hang a worker with no watchdog until slice 7b."""
     runner = RecordingRunner()
-    FfmpegAudioExtractor(job_dir, runner=runner, timeout_s=42.0).probe(media)
+    FfmpegAudioExtractor(job_dir, job_id=JOB_ID, runner=runner, timeout_s=42.0).probe(media)
     assert runner.calls[-1][1] == 42.0
 
 
@@ -177,7 +178,7 @@ def test_destination_outside_the_job_dir_is_refused_before_spawning(
 ) -> None:
     runner = RecordingRunner()
     with pytest.raises(ExtractionFailed, match="outside"):
-        FfmpegAudioExtractor(job_dir, runner=runner).extract(
+        FfmpegAudioExtractor(job_dir, job_id=JOB_ID, runner=runner).extract(
             media, tmp_path / "escaped.flac"
         )
     assert runner.calls == []  # nothing was ever launched
@@ -198,7 +199,7 @@ def test_source_outside_the_job_dir_is_refused_before_spawning(
     )
     runner = RecordingRunner()
     with pytest.raises(ExtractionFailed, match="outside"):
-        FfmpegAudioExtractor(job_dir, runner=runner).probe(stray)
+        FfmpegAudioExtractor(job_dir, job_id=JOB_ID, runner=runner).probe(stray)
     assert runner.calls == []
 
 
@@ -207,6 +208,6 @@ def test_hostile_original_filename_never_reaches_the_command_line(
 ) -> None:
     """`original_filename` is metadata; the stored path is what gets invoked."""
     runner = RecordingRunner()
-    FfmpegAudioExtractor(job_dir, runner=runner).probe(media)
+    FfmpegAudioExtractor(job_dir, job_id=JOB_ID, runner=runner).probe(media)
     assert media.original_filename == "clip; rm -rf ~.mp4"
     assert not any("rm -rf" in token for token in runner.argv)
