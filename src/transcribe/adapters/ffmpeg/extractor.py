@@ -11,6 +11,7 @@ to catch `subprocess.CalledProcessError` or parse ffmpeg's stderr.
 """
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Protocol
@@ -24,12 +25,26 @@ from transcribe.adapters.ffmpeg.argv import (
     resolve_inside,
 )
 from transcribe.domain.chunking import AudioChunk, PlannedChunk
-from transcribe.domain.errors import ExtractionFailed, UnsupportedContainer
+from transcribe.domain.errors import (
+    ExtractionFailed,
+    FfmpegUnavailable,
+    UnsupportedContainer,
+)
 from transcribe.domain.media import AudioTrack, MediaProbe, SourceMedia
 
 # Generous, because multi-hour input is the normal case: this bounds a hung
 # process, it does not bound expected work. Per-chunk timeouts are slice 4's job.
 DEFAULT_TIMEOUT_S = 4 * 60 * 60.0
+
+
+def _missing_binary_message(binary: str) -> str:
+    return (
+        f"{binary} was not found on PATH. ffmpeg is a system binary and is NOT a "
+        f"pip dependency, so `pip install -r requirements.txt` does not provide "
+        f"it. Install ffmpeg (https://ffmpeg.org/download.html — on Windows, "
+        f"`winget install Gyan.FFmpeg`) and make sure {binary} is on PATH, then "
+        f"retry the job."
+    )
 
 
 class ProcessRunner(Protocol):
@@ -63,6 +78,7 @@ class FfmpegAudioExtractor:
         self._job_dir = job_dir
         self._runner = runner
         self._timeout_s = timeout_s
+        self._verified: set[str] = set()
 
     def probe(self, media: SourceMedia) -> MediaProbe:
         source = resolve_inside(self._job_dir, media.stored_path)
@@ -112,11 +128,29 @@ class FfmpegAudioExtractor:
     ) -> AudioChunk:
         raise NotImplementedError("chunk slicing lands in slice 3b")
 
+    def _require_available(self, binary: str) -> None:
+        """Fail with an instruction, not a stack trace, when the binary is gone.
+
+        Cached per instance: a three-hour job slices dozens of chunks, and
+        re-scanning PATH before each one is pure waste.
+        """
+        if binary in self._verified:
+            return
+        if shutil.which(binary) is None:
+            raise FfmpegUnavailable(_missing_binary_message(binary))
+        self._verified.add(binary)
+
     def _invoke(
         self, argv: list[str], failure: type[Exception]
     ) -> subprocess.CompletedProcess[str]:
+        binary = argv[0]
+        self._require_available(binary)
         try:
             completed = self._runner(argv, self._timeout_s)
+        except FileNotFoundError as error:
+            # `which` succeeded but the spawn did not: the binary can vanish in
+            # between, and a stale PATH entry can point at a deleted directory.
+            raise FfmpegUnavailable(_missing_binary_message(binary)) from error
         except subprocess.TimeoutExpired as error:
             raise ExtractionFailed(
                 f"{argv[0]} timed out after {self._timeout_s}s"
