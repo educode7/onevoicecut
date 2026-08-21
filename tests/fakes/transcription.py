@@ -3,8 +3,12 @@
 from transcribe.domain.chunking import AudioChunk
 from transcribe.domain.errors import DiarizationUnsupported
 from transcribe.domain.jobs import SpeakerMode
-from transcribe.domain.transcript import TranscriptSegment
-from transcribe.ports.capabilities import DiarizationSupport, TranscriptionCapabilities
+from transcribe.domain.transcript import SegmentKind, TranscriptSegment
+from transcribe.ports.capabilities import (
+    ClassificationSupport,
+    DiarizationSupport,
+    TranscriptionCapabilities,
+)
 from transcribe.ports.transcription import TranscriptionRequest
 
 
@@ -13,6 +17,7 @@ class FakeTranscriptionPort:
         return TranscriptionCapabilities(
             engine_id="fake-asr",
             diarization=DiarizationSupport.UNSUPPORTED,
+            non_speech_classification=ClassificationSupport.AVAILABLE,
             max_chunk_bytes=None,
             max_chunk_duration_s=None,
         )
@@ -29,5 +34,6 @@ class FakeTranscriptionPort:
                 text="hola mundo",
                 speaker=None,
                 confidence=0.99,
+                kind=SegmentKind.SPEECH,
             ),
         )
