@@ -1,8 +1,12 @@
 # Tasks: Video Transcription Pipeline
 
-> Phase: `sdd-tasks` (rev 3 — re-estimation) · Artifact store: hybrid (mirror of Engram `sdd/video-transcription-pipeline/tasks`)
-> Inputs: `proposal.md` rev 2, `design.md`, all seven `specs/*/spec.md`, `openspec/config.yaml`, and **slice 1's actual code on
+> Phase: `sdd-tasks` (rev 4 — non-speech audio) · Artifact store: hybrid (mirror of Engram `sdd/video-transcription-pipeline/tasks`)
+> Inputs: `proposal.md` rev 3, `design.md`, all seven `specs/*/spec.md`, `openspec/config.yaml`, and **slice 1's actual code on
 > disk** (`src/transcribe/`, `tests/`) as the calibration source for this revision.
+> **Rev 4 delta**: proposal Open Question 8 was answered after slice 1 shipped — source footage routinely contains a singer
+> alongside the speaker, or music under and between spoken passages. Music is normal input, not a defect. This adds slice 1b
+> (`SegmentKind`) ahead of chunk planning, plus classification/containment tasks in 2b, 7a, 8a, 10a and 10b. The stacked chain
+> grows from 21 to 22 work units and every PR number after PR 1 shifts by one. No previously-checked slice-1 task is modified.
 > **Deviation note**: this document exceeds the 530-word task-artifact budget, for the same reason rev 2 stated — ten-plus
 > slices expressed as explicit RED-before-GREEN pairs, each naming its file and spec scenario, plus a per-unit line-budget
 > split, cannot compress below several thousand words without turning tasks back into the vague prose the skill forbids.
@@ -67,12 +71,14 @@ margin — they are directly comparable to slice 1's well-measured domain/use-ca
 | Field | Value |
 |-------|-------|
 | Slice 1 actual (DONE) | 1,273 lines (461 prod / 714 test / 98 config) vs ~380 estimated — 3.35x, accepted `size:exception` |
-| Slices 2–10b calibrated estimate | ~4,885 lines |
-| **New total estimate** | **~6,158 lines** (was ~3,110 in rev 2 — 1.98x, not 3.35x, because scaffolding is sunk) |
-| Per-unit 400-line budget risk | **Low** — every one of the 20 remaining work units is individually estimated at 145–350 lines, with margin, not at the ceiling |
-| Aggregate 400-line budget risk | **High** by construction — this is why the change stays split into 21 work units total |
+| Slices 1b–10b calibrated estimate | ~5,270 lines (was ~4,885 before Open Question 8 was answered) |
+| Added by Open Question 8 (non-speech audio) | ~385 lines — slice 1b (~150), `kind` propagation through stitching (~20), local classification + hallucination containment (~70), cloud classification declaration (~50), speech-only MAP windowing (~60), musical-range clip eligibility (~35) |
+| **New total estimate** | **~6,543 lines** (was ~3,110 in rev 2 — 2.10x, not 3.35x, because scaffolding is sunk) |
+| Slice 1b actual (DONE) | 553 lines, delivered as **two** units after a mid-flight split: 1b-i 309 (PR 2) + 1b-ii 244 (PR 3). Estimated ~150 as one unit — 3.2x. Both units land under budget; the unsplit slice would have been 21% over |
+| Per-unit 400-line budget risk | **Low** — every one of the 21 remaining work units is individually estimated at 145–350 lines, with margin, not at the ceiling |
+| Aggregate 400-line budget risk | **High** by construction — this is why the change stays split into 23 work units total |
 | Chained PRs recommended | Yes |
-| Suggested split | **21 work units**, PR 1 (slice 1, done) → PR 21 |
+| Suggested split | **23 work units**, PR 1 (slice 1, done) → PR 23 |
 | Delivery strategy | auto-chain |
 | Chain strategy | **stacked-to-main** (resolved this session — no longer pending) |
 
@@ -83,8 +89,8 @@ Chain strategy: stacked-to-main
 400-line budget risk: Low
 ```
 
-**Is this one change or should it split?** Twenty-one stacked PRs across ten domains is large but each unit is
-independently revertible, dependency order is linear (2 → 4 → {5,6} → {7,8} → 9 → 10a → 10b), and every unit ends
+**Is this one change or should it split?** Twenty-three stacked PRs across ten domains is large but each unit is
+independently revertible, dependency order is linear (1b → 2 → 4 → {5,6} → {7,8} → 9 → 10a → 10b), and every unit ends
 green on the default suite. Nothing here requires two teams working concurrently or two independent release
 cadences — it is one coherent hexagonal build-out, not two products. **Recommendation: keep it one change**, delivered
 as a long stacked-PR chain, not split into separate OpenSpec changes. If the user wants a narrower blast radius per
@@ -97,26 +103,28 @@ summarization). That split is offered, not assumed.
 | Unit | Goal | PR | Focused test command | Runtime harness | Rollback boundary |
 |------|------|----|-----------------------|------------------|--------------------|
 | 1 (DONE) | Bootstrap + walking skeleton | PR 1 | `pytest tests/unit tests/test_architecture.py -m "not paid and not localmodel"` | N/A — fake-only skeleton | `src/transcribe/{domain,ports,usecases/ingest_media.py}`, `tests/`, config files |
-| 2a | Chunk planning: stride/overlap/byte-cap/tail-merge | PR 2 | `pytest tests/unit/usecases/test_plan_chunks.py -m "not paid and not localmodel"` | N/A — pure functions | `usecases/plan_chunks.py` |
-| 2b | Overlap stitching: match/fallback/straddling-segment | PR 3 | `pytest tests/unit/usecases/test_stitch_transcript.py -m "not paid and not localmodel"` | N/A — pure functions | `usecases/stitch_transcript.py` |
-| 3a | ffmpeg extraction: probe/extract + argv/path safety | PR 4 | `pytest tests/unit/adapters/ffmpeg/test_argv_composition.py tests/unit/adapters/ffmpeg/test_extract.py -m "not paid and not localmodel"` | `pytest -m integration` (real ffmpeg, skips if absent) | `adapters/ffmpeg/extractor.py` (probe/extract only) |
-| 3b | ffmpeg slicing + PATH check + integration + README | PR 5 | `pytest tests/unit/adapters/ffmpeg/test_slice.py -m "not paid and not localmodel"` | `pytest -m integration` slicing fixture | `adapters/ffmpeg/extractor.py` (slice), `README.md` |
-| 4a | Real filesystem `TranscriptStoragePort` adapter (CRUD + atomic write + single-writer) | PR 6 | `pytest tests/unit/adapters/storage/test_filesystem_transcript_storage.py -m "not paid and not localmodel"` | `pytest -m integration` — crash-simulated atomic write | `adapters/storage/filesystem_transcript_storage.py` |
-| 4b | `transcribe_job` core loop: happy path/failure isolation/retry/timeout/propagation | PR 7 | `pytest tests/unit/usecases/test_transcribe_job.py -m "not paid and not localmodel"` | N/A — fakes only, no real subprocess yet | `usecases/transcribe_job.py` |
-| 4c | Resume + derived progress | PR 8 | `pytest tests/unit/usecases/test_{resume_job,progress}.py -m "not paid and not localmodel"` | N/A — fakes only | `usecases/{resume_job,progress}.py` |
-| 4d | Worker entrypoint + purge seam + chunk-loop refactor | PR 9 | `pytest tests/unit -m "not paid and not localmodel"` | `python -m transcribe.runtime.worker --job-id <fake-job>` against fakes | `runtime/worker.py`, `usecases/purge_job_artifacts.py` |
-| 5a | Job creation + streaming upload (real `MediaSourcePort`) | PR 10 | `pytest tests/unit/adapters/web/test_admit_job_route.py tests/unit/adapters/web/test_upload_stream.py -m "not paid and not localmodel"` | Real HTTP client, constant-memory streaming assertion | `adapters/web/routers/jobs.py` (POST/PUT), `adapters/storage/media_source.py` |
-| 5b | Upload security threat-matrix (size limit, hostile filename, non-media content, traversal) | PR 11 | `pytest tests/unit/adapters/web/test_upload_security.py -m "not paid and not localmodel"` | Real HTTP client with hostile fixtures | Guard clauses inside `adapters/web/routers/jobs.py` and `adapters/storage/media_source.py` — revertible without touching PR 10's happy path |
-| 5c | Status route + app/lifespan wiring + E2E | PR 12 | `pytest tests/unit/adapters/web/test_status_route.py -m "not paid and not localmodel"` | Real HTTP client E2E: upload → poll → `.txt`, fake engines | `runtime/app.py`, `adapters/web/routers/jobs.py` (GET) |
-| 6 | Speaker mode + engine selection + diarization rejection | PR 13 | `pytest tests/unit/usecases/test_admit_job.py -m "not paid and not localmodel"` | Same E2E harness as PR 12, extended with a rejection-path scenario | `usecases/admit_job.py` guard clause |
-| 7a | Local ASR adapter + shared contract test | PR 14 | `pytest tests/unit -m "not paid and not localmodel"` (adapter is `localmodel`-marked) | `pytest -m localmodel` — real `faster-whisper`, real weights | `adapters/asr/local/faster_whisper_adapter.py`, `tests/contract/` |
-| 7b | Supervisory watchdog | PR 15 | `pytest tests/unit/runtime/test_supervisor.py -m "not paid and not localmodel"` | `pytest -m localmodel` real timeout-kill scenario | `runtime/supervisor.py` |
-| 8a | Cloud ASR adapter + real byte cap + contract test | PR 16 | `pytest tests/unit -m "not paid and not localmodel"` (adapter is `paid`-marked) | `pytest -m paid` — real API key, real billed call | `adapters/asr/cloud/*_adapter.py` |
-| 8b | `ChunkTooLarge` split-and-retry | PR 17 | `pytest tests/unit/usecases/test_transcribe_job_split_retry.py -m "not paid and not localmodel"` | `pytest -m paid` oversized-chunk scenario | `usecases/plan_chunks.py`/`transcribe_job.py` split-retry branch only |
-| 9a | Local diarization (capability probe + call) | PR 18 | `pytest tests/unit -m "not paid and not localmodel"` | `pytest -m localmodel` real diarization | `adapters/asr/local/` diarization branch |
-| 9b | Cloud diarization + `SpeakerResolver` seam | PR 19 | `pytest tests/unit/usecases/test_stitch_transcript_resolver.py -m "not paid and not localmodel"` | `pytest -m paid` real cloud diarization | `adapters/asr/cloud/` diarization branch, `usecases/stitch_transcript.py` resolver seam |
-| 10a | Map-reduce summarization | PR 20 | `pytest tests/unit/usecases/test_generate_artifacts_map.py -m "not paid and not localmodel"` | `pytest -m paid` real LLM call | `usecases/generate_artifacts.py` MAP/REDUCE |
-| 10b | Clip candidates + N script variants | PR 21 | `pytest tests/unit/usecases/test_generate_artifacts_variants.py -m "not paid and not localmodel"` | `pytest -m paid` real LLM call | `usecases/generate_artifacts.py` candidate/variant phase |
+| 1b-i (DONE) | `SegmentKind` + `ClassificationSupport`: domain field and capability declaration | PR 2 | `pytest tests/unit/domain/test_transcript.py tests/unit/ports/test_capabilities.py -m "not paid and not localmodel"` | N/A — pure domain/port types | `domain/transcript.py`, `ports/capabilities.py` (+ minimal fake field) |
+| 1b-ii (DONE) | Classification test doubles + speech-only message export | PR 3 | `pytest tests/unit/ports/test_transcription_classification.py tests/unit/usecases/test_ingest_media_walking_skeleton.py -m "not paid and not localmodel"` | N/A — fakes only | `tests/fakes/`, `usecases/ingest_media.py` export filter |
+| 2a | Chunk planning: stride/overlap/byte-cap/tail-merge | PR 4 | `pytest tests/unit/usecases/test_plan_chunks.py -m "not paid and not localmodel"` | N/A — pure functions | `usecases/plan_chunks.py` |
+| 2b | Overlap stitching: match/fallback/straddling-segment | PR 5 | `pytest tests/unit/usecases/test_stitch_transcript.py -m "not paid and not localmodel"` | N/A — pure functions | `usecases/stitch_transcript.py` |
+| 3a | ffmpeg extraction: probe/extract + argv/path safety | PR 6 | `pytest tests/unit/adapters/ffmpeg/test_argv_composition.py tests/unit/adapters/ffmpeg/test_extract.py -m "not paid and not localmodel"` | `pytest -m integration` (real ffmpeg, skips if absent) | `adapters/ffmpeg/extractor.py` (probe/extract only) |
+| 3b | ffmpeg slicing + PATH check + integration + README | PR 7 | `pytest tests/unit/adapters/ffmpeg/test_slice.py -m "not paid and not localmodel"` | `pytest -m integration` slicing fixture | `adapters/ffmpeg/extractor.py` (slice), `README.md` |
+| 4a | Real filesystem `TranscriptStoragePort` adapter (CRUD + atomic write + single-writer) | PR 8 | `pytest tests/unit/adapters/storage/test_filesystem_transcript_storage.py -m "not paid and not localmodel"` | `pytest -m integration` — crash-simulated atomic write | `adapters/storage/filesystem_transcript_storage.py` |
+| 4b | `transcribe_job` core loop: happy path/failure isolation/retry/timeout/propagation | PR 9 | `pytest tests/unit/usecases/test_transcribe_job.py -m "not paid and not localmodel"` | N/A — fakes only, no real subprocess yet | `usecases/transcribe_job.py` |
+| 4c | Resume + derived progress | PR 10 | `pytest tests/unit/usecases/test_{resume_job,progress}.py -m "not paid and not localmodel"` | N/A — fakes only | `usecases/{resume_job,progress}.py` |
+| 4d | Worker entrypoint + purge seam + chunk-loop refactor | PR 11 | `pytest tests/unit -m "not paid and not localmodel"` | `python -m transcribe.runtime.worker --job-id <fake-job>` against fakes | `runtime/worker.py`, `usecases/purge_job_artifacts.py` |
+| 5a | Job creation + streaming upload (real `MediaSourcePort`) | PR 12 | `pytest tests/unit/adapters/web/test_admit_job_route.py tests/unit/adapters/web/test_upload_stream.py -m "not paid and not localmodel"` | Real HTTP client, constant-memory streaming assertion | `adapters/web/routers/jobs.py` (POST/PUT), `adapters/storage/media_source.py` |
+| 5b | Upload security threat-matrix (size limit, hostile filename, non-media content, traversal) | PR 13 | `pytest tests/unit/adapters/web/test_upload_security.py -m "not paid and not localmodel"` | Real HTTP client with hostile fixtures | Guard clauses inside `adapters/web/routers/jobs.py` and `adapters/storage/media_source.py` — revertible without touching PR 10's happy path |
+| 5c | Status route + app/lifespan wiring + E2E | PR 14 | `pytest tests/unit/adapters/web/test_status_route.py -m "not paid and not localmodel"` | Real HTTP client E2E: upload → poll → `.txt`, fake engines | `runtime/app.py`, `adapters/web/routers/jobs.py` (GET) |
+| 6 | Speaker mode + engine selection + diarization rejection | PR 15 | `pytest tests/unit/usecases/test_admit_job.py -m "not paid and not localmodel"` | Same E2E harness as PR 12, extended with a rejection-path scenario | `usecases/admit_job.py` guard clause |
+| 7a | Local ASR adapter + shared contract test | PR 16 | `pytest tests/unit -m "not paid and not localmodel"` (adapter is `localmodel`-marked) | `pytest -m localmodel` — real `faster-whisper`, real weights | `adapters/asr/local/faster_whisper_adapter.py`, `tests/contract/` |
+| 7b | Supervisory watchdog | PR 17 | `pytest tests/unit/runtime/test_supervisor.py -m "not paid and not localmodel"` | `pytest -m localmodel` real timeout-kill scenario | `runtime/supervisor.py` |
+| 8a | Cloud ASR adapter + real byte cap + contract test | PR 18 | `pytest tests/unit -m "not paid and not localmodel"` (adapter is `paid`-marked) | `pytest -m paid` — real API key, real billed call | `adapters/asr/cloud/*_adapter.py` |
+| 8b | `ChunkTooLarge` split-and-retry | PR 19 | `pytest tests/unit/usecases/test_transcribe_job_split_retry.py -m "not paid and not localmodel"` | `pytest -m paid` oversized-chunk scenario | `usecases/plan_chunks.py`/`transcribe_job.py` split-retry branch only |
+| 9a | Local diarization (capability probe + call) | PR 20 | `pytest tests/unit -m "not paid and not localmodel"` | `pytest -m localmodel` real diarization | `adapters/asr/local/` diarization branch |
+| 9b | Cloud diarization + `SpeakerResolver` seam | PR 21 | `pytest tests/unit/usecases/test_stitch_transcript_resolver.py -m "not paid and not localmodel"` | `pytest -m paid` real cloud diarization | `adapters/asr/cloud/` diarization branch, `usecases/stitch_transcript.py` resolver seam |
+| 10a | Map-reduce summarization | PR 22 | `pytest tests/unit/usecases/test_generate_artifacts_map.py -m "not paid and not localmodel"` | `pytest -m paid` real LLM call | `usecases/generate_artifacts.py` MAP/REDUCE |
+| 10b | Clip candidates + N script variants | PR 23 | `pytest tests/unit/usecases/test_generate_artifacts_variants.py -m "not paid and not localmodel"` | `pytest -m paid` real LLM call | `usecases/generate_artifacts.py` candidate/variant phase |
 
 ## Open-Question Tracking (unchanged — task IDs referenced below are unaffected by the re-split)
 
@@ -127,6 +135,8 @@ summarization). That split is offered, not assumed.
 | Q6 — retention/cleanup | Task 4.21 (now in slice 4d) | Ships an unused `PurgeJobArtifacts` seam |
 | New — cross-chunk speaker identity | Task 9.8 (now in slice 9b) | Ships a no-op `SpeakerResolver` seam + namespaced `cNN/SNN` labels |
 | New — concurrency (one job at a time) | Slice 4b/7b supervisor | Assumption, not blocking |
+| Q8 — non-speech audio (music/singing) in source | **ANSWERED**; lands as slice 1b + tasks 2.12b, 7.4a–c, 8.5a–b, 10.4a–c, 10.13a–b | Not blocking — `SegmentKind` ships in 1b against fakes; real engine behavior is asserted per adapter in 7a/8a |
+| Q9 — should musical ranges be *promoted* as clip candidates, not merely permitted? | Task 10.13b | Ships permitting them (`kind`-agnostic candidate resolution); answering Q9 changes prompt + ranking in slice 10b only, no type change |
 
 ---
 
@@ -164,6 +174,95 @@ Capability Declaration (type-level).
 
 ---
 
+## Slice 1b: `SegmentKind` Domain Amendment — DONE (split into 1b-i + 1b-ii)
+
+**Actual: 553 lines vs ~150 estimated — 3.2x overrun.** Suite 61 passed (was 42), `mypy src tests` clean over 39
+files, architecture boundary test green.
+
+**Split at delivery** rather than shipped over budget. The overrun was measured *before* committing, and the cut
+fell on a boundary that already existed — domain/port types on one side, test doubles and use-case wiring on the
+other — so it is not an artificial division to satisfy a number:
+
+| Unit | Commit | Lines | Contents | Suite at that commit |
+| --- | --- | --- | --- | --- |
+| 1b-i | `feat(domain): classify transcript segments…` | 309 | `SegmentKind`, `ClassificationSupport`, the three pure selectors, minimal fake field | 55 passed, mypy clean |
+| 1b-ii | `feat(transcript): keep music out of the message export` | 244 | Second test double, script-driven fake, protocol-typed `FakePorts`, export filter | 61 passed, mypy clean |
+
+Both units end green on the default suite independently, which is what makes them separately revertible. 1b-i
+carries a one-line capability field on the existing fake — without it that commit would not compile, since
+`non_speech_classification` is required with no default.
+
+### What the estimate missed (new calibration data)
+
+| Category | Insertions | Share |
+| --- | --- | --- |
+| Tests | 390 | 85% |
+| Production `src/` | 94 | 15% |
+
+The test share is **85%, not slice 1's measured 56%**, and that gap is the entire overrun. Three costs the estimate
+omitted, none of which the existing "~31 lines per dataclass" calibration unit covers:
+
+1. **A capability axis with two declared states needs two test doubles, not one.** `ClassificationSupport` has an
+   `UNSUPPORTED` side, and the no-silent-degradation invariant is only assertable against an adapter that actually
+   declares it. That forced a second fake (`NonClassifyingFakeTranscriptionPort`, ~40 lines) plus a new test module
+   (`tests/unit/ports/test_transcription_classification.py`, ~70 lines) that the estimate treated as free.
+2. **Making an existing fake configurable is not free.** `FakeTranscriptionPort` grew a script parameter and a
+   timing helper so tests could drive mixed speech/music content — ~45 lines of change to a file the estimate
+   assumed only needed a one-field edit.
+3. **A required field with no default is a breaking change to every existing construction site.** Three existing
+   capability tests had to be rewritten, plus `FakePorts.transcription` re-typed to the protocol.
+
+**Revised calibration unit for the remaining slices**: *one new capability axis ≈ 450–500 lines*, dominated by test
+doubles, not by the enum or the dataclass field. Slices 7a, 8a and 9a each add real-engine behavior on this same
+axis and should be re-checked against this number rather than against the dataclass unit.
+
+### Tasks
+
+Closes: `transcript-artifacts` Structured Transcript Domain Object (classification half), Message Export Contains
+Speech Only; `speech-transcription` Non-Speech Segment Classification (contract/type level, fakes only — real
+engine behavior lands 7a/8a), Capability Declaration (classification half).
+
+**Why this slice exists, and why it is here.** Proposal Open Question 8 was answered after slice 1 shipped: source
+footage routinely contains a singer alongside the speaker, or music under and between spoken passages. Music is
+normal input. `TranscriptSegment` therefore needs a content classification, and `TranscriptionCapabilities` needs a
+classification declaration.
+
+**Ordering rationale**: `TranscriptSegment` crosses every layer. Landing this before slice 2b means the stitcher is
+written `kind`-aware from the start rather than retrofitted; landing it before slices 3–9 means no adapter and no
+storage format has to be revised. Right now `adapters/` and `runtime/` do not exist at all, so the blast radius is
+two production files. After slice 9 it would be the stitcher, the filesystem storage adapter, both ASR adapters, the
+map-reduce use case, and every test around them. This is the same argument the proposal used to pull chunking
+forward to slices 2 and 4.
+
+**Calibration**: 2 small enums + 1 dataclass field + 1 capability field + one export-filter branch. Using slice 1's
+measured ~31 lines/entity and ~1.55:1 test:prod ratio, with no adapter-uncertainty margin (no I/O, no new port, no
+real engine).
+
+- [x] 1b.1 RED: `tests/unit/domain/test_transcript.py` — `SegmentKind` has exactly `{speech, music, uncertain}`;
+      `TranscriptSegment.kind` **defaults to `UNCERTAIN`**; the dataclass stays frozen.
+- [x] 1b.2 GREEN: `domain/transcript.py` — add `SegmentKind(StrEnum)` and `TranscriptSegment.kind: SegmentKind =
+      SegmentKind.UNCERTAIN`.
+- [x] 1b.3 RED: `tests/unit/ports/test_capabilities.py` — `ClassificationSupport` has exactly
+      `{unsupported, available}`; `TranscriptionCapabilities.non_speech_classification` is required (no default,
+      so no adapter can omit its declaration).
+- [x] 1b.4 GREEN: `ports/capabilities.py` — add `ClassificationSupport(StrEnum)` + the capability field.
+- [x] 1b.5 RED: non-classifying-fake test — a fake `TranscriptionPort` declaring
+      `non_speech_classification=UNSUPPORTED` returns segments whose `kind` is `UNCERTAIN`, and **never**
+      `SPEECH`. This is the no-silent-degradation invariant on the classification axis.
+- [x] 1b.6 GREEN: `tests/fakes/transcription.py` — classification-aware fake; existing fake construction helpers
+      in `tests/fakes/__init__.py` updated to carry `kind`.
+- [x] 1b.7 RED: message-export test — `export_text` output excludes `MUSIC`-classified segment text while those
+      segments remain present in the saved structured `Transcript`.
+- [x] 1b.8 GREEN: `usecases/ingest_media.py` — filter the export join to `kind == SPEECH`; `save_transcript`
+      keeps every segment unchanged.
+- [x] 1b.9 RED: uncertain-not-presented-as-message test — `UNCERTAIN` segments are excluded from the export (or
+      marked distinguishably), consistently rather than per-segment.
+- [x] 1b.10 GREEN: implement the chosen consistent policy for `UNCERTAIN` in the export.
+- [x] 1b.11 REFACTOR: extract the speech-only selection into one helper reusable by slice 10a's MAP windowing,
+      so the "speech only" rule has a single definition; suite green + `mypy src tests` clean.
+
+---
+
 ## Slice 2a: Chunk Planning (~250 lines)
 
 Closes: `speech-transcription` Chunk Planning, Cloud Adapter Request-Size Handling (planning half only — real cap
@@ -192,6 +291,9 @@ never require reverting planning.
 - [ ] 2.10 GREEN: implement fallback branch.
 - [ ] 2.11 RED: straddling-segment test — a segment crossing the cut truncates, drops if empty, never duplicated.
 - [ ] 2.12 GREEN: implement truncation/drop.
+- [ ] 2.12b RED: `kind`-preservation test — stitching carries each segment's `SegmentKind` through unchanged,
+      including across a cut; the fallback branch (which fires routinely on musical overlap windows) never
+      relabels a segment.
 - [ ] 2.13 REFACTOR: consolidate the tokenizer helper shared by matcher and fallback; suite green.
 
 ---
@@ -394,6 +496,13 @@ comparable, +15% uncertainty margin applied.
 - [ ] 7.3 RED: shared `tests/contract/` module, parametrized to include the local adapter alongside the
       existing fake, `localmodel`-marked, excluded from the default run.
 - [ ] 7.4 GREEN: register the adapter in `runtime/engine_resolver.py` for `EngineChoice.LOCAL`.
+- [ ] 7.4a RED: `localmodel`-marked classification test — the local adapter declares
+      `non_speech_classification=AVAILABLE` and marks a music-only fixture segment as `MUSIC`, not `SPEECH`.
+- [ ] 7.4b GREEN: enable the engine's voice-activity filter and the decoder guards that break degenerate
+      repetition loops (`no_speech_threshold`, `compression_ratio_threshold`, `condition_on_previous_text`
+      disabled); map their output onto `SegmentKind`.
+- [ ] 7.4c RED: `localmodel`-marked hallucination-containment test — a music-only fixture produces no
+      `SPEECH`-classified segment carrying fabricated text (the Spanish subtitle-boilerplate failure).
 
 ## Slice 7b: Supervisory Watchdog (~250 lines)
 
@@ -426,6 +535,12 @@ uncertainty margin applied.
 - [ ] 8.4 RED: within-limit test — a plan sized against the real 25MB cap never exceeds it on submission.
 - [ ] 8.5 GREEN: `paid`-marked assertion confirming the slice-2a planner logic already holds against the
       real capability value.
+- [ ] 8.5a RED: `paid`-marked classification-declaration test — the cloud adapter declares its **real**
+      `non_speech_classification` value for the chosen provider. A raw Whisper-API-style adapter exposing no
+      VAD control MUST declare `UNSUPPORTED` and return `UNCERTAIN` segments; a provider with server-side VAD
+      MAY declare `AVAILABLE`. Assert the declaration matches observed behavior — do not assume parity with
+      the local adapter, and do not infer it from the adapter's diarization support.
+- [ ] 8.5b GREEN: implement the declared behavior for the chosen provider.
 
 ## Slice 8b: `ChunkTooLarge` Split-and-Retry (~145 lines)
 
@@ -488,6 +603,12 @@ applies only for the yet-to-be-built fake `TextGenerationPort` test double.
 - [ ] 10.3 RED: `tests/unit/usecases/test_generate_artifacts_map.py` — a transcript exceeding
       `map_window_tokens` windows by estimated char/4 budget, 200-token overlap, rendered with segment ids.
 - [ ] 10.4 GREEN: `usecases/generate_artifacts.py` MAP phase.
+- [ ] 10.4a RED: speech-only-windowing test — a transcript mixing `SPEECH` and `MUSIC` segments produces MAP
+      windows containing no `MUSIC` (or `UNCERTAIN`) content, so lyrics never reach the model as message text.
+- [ ] 10.4b GREEN: filter to `kind == SPEECH` **before** windowing, reusing the slice-1b helper so "speech only"
+      keeps one definition.
+- [ ] 10.4c RED: music-heavy-transcript test — when most of a transcript is non-speech, the summary derives
+      only from the remaining speech and the system does not substitute non-speech content to fill it.
 - [ ] 10.5 RED: segment-id-rejection test — a model response referencing an id absent from its window is
       rejected.
 - [ ] 10.6 GREEN: id-validation against the real `Transcript`.
@@ -506,6 +627,12 @@ No Rendering. Same no-new-dataclass calibration as 10a; builds directly on its M
 - [ ] 10.12 RED: clip-candidate test — candidate carries `start_s`/`end_s` mapping into the source
       transcript plus a short script.
 - [ ] 10.13 GREEN: rank-by-score candidate selection, top `max_clip_candidates`.
+- [ ] 10.13a RED: musical-range-eligible test — a candidate whose time range covers `MUSIC` segments is NOT
+      rejected on that basis; its timestamps resolve like any other candidate. Excluding music from the
+      *message* must not leak into excluding it from *clips* — the singer's moment is often the best footage.
+- [ ] 10.13b GREEN: confirm candidate resolution is `kind`-agnostic. **Leaves Q9 open**: candidates over
+      non-speech ranges are permitted here; whether ranking should additionally *favor* them is a prompt/score
+      change confined to this slice.
 - [ ] 10.14 RED: multiple-variants test — a candidate carries `variants: tuple[ScriptVariant, ...]`
       without a schema change when count > 1.
 - [ ] 10.15 GREEN: one `complete()` call per `(candidate, target)` pair, `target` sourced from
