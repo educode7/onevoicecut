@@ -154,6 +154,95 @@ def test_hostile_filenames_survive_a_real_invocation(
     assert source.exists()  # the shell never got a chance to touch it
 
 
+def test_slicing_produces_one_file_per_planned_chunk(
+    ffmpeg_available: None, job_dir: Path
+) -> None:
+    from transcribe.domain.chunking import PlannedChunk
+
+    source = job_dir / "source.mp4"
+    _synthesize(source)
+    track = FfmpegAudioExtractor(job_dir, job_id=JOB_ID).extract(
+        _media(source), job_dir / "audio.flac"
+    )
+
+    plan = (
+        PlannedChunk(index=0, start_s=0.0, end_s=1.2),
+        PlannedChunk(index=1, start_s=1.0, end_s=CLIP_SECONDS),
+    )
+    extractor = FfmpegAudioExtractor(job_dir, job_id=JOB_ID)
+    chunks = [
+        extractor.slice(track, planned, job_dir / "chunks" / f"{planned.index:04d}.flac")
+        for planned in plan
+    ]
+
+    assert len(chunks) == len(plan)
+    assert all(chunk.path.exists() and chunk.size_bytes > 0 for chunk in chunks)
+    assert [c.index for c in chunks] == [0, 1]
+
+
+def test_a_slice_really_holds_the_requested_duration(
+    ffmpeg_available: None, job_dir: Path
+) -> None:
+    """Proves the seek-and-duration flags mean what the argv tests assume.
+
+    The unit tests assert `-ss` precedes `-i` and `-t` carries a length; only this
+    one shows ffmpeg agrees.
+    """
+    from transcribe.domain.chunking import PlannedChunk
+
+    source = job_dir / "source.mp4"
+    _synthesize(source)
+    track = FfmpegAudioExtractor(job_dir, job_id=JOB_ID).extract(
+        _media(source), job_dir / "audio.flac"
+    )
+
+    dest = job_dir / "chunks" / "0000.flac"
+    FfmpegAudioExtractor(job_dir, job_id=JOB_ID).slice(
+        track, PlannedChunk(index=0, start_s=0.5, end_s=1.5), dest
+    )
+
+    completed = subprocess.run(
+        [
+            "ffprobe", "-hide_banner", "-loglevel", "error",
+            "-print_format", "json", "-show_format", str(dest),
+        ],
+        capture_output=True, text=True, timeout=60, check=True,
+    )
+    duration = float(json.loads(completed.stdout)["format"]["duration"])
+    assert duration == pytest.approx(1.0, abs=0.2)
+
+
+def test_a_slice_keeps_the_normalized_format(
+    ffmpeg_available: None, job_dir: Path
+) -> None:
+    """A chunk in a different format from its track would break the byte-cap
+    arithmetic the planner already applied."""
+    from transcribe.domain.chunking import PlannedChunk
+
+    source = job_dir / "source.mp4"
+    _synthesize(source)
+    track = FfmpegAudioExtractor(job_dir, job_id=JOB_ID).extract(
+        _media(source), job_dir / "audio.flac"
+    )
+
+    dest = job_dir / "chunks" / "0000.flac"
+    FfmpegAudioExtractor(job_dir, job_id=JOB_ID).slice(
+        track, PlannedChunk(index=0, start_s=0.0, end_s=1.0), dest
+    )
+
+    completed = subprocess.run(
+        [
+            "ffprobe", "-hide_banner", "-loglevel", "error",
+            "-print_format", "json", "-show_streams", str(dest),
+        ],
+        capture_output=True, text=True, timeout=60, check=True,
+    )
+    stream = json.loads(completed.stdout)["streams"][0]
+    assert stream["codec_name"] == "flac"
+    assert int(stream["sample_rate"]) == 16000
+    assert int(stream["channels"]) == 1
+
+
 def test_a_non_media_file_is_refused(ffmpeg_available: None, job_dir: Path) -> None:
     """Content decides, not the extension — the threat-matrix row for a text file
     wearing a media extension."""
