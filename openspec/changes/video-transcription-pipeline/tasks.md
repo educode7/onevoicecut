@@ -287,23 +287,45 @@ domain-test ratio (~1.8:1 test:prod), so no adapter-uncertainty margin applied.
 - [x] 2.5 RED: tail-merge test — trailing chunk `< min_chunk_seconds` (30s) merges into predecessor.
 - [x] 2.6 GREEN: implement tail merge.
 
-## Slice 2b: Overlap Stitching (~230 lines)
+## Slice 2b: Overlap Stitching — DONE (split into 2b-i + 2b-ii)
+
+**Actual: 606 lines (188 prod / 418 test) vs ~230 estimated — 2.6x.** Suite 107 passed (was 84),
+`mypy src tests` clean over 43 files. Split before committing, per the discipline slice 1b forced.
+
+| Unit | Commit | Lines | Contents |
+| --- | --- | --- | --- |
+| 2b-i | `feat(usecases): reconcile overlapping chunk results…` | 391 | tokenizer, matcher, fallback, clipping, globalization |
+| 2b-ii | `feat(usecases): refuse to stitch an incomplete set…` | 215 | plan-integrity guard, preservation invariants, degenerate inputs |
+
+**Rejected split**: cutting between the match path and the fallback would have forced 2b-i to ship a
+throwaway fallback policy that 2b-ii then replaced. A reviewer reviewing code already known to be
+discarded is worse than one over-budget review, so the cut moved to algorithm vs. invariants instead.
+
+**TDD honesty note**: only cycles 1 and 3 were genuinely RED. The cycle-2 fallback tests passed on first
+run because cycle 1's own cases (accent mismatch, sub-minimum match) already exercised the fallback, so
+implementing them was unavoidable in cycle 1's GREEN. Those tests are characterization, not driving.
+Cycle 3's plan-integrity tests were real RED — that gap was not covered.
+
+**Two deviations from the design, both recorded in the commit messages**: a match starting mid-segment
+cuts at that segment's *end* rather than its start (cutting at the start would discard the words in front
+of the phrase, since text cannot be split at a token boundary); and the plan-integrity guard is new — the
+design never said what happens when results are incomplete.
 
 Closes: `speech-transcription` Overlap Stitching. Split from planning because the matcher/fallback/straddling
 algorithm is independently testable and independently revertible from the planner — a bug in stitching should
 never require reverting planning.
 
-- [ ] 2.7 RED: `tests/unit/usecases/test_stitch_transcript.py` — matched suffix/prefix overlap (≥4 tokens,
+- [x] 2.7 RED: `tests/unit/usecases/test_stitch_transcript.py` — matched suffix/prefix overlap (≥4 tokens,
       accents preserved) cuts once, no duplication or loss.
-- [ ] 2.8 GREEN: `usecases/stitch_transcript.py` — tokenize/match/cut per design algorithm.
-- [ ] 2.9 RED: no-match fallback — overlap cuts at the snapped midpoint, never loses more than `overlap_s`.
-- [ ] 2.10 GREEN: implement fallback branch.
-- [ ] 2.11 RED: straddling-segment test — a segment crossing the cut truncates, drops if empty, never duplicated.
-- [ ] 2.12 GREEN: implement truncation/drop.
-- [ ] 2.12b RED: `kind`-preservation test — stitching carries each segment's `SegmentKind` through unchanged,
+- [x] 2.8 GREEN: `usecases/stitch_transcript.py` — tokenize/match/cut per design algorithm.
+- [x] 2.9 RED: no-match fallback — overlap cuts at the snapped midpoint, never loses more than `overlap_s`.
+- [x] 2.10 GREEN: implement fallback branch.
+- [x] 2.11 RED: straddling-segment test — a segment crossing the cut truncates, drops if empty, never duplicated.
+- [x] 2.12 GREEN: implement truncation/drop.
+- [x] 2.12b RED: `kind`-preservation test — stitching carries each segment's `SegmentKind` through unchanged,
       including across a cut; the fallback branch (which fires routinely on musical overlap windows) never
       relabels a segment.
-- [ ] 2.13 REFACTOR: consolidate the tokenizer helper shared by matcher and fallback; suite green.
+- [x] 2.13 REFACTOR: consolidate the tokenizer helper shared by matcher and fallback; suite green.
 
 ---
 
