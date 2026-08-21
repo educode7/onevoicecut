@@ -263,20 +263,29 @@ real engine).
 
 ---
 
-## Slice 2a: Chunk Planning (~250 lines)
+## Slice 2a: Chunk Planning — DONE
+
+**Actual: 340 lines (101 prod / 239 test) vs ~250 estimated — 1.36x, under the 400-line budget.**
+Suite 84 passed (was 61), `mypy src tests` clean over 41 files. Measured before committing, per the
+discipline slice 1b's overrun forced.
+
+Test share 70% — between slice 1's 56% and slice 1b's 85%. The pure-logic calibration held far better
+than the capability-axis one did: no new test double was needed, which is exactly the cost that broke
+the 1b estimate. Two guards beyond the task list (non-positive duration, unplannable bitrate) account
+for roughly 35 of the 90 lines over estimate; both prevent a hang rather than a wrong answer.
 
 Closes: `speech-transcription` Chunk Planning, Cloud Adapter Request-Size Handling (planning half only — real cap
 value lands slice 8a). Pure functions, no I/O, no new dataclasses/ports — directly comparable to slice 1's
 domain-test ratio (~1.8:1 test:prod), so no adapter-uncertainty margin applied.
 
-- [ ] 2.1 RED: `tests/unit/usecases/test_plan_chunks.py` — stride/overlap arithmetic against
+- [x] 2.1 RED: `tests/unit/usecases/test_plan_chunks.py` — stride/overlap arithmetic against
       `target_chunk_seconds=600, overlap_s=5.0` fixture durations.
-- [ ] 2.2 GREEN: `usecases/plan_chunks.py` — `stride_s`/chunk-bounds formula from design.
-- [ ] 2.3 RED: byte-cap test — fake `TranscriptionCapabilities(max_chunk_bytes=25_000_000)` drives
+- [x] 2.2 GREEN: `usecases/plan_chunks.py` — `stride_s`/chunk-bounds formula from design.
+- [x] 2.3 RED: byte-cap test — fake `TranscriptionCapabilities(max_chunk_bytes=25_000_000)` drives
       `cap_s` derivation and stride selection.
-- [ ] 2.4 GREEN: extend planner with `bytes_per_second`/`cap_s` bridging logic (0.9 headroom factor).
-- [ ] 2.5 RED: tail-merge test — trailing chunk `< min_chunk_seconds` (30s) merges into predecessor.
-- [ ] 2.6 GREEN: implement tail merge.
+- [x] 2.4 GREEN: extend planner with `bytes_per_second`/`cap_s` bridging logic (0.9 headroom factor).
+- [x] 2.5 RED: tail-merge test — trailing chunk `< min_chunk_seconds` (30s) merges into predecessor.
+- [x] 2.6 GREEN: implement tail merge.
 
 ## Slice 2b: Overlap Stitching (~230 lines)
 
