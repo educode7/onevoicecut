@@ -373,19 +373,56 @@ threat-matrix row **ffmpeg subprocess argv**. First real subprocess adapter in t
       16kHz mono FLAC `AudioTrack`; skips via `ffmpeg_available` fixture when ffmpeg is absent.
 - [x] 3.6 GREEN: wire the real ffmpeg extract command (`-nostdin -protocol_whitelist file`, explicit timeout).
 
-## Slice 3b: ffmpeg Slicing + Runtime Check + Integration Fixture (~190 lines)
+## Slice 3b: ffmpeg Slicing + Runtime Check + Integration Fixture — DONE (split into 3b-i, 3b-ii, 3b-iii)
+
+**Actual: 732 lines vs ~190 estimated — 3.9x**, the same factor as 3a. Suite 184 passed + 13 skipped,
+`mypy src tests` clean over 57 files.
+
+| Unit | Commit | Lines |
+| --- | --- | --- |
+| 3b-i | `feat(adapters): fail with install instructions when ffmpeg is off PATH` | 201 |
+| 3b-ii | `feat(adapters): slice the normalized track into planned chunks` | 339 |
+| 3b-iii | `docs: add README, and cover slicing in the integration tests` | 192 |
+
+**⚠ 13 integration tests now written and SKIPPED** — ffmpeg is still not installed on the development
+machine. Slicing adds three more unverified claims to 3a's ten, and one of them matters more than the
+rest: `test_a_slice_really_holds_the_requested_duration` is the only check that `-ss` before `-i` and
+`-t` as a length behave as the argv unit tests assume.
+
+### Port-contract gap found during implementation
+
+`AudioExtractorPort.slice()` must return an `AudioChunk`, which carries a `job_id` — but none of its
+three arguments has one. `AudioTrack` knows only its `media_id`; `PlannedChunk` is pure geometry; the
+`ChunkPlan` that *does* hold the job id is never passed. Neither the design nor the spec noticed.
+Resolved by putting `job_id` on the adapter's constructor next to `job_dir`, which the adapter already
+took, so it is per-job by construction. Rejected alternative: deriving it from `job_dir.name`, which is
+shorter and a hidden coupling. Cost: 25 existing construction sites updated across three test files.
+
+### Design decision not in the plan: re-encode rather than stream-copy
+
+`-c:a copy` would be faster, but it lands each cut on the nearest frame boundary. The stitcher derives
+its contested window from the **plan**, so drifted actual boundaries would desynchronise the two. Chunks
+are re-encoded to the same 16 kHz mono FLAC and report the plan's boundaries, not the file's. On this
+format the encode cost is far below the transcription it feeds.
+
+### A coupling this slice introduced and then fixed
+
+The PATH check deliberately reads the real `PATH` — that is what it exists to check — which meant every
+runner-injected unit test suddenly asserted something about whether the machine had ffmpeg. Ten tests
+broke. An autouse fixture in `tests/unit/adapters/ffmpeg/conftest.py` now isolates them, and only
+`test_availability.py` drives PATH answers explicitly.
 
 Closes: `audio-extraction` Chunk Slicing, ffmpeg Runtime Availability Check. Split from 3a because slicing depends
 on the chunk plan (slice 2a), while probe/extract do not — keeping them together would create an artificial
 dependency the design doesn't require.
 
-- [ ] 3.7 RED: `integration`-marked slicing test — an N-chunk plan produces N `AudioChunk`s matching
+- [x] 3.7 RED: `integration`-marked slicing test — an N-chunk plan produces N `AudioChunk`s matching
       boundaries/overlap.
-- [ ] 3.8 GREEN: implement `slice()` against the plan.
-- [ ] 3.9 RED: ffmpeg-missing-from-PATH test — actionable error naming ffmpeg, not a raw subprocess exception.
-- [ ] 3.10 GREEN: PATH check at first use; raise `FfmpegUnavailable` with remediation text.
-- [ ] 3.11 Update `README.md` with ffmpeg install as a step distinct from `pip install -r requirements.txt`.
-- [ ] 3.12 REFACTOR: share the subprocess-invocation helper between `probe`/`extract`/`slice`; suite green.
+- [x] 3.8 GREEN: implement `slice()` against the plan.
+- [x] 3.9 RED: ffmpeg-missing-from-PATH test — actionable error naming ffmpeg, not a raw subprocess exception.
+- [x] 3.10 GREEN: PATH check at first use; raise `FfmpegUnavailable` with remediation text.
+- [x] 3.11 Update `README.md` with ffmpeg install as a step distinct from `pip install -r requirements.txt`.
+- [x] 3.12 REFACTOR: share the subprocess-invocation helper between `probe`/`extract`/`slice`; suite green.
 
 ---
 
