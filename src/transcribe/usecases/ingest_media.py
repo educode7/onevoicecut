@@ -11,7 +11,7 @@ from transcribe.domain.chunking import PlannedChunk
 from transcribe.domain.ids import JobId
 from transcribe.domain.jobs import EngineChoice, SpeakerMode
 from transcribe.domain.media import SourceMedia
-from transcribe.domain.transcript import Transcript
+from transcribe.domain.transcript import Transcript, render_message_text
 from transcribe.ports.audio_extractor import AudioExtractorPort
 from transcribe.ports.transcript_storage import TranscriptStoragePort
 from transcribe.ports.transcription import TranscriptionPort, TranscriptionRequest
@@ -54,9 +54,9 @@ class IngestMedia:
             engine_id=caps.engine_id,
             diarized=False,
         )
+        # The transcript keeps every segment; only the export is narrowed to the
+        # spoken message, so a musical range stays addressable for a clip.
         self._storage.save_transcript(transcript)
-
-        text = "\n".join(segment.text for segment in transcript.segments)
-        self._storage.export_text(job_id, text)
+        self._storage.export_text(job_id, render_message_text(transcript))
 
         return transcript
