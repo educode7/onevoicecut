@@ -30,6 +30,7 @@ from transcribe.ports.audio_extractor import AudioExtractorPort
 from transcribe.ports.transcript_storage import TranscriptStoragePort
 from transcribe.ports.transcription import TranscriptionPort, TranscriptionRequest
 from transcribe.usecases.plan_chunks import DEFAULT_TARGET_CHUNK_S, plan_chunks
+from transcribe.usecases.resume_job import pending_chunks
 from transcribe.usecases.stitch_transcript import stitch_transcript
 
 SOURCE_LANGUAGE = "es"
@@ -88,7 +89,9 @@ def transcribe_job(
     )
 
     failed: list[int] = []
-    for planned in plan.chunks:
+    # Resume is not a mode: the loop simply skips what is already done, so a first
+    # run and a restart after a crash take the same route.
+    for planned in pending_chunks(plan, storage.load_chunk_results(job_id)):
         # Polled every iteration, not once before the loop: a three-hour job
         # checked at the start would ignore the stop button for three hours.
         if storage.cancellation_requested(job_id):
@@ -229,7 +232,17 @@ def _plan(
     A plan held only in memory makes resume impossible: after a crash nothing on
     disk says how many chunks the job was supposed to have, so completed results
     cannot be told apart from a job that was always this short.
+
+    An existing plan is reused rather than recomputed. Re-planning would usually
+    produce the same boundaries, but "usually" is not good enough here: the stored
+    chunk results are indexed against the *stored* plan, and a plan that differed
+    by one chunk would silently re-map every completed result onto the wrong range.
     """
+    existing = storage.load_chunk_plan(job.job_id)
+    if existing is not None:
+        _advance(job, JobState.PLANNED, storage=storage, now=now)
+        return existing
+
     plan = plan_chunks(
         job.job_id,
         track,
