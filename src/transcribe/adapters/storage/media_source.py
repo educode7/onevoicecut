@@ -16,6 +16,7 @@ from a suffix a client chose.
 """
 
 import hashlib
+import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -27,6 +28,11 @@ from transcribe.domain.media import SourceMedia
 # an empty string, so nothing downstream can read it as a missing value and fill
 # it in; it says "not established", which is a fact.
 UNVERIFIED_CONTAINER = "unverified"
+
+# Distinct from the storage adapter's `.tmp`: this one can be gigabytes and can
+# outlive a crash, so an operator clearing space should be able to tell an
+# abandoned upload from an interrupted metadata write at a glance.
+PENDING_SUFFIX = ".part"
 
 
 class FilesystemMediaSource:
@@ -48,21 +54,44 @@ class FilesystemMediaSource:
 
         `filename` is recorded and never consulted. It is the client's, so it is
         metadata — the destination was decided before this call.
+
+        Written to a sibling `.part` and renamed only once the stream ends, the
+        same commit the storage adapter uses for JSON and for the same reason. A
+        truncated sermon is the dangerous leftover, not a harmless one: a partial
+        `.mp4` often still probes as valid media, so anything that survives an
+        aborted upload gets transcribed as if it were the whole service. Writing
+        straight to the destination would also mean a failed retry truncating the
+        upload that already succeeded, since opening for writing empties the file
+        before the first byte arrives.
         """
         self._destination.parent.mkdir(parents=True, exist_ok=True)
+        pending = self._destination.with_name(self._destination.name + PENDING_SUFFIX)
 
         digest = hashlib.sha256()
         written = 0
 
-        with open(self._destination, "wb") as handle:
-            async for part in stream:
-                written += len(part)
-                if written > max_bytes:
-                    raise UploadTooLarge(
-                        f"upload exceeded {max_bytes} bytes and was stopped"
-                    )
-                digest.update(part)
-                handle.write(part)
+        try:
+            with open(pending, "wb") as handle:
+                async for part in stream:
+                    written += len(part)
+                    if written > max_bytes:
+                        raise UploadTooLarge(
+                            f"upload exceeded {max_bytes} bytes and was stopped"
+                        )
+                    digest.update(part)
+                    handle.write(part)
+                handle.flush()
+                # Durable before the rename commits it. A dropped power cable
+                # between here and the worker would otherwise leave a media
+                # record pointing at a file whose tail was never written.
+                os.fsync(handle.fileno())
+        except BaseException:
+            # Any failure, not only the size limit — a dropped connection leaves
+            # exactly the same truncated file.
+            pending.unlink(missing_ok=True)
+            raise
+
+        os.replace(pending, self._destination)
 
         return SourceMedia(
             media_id=media_id,

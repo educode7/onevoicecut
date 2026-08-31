@@ -145,6 +145,67 @@ async def test_the_limit_is_enforced_while_streaming_not_afterwards(
     assert len(consumed) < 10
 
 
+async def test_a_completed_upload_leaves_no_pending_file(destination: Path) -> None:
+    """The rename is the commit, so the working file must be gone afterwards —
+    a stray multi-gigabyte `.part` is the most expensive litter this app can drop."""
+    await FilesystemMediaSource(destination).store(
+        MEDIA_ID, "sermon.mp4", chunks(b"hola"), GENEROUS
+    )
+
+    assert list(destination.parent.glob("*.part")) == []
+
+
+async def test_an_aborted_upload_leaves_no_partial_file(destination: Path) -> None:
+    """A truncated sermon is the dangerous leftover, not a harmless one.
+
+    A partial `.mp4` frequently still probes as valid media — it has a header, it
+    has a duration — so leaving it behind means the next step happily transcribes
+    a fraction of the sermon and reports success. Deleting is the only outcome
+    that cannot be mistaken for a complete upload.
+    """
+    with pytest.raises(UploadTooLarge):
+        await FilesystemMediaSource(destination).store(
+            MEDIA_ID, "sermon.mp4", chunks(b"x" * 10, b"x" * 10), max_bytes=15
+        )
+
+    assert not destination.exists()
+
+
+async def test_a_stream_that_fails_midway_leaves_no_partial_file(
+    destination: Path,
+) -> None:
+    """Not only the size limit. A dropped connection produces the same truncated
+    file, and it must not survive either."""
+
+    async def dies_halfway() -> AsyncIterator[bytes]:
+        yield b"x" * 1024
+        raise ConnectionResetError("client went away")
+
+    with pytest.raises(ConnectionResetError):
+        await FilesystemMediaSource(destination).store(
+            MEDIA_ID, "sermon.mp4", dies_halfway(), GENEROUS
+        )
+
+    assert not destination.exists()
+
+
+async def test_a_failed_upload_does_not_remove_an_earlier_good_one(
+    destination: Path,
+) -> None:
+    """Cleanup is scoped to what this call wrote. A retry that fails must not
+    destroy the upload that already succeeded."""
+    await FilesystemMediaSource(destination).store(
+        MEDIA_ID, "sermon.mp4", chunks(b"complete"), GENEROUS
+    )
+
+    with pytest.raises(UploadTooLarge):
+        await FilesystemMediaSource(destination).store(
+            MEDIA_ID, "sermon.mp4", chunks(b"y" * 100), max_bytes=10
+        )
+
+    assert destination.read_bytes() == b"complete"
+
+
 async def test_the_directory_is_created_if_it_does_not_exist(
     destination: Path,
 ) -> None:

@@ -20,6 +20,33 @@ from transcribe.usecases.admit_job import admit_job
 FILENAME_HEADER = "x-filename"
 
 
+def _refuse_if_declared_too_large(request: Request, max_bytes: int) -> None:
+    """The cheap half of the size limit, and the only half that costs nothing.
+
+    `Content-Length` is a claim, so this cannot be the whole defence — the writer
+    keeps counting in case the claim was false. But when a client honestly
+    declares sixteen gigabytes, refusing here is the difference between an instant
+    answer and an hour of transfer nobody wanted.
+
+    An absent header means chunked transfer encoding, which is what a browser
+    sends for a large file: there is simply nothing to check. An unparseable one
+    is treated the same way — it tells us nothing, and it is not evidence of being
+    small.
+    """
+    declared = request.headers.get("content-length")
+    if declared is None:
+        return
+    try:
+        length = int(declared)
+    except ValueError:
+        return
+    if length > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"declared {length} bytes, limit is {max_bytes}",
+        )
+
+
 def _client_filename(raw: str) -> str:
     """Percent-decoded, because HTTP header values are ASCII and the source
     language is not.
@@ -76,6 +103,8 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
             job = deps.storage.load_job(JobId(job_id))
         except JobNotFound as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+
+        _refuse_if_declared_too_large(request, deps.max_upload_bytes)
 
         writer = deps.media_source_for(deps.storage, job.job_id)
         try:
