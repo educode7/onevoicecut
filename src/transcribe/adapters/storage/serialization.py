@@ -20,8 +20,9 @@ from dataclasses import asdict
 from enum import StrEnum
 from typing import Any, TypeVar
 
-from transcribe.domain.chunking import ChunkPlan, PlannedChunk
+from transcribe.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
 from transcribe.domain.errors import CorruptedRecord
+from transcribe.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
 from transcribe.domain.ids import (
     InvalidIdError,
     JobId,
@@ -30,6 +31,7 @@ from transcribe.domain.ids import (
     make_media_id,
 )
 from transcribe.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from transcribe.domain.transcript import SegmentKind, Transcript, TranscriptSegment
 
 Record = dict[str, Any]
 
@@ -89,6 +91,17 @@ def _optional_whole(record: Record, key: str) -> int | None:
     return None if _field(record, key) is None else _whole(record, key)
 
 
+def _optional_number(record: Record, key: str) -> float | None:
+    return None if _field(record, key) is None else _number(record, key)
+
+
+def _flag(record: Record, key: str) -> bool:
+    value = _field(record, key)
+    if not isinstance(value, bool):
+        raise CorruptedRecord(f"field {key!r} is not a boolean")
+    return value
+
+
 def _member(record: Record, key: str, enum: type[_EnumMember]) -> _EnumMember:
     value = _text(record, key)
     try:
@@ -117,6 +130,25 @@ def _media_id(record: Record) -> MediaId:
         return make_media_id(_text(record, "media_id"))
     except InvalidIdError as error:
         raise CorruptedRecord(str(error)) from error
+
+
+def _segment(record: Record) -> TranscriptSegment:
+    # `kind` is read explicitly rather than left to the entity default. The entity
+    # defaults to `UNCERTAIN` so a non-classifying adapter cannot assert speech;
+    # a *stored* segment always carries a kind, so an absent one is a broken file,
+    # not an unclassified one, and must not be quietly rewritten as uncertain.
+    return TranscriptSegment(
+        start_s=_number(record, "start_s"),
+        end_s=_number(record, "end_s"),
+        text=_text(record, "text"),
+        speaker=_optional_text(record, "speaker"),
+        confidence=_optional_number(record, "confidence"),
+        kind=_member(record, "kind", SegmentKind),
+    )
+
+
+def _segments(record: Record) -> tuple[TranscriptSegment, ...]:
+    return tuple(_segment(item) for item in _objects(record, "segments"))
 
 
 def encode_job(job: JobRecord) -> str:
@@ -155,5 +187,70 @@ def decode_chunk_plan(payload: str) -> ChunkPlan:
                 end_s=_number(item, "end_s"),
             )
             for item in _objects(record, "chunks")
+        ),
+    )
+
+
+def encode_chunk_result(result: ChunkResult) -> str:
+    return _dumps(asdict(result))
+
+
+def decode_chunk_result(payload: str) -> ChunkResult:
+    record = _loads(payload)
+    return ChunkResult(
+        job_id=_job_id(record),
+        index=_whole(record, "index"),
+        state=_member(record, "state", ChunkState),
+        segments=_segments(record),
+        engine_id=_text(record, "engine_id"),
+        attempts=_whole(record, "attempts"),
+        error=_optional_text(record, "error"),
+        finished_at=_optional_number(record, "finished_at"),
+    )
+
+
+def encode_transcript(transcript: Transcript) -> str:
+    return _dumps(asdict(transcript))
+
+
+def decode_transcript(payload: str) -> Transcript:
+    record = _loads(payload)
+    return Transcript(
+        job_id=_job_id(record),
+        segments=_segments(record),
+        engine_id=_text(record, "engine_id"),
+        diarized=_flag(record, "diarized"),
+        language=_text(record, "language"),
+    )
+
+
+def encode_artifacts(artifacts: GenerationResult) -> str:
+    return _dumps(asdict(artifacts))
+
+
+def decode_artifacts(payload: str) -> GenerationResult:
+    record = _loads(payload)
+    return GenerationResult(
+        job_id=_job_id(record),
+        summary=_text(record, "summary"),
+        clip_candidates=tuple(
+            ClipCandidate(
+                start_s=_number(item, "start_s"),
+                end_s=_number(item, "end_s"),
+                hook=_text(item, "hook"),
+                quote=_text(item, "quote"),
+                rationale=_text(item, "rationale"),
+                score=_number(item, "score"),
+                variants=tuple(
+                    ScriptVariant(
+                        target=_text(variant, "target"),
+                        format=_text(variant, "format"),
+                        body=_text(variant, "body"),
+                        duration_target_s=_number(variant, "duration_target_s"),
+                    )
+                    for variant in _objects(item, "variants")
+                ),
+            )
+            for item in _objects(record, "clip_candidates")
         ),
     )
