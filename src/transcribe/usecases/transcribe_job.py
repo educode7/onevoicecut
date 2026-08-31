@@ -25,7 +25,7 @@ from transcribe.domain.errors import ChunkTimeout, TranscriptionFailed
 from transcribe.domain.ids import JobId
 from transcribe.domain.jobs import JobRecord, JobState, SpeakerMode
 from transcribe.domain.media import AudioTrack, SourceMedia
-from transcribe.domain.transcript import Transcript
+from transcribe.domain.transcript import Transcript, render_message_text
 from transcribe.ports.audio_extractor import AudioExtractorPort
 from transcribe.ports.transcript_storage import TranscriptStoragePort
 from transcribe.ports.transcription import TranscriptionPort, TranscriptionRequest
@@ -280,6 +280,10 @@ def _stitch(
         language=SOURCE_LANGUAGE,
     )
     storage.save_transcript(transcript)
+    # The structured transcript is the source of truth; this is one rendering of
+    # it, and it is the one the operator actually opens. Written only here, after
+    # a complete run, because an export over a hole reads as a whole sermon.
+    storage.export_text(job.job_id, render_message_text(transcript))
     return _finish(job, JobState.COMPLETED, storage=storage, now=now)
 
 

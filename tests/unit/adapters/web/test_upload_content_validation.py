@@ -24,6 +24,7 @@ from transcribe.ports.audio_extractor import AudioExtractorPort
 from transcribe.ports.transcript_storage import TranscriptStoragePort
 from tests.fakes.audio_extractor import FakeAudioExtractorPort
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
+from tests.unit.adapters.web.conftest import unstarted
 
 
 @pytest.fixture
@@ -42,7 +43,11 @@ def client_for(
             job_id, probe_result=probe_result, probe_error=probe_error
         )
 
-    app = create_app(WebDependencies(storage=storage, extractor_for=extractor))
+    app = create_app(
+        WebDependencies(
+            storage=storage, extractor_for=extractor, start_job=unstarted
+        )
+    )
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
 

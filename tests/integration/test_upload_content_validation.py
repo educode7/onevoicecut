@@ -27,6 +27,11 @@ from transcribe.domain.ids import JobId, make_job_id
 pytestmark = pytest.mark.integration
 
 
+def unstarted(job_id: JobId) -> None:
+    """No worker here. These tests are about what ffprobe decides, and spawning a
+    process would make them about something else."""
+
+
 @pytest.fixture
 def storage(tmp_path: Path) -> FilesystemTranscriptStorage:
     return FilesystemTranscriptStorage(tmp_path)
@@ -37,7 +42,7 @@ async def client(
     storage: FilesystemTranscriptStorage,
 ) -> AsyncIterator[AsyncClient]:
     """No fake extractor: this is the point of the file."""
-    app = create_app(WebDependencies(storage=storage))
+    app = create_app(WebDependencies(storage=storage, start_job=unstarted))
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as http:

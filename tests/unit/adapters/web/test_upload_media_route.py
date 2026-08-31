@@ -22,7 +22,7 @@ from transcribe.adapters.web.app import WebDependencies, create_app
 from transcribe.domain.ids import JobId, make_job_id
 from transcribe.domain.jobs import JobState
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
-from tests.unit.adapters.web.conftest import accepting_extractor
+from tests.unit.adapters.web.conftest import accepting_extractor, unstarted
 
 FORBIDDEN_HELPERS = {"UploadFile", "File", "Form"}
 
@@ -41,6 +41,7 @@ async def client(storage: FakeTranscriptStoragePort) -> AsyncIterator[AsyncClien
             # The route probes what it stored. Whether ffprobe agrees is a
             # separate claim, proven in the integration tests.
             extractor_for=accepting_extractor,
+            start_job=unstarted,
         )
     )
     async with AsyncClient(
@@ -163,8 +164,9 @@ async def test_an_upload_past_the_limit_is_refused(client: AsyncClient) -> None:
 async def test_uploading_starts_no_transcription(
     client: AsyncClient, storage: FakeTranscriptStoragePort
 ) -> None:
-    """The request returns as soon as the bytes are stored. Hours of ASR happen in
-    a worker process, never inside this response."""
+    """The request returns as soon as the bytes are stored and the worker is
+    handed off to. Hours of ASR happen in that other process, never inside this
+    response — nothing is planned or transcribed by the time it returns."""
     job_id = await admitted(client)
 
     await client.put(f"/api/jobs/{job_id}/media", content=b"hola")

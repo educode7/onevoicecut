@@ -229,7 +229,11 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         verified = _verified_media(
             media, extractor=deps.extractor_for(deps.storage, job.job_id), writer=writer
         )
+        # Saved before the worker is started, never after: the worker's first act
+        # is to read this record, and a race here would have it looking for a
+        # media file the web process had not finished describing.
         deps.storage.save_media(job.job_id, verified)
+        deps.start_job(job.job_id)
         return Response(status_code=204)
 
     return router

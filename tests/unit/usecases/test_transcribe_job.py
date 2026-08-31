@@ -257,6 +257,65 @@ def test_a_diarized_job_says_so_on_its_transcript(
     assert transcript.diarized is True
 
 
+def test_a_completed_job_exports_the_message_as_text(
+    storage: FakeTranscriptStoragePort,
+) -> None:
+    """The `.txt` is what the operator actually opens. A job that stored a
+    transcript nobody can read has not finished doing its job."""
+    run(storage)
+
+    path = storage.load_export_path(JOB_ID)
+    assert path is not None
+    assert path.read_text(encoding="utf-8") == "hola mundo"
+
+
+def test_the_export_carries_the_message_and_not_the_music(
+    storage: FakeTranscriptStoragePort,
+) -> None:
+    """Sung lyrics are not the message. They stay in the transcript, where their
+    timestamps remain valid clip material, and out of the text export."""
+    transcriber = FakeTranscriptionPort(
+        script=(
+            ("gracias por acompañarme", SegmentKind.SPEECH),
+            ("aleluya aleluya", SegmentKind.MUSIC),
+        )
+    )
+
+    run(storage, transcriber=transcriber)
+
+    path = storage.load_export_path(JOB_ID)
+    assert path is not None
+    exported = path.read_text(encoding="utf-8")
+    assert "gracias por acompañarme" in exported
+    assert "aleluya" not in exported
+
+
+def test_unverified_text_is_marked_in_the_export_rather_than_dropped(
+    storage: FakeTranscriptStoragePort,
+) -> None:
+    """Dropping it would render an all-uncertain transcript — exactly what a
+    non-classifying engine produces — as an empty file, turning a multi-hour run
+    into zero bytes."""
+    transcriber = FakeTranscriptionPort(script=(("quizá dijo esto", SegmentKind.UNCERTAIN),))
+
+    run(storage, transcriber=transcriber)
+
+    path = storage.load_export_path(JOB_ID)
+    assert path is not None
+    assert path.read_text(encoding="utf-8") == "[?] quizá dijo esto"
+
+
+def test_a_job_that_did_not_complete_exports_nothing(
+    storage: FakeTranscriptStoragePort,
+) -> None:
+    """An export written over a hole reads as a complete sermon."""
+    storage.request_cancellation(JOB_ID)
+
+    run(storage)
+
+    assert storage.load_export_path(JOB_ID) is None
+
+
 def test_the_job_record_is_updated_never_recreated(
     storage: FakeTranscriptStoragePort,
 ) -> None:
