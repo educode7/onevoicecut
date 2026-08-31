@@ -79,24 +79,46 @@ Run one file, or one test:
 .venv\Scripts\python.exe -m pytest tests/unit/usecases/test_plan_chunks.py::test_byte_cap_shortens_the_stride
 ```
 
+## Running a job
+
+```powershell
+$env:PYTHONPATH = "src"
+.venv\Scripts\python.exe -m transcribe.runtime.worker --job-id <ulid> --data-dir .\data
+```
+
+One process per job — not a thread, not a queue. A process can be killed when a
+three-hour job goes wrong, and while it lives it is the only writer of that job's
+record.
+
+`PYTHONPATH=src` is needed because the package is deliberately not installed:
+`requirements.txt` pins dependencies and there is no `pyproject.toml`. `pytest`
+sets the same path itself via `pytest.ini`.
+
+**It will not transcribe anything yet.** No real ASR engine is wired, so the
+worker exits `3` and says so rather than failing later. Exit codes: `0` completed,
+`1` failed, `2` cancelled, `3` nothing usable to run.
+
+Killing the worker mid-job is safe. Re-running the same command resumes: every
+finished chunk is already committed, and the loop only picks up what is still
+owed. Resume is not a separate mode — it is the same command.
+
 ## Status
 
 Under construction, delivered in reviewable slices. Working today: the domain
-model, all five ports, chunk planning, overlap stitching, and the ffmpeg
-extraction adapter. Not built yet: the job runner, the web upload UI, either real
-ASR engine, and script generation.
-
-There is no application to run end to end yet — `pytest` is the entry point.
+model, the ports, chunk planning, overlap stitching, the ffmpeg extraction
+adapter, the filesystem storage adapter, the job loop with per-chunk failure
+isolation, retry, cancellation and resume, and the worker entrypoint. Not built
+yet: the web upload UI, either real ASR engine, and script generation.
 
 ## Layout
 
 ```
 src/transcribe/
   domain/     entities and errors; zero third-party imports
-  ports/      the five Protocol definitions; imports domain only
+  ports/      the Protocol definitions; imports domain only
   usecases/   orchestration; imports domain and ports only
-  adapters/   ffmpeg today; web, ASR, LLM and storage to come
-  runtime/    composition root (not built yet)
+  adapters/   ffmpeg and filesystem storage today; web, ASR and LLM to come
+  runtime/    composition root — the only place adapters are constructed
 ```
 
 `tests/test_architecture.py` fails the build if `domain`, `usecases` or `ports`
