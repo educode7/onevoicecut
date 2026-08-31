@@ -4,8 +4,8 @@ context: |
   Tech stack: Python 3.12, venv + pip (split requirements files + frozen lock), FastAPI/Uvicorn,
     pydantic. ffmpeg is a SYSTEM binary, never a pip dependency.
   Architecture: hexagonal. src/onevoicecut/{domain,ports,usecases} is the core (domain has zero
-    third-party imports); adapters/ and runtime/ are planned but DO NOT EXIST YET. runtime/ is the
-    composition root — the only place adapters may be constructed. The boundary is enforced by
+    third-party imports); adapters/{ffmpeg,storage,web} and runtime/ exist and are green. runtime/ is
+    the composition root — the only place adapters may be constructed. The boundary is enforced by
     tests/test_architecture.py, an ast walker that fails if the core imports adapters/runtime.
     Pipeline: upload video/audio -> ffmpeg extract + chunk -> transcribe (local or cloud ASR,
     selected per job) -> stitch -> structured Transcript -> .txt export + LLM summary, timestamped
@@ -22,9 +22,10 @@ context: |
     domain/errors.py raised across port boundaries — adapters never leak provider exceptions upward.
     No silent degradation: an adapter that cannot diarize refuses, and one that cannot classify
     non-speech reports `uncertain`, never `speech`.
-  Repo: git repository, default branch `main` (initialized 2026-08-17). Slice 1 (bootstrap + walking
-    skeleton) is committed and green on branch `slice-1-bootstrap-walking-skeleton`. .gitignore
-    excludes uploaded media, local ASR model weights, and .env.
+  Repo: git repository, default branch `main` (initialized 2026-08-17), remote
+    https://github.com/educode7/onevoicecut.git. Slices 1 through 6 are committed and green on branch
+    `slices-1b-to-6`; `main` still holds only the first two commits. .gitignore excludes uploaded
+    media, local ASR model weights, and .env.
 
 rules:
   proposal:
@@ -39,7 +40,7 @@ rules:
   tasks:
     - Group by phase, use hierarchical numbering
     - Keep tasks completable in one session
-    - Respect the 400-line review budget (delivery_strategy: ask-on-risk)
+    - Respect the 800-line review budget (delivery_strategy: auto-chain)
   apply:
     guidelines:
       - Follow existing code patterns once established
@@ -54,9 +55,12 @@ rules:
     - Warn before merging destructive deltas
 
 review:
-  budget_lines: 400
+  budget_lines: 800
   delivery_strategy: auto-chain
   chain_strategy: stacked-to-main
+  # Raised from 400 to 800 on 2026-08-31. Nine measured slices overran their
+  # estimate by 3.2x to 5.1x (mean 4.0x, none under 3.2x), so 400 forced a split
+  # on almost every unit and the ceiling stopped carrying information.
   # Slice 1 shipped under an accepted size:exception (1273 lines vs main).
   # Cause: slice estimates omitted the strict-TDD test multiplier.
   # Empirical ratio from slice 1 — tests 714 / src 461 / config 98.
