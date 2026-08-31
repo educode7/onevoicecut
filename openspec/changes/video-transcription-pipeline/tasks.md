@@ -75,6 +75,7 @@ margin — they are directly comparable to slice 1's well-measured domain/use-ca
 | Added by Open Question 8 (non-speech audio) | ~385 lines — slice 1b (~150), `kind` propagation through stitching (~20), local classification + hallucination containment (~70), cloud classification declaration (~50), speech-only MAP windowing (~60), musical-range clip eligibility (~35) |
 | **New total estimate** | **~6,543 lines** (was ~3,110 in rev 2 — 2.10x, not 3.35x, because scaffolding is sunk) |
 | Slice 1b actual (DONE) | 553 lines, delivered as **two** units after a mid-flight split: 1b-i 309 (PR 2) + 1b-ii 244 (PR 3). Estimated ~150 as one unit — 3.2x. Both units land under budget; the unsplit slice would have been 21% over |
+| Slice 4a actual (DONE) | 1,642 lines across **six** units, all under budget. Estimated ~340 — 4.8x, the worst ratio so far. Test share 68% against the 56% assumed. Revised unit: an adapter that also owns its persistence format ≈ 1,600 lines |
 | Per-unit 400-line budget risk | **Low** — every one of the 21 remaining work units is individually estimated at 145–350 lines, with margin, not at the ceiling |
 | Aggregate 400-line budget risk | **High** by construction — this is why the change stays split into 23 work units total |
 | Chained PRs recommended | Yes |
@@ -340,12 +341,11 @@ never require reverting planning.
 | 3a-ii | `feat(adapters): implement AudioExtractorPort over the ffmpeg binaries` | 342 |
 | 3a-iii | `test(integration): exercise ffmpeg extraction against the real binary` | 184 |
 
-**⚠ THE INTEGRATION TESTS ARE SKIPPED, NOT PASSING.** ffmpeg is not installed on the development
-machine, so all 10 `integration`-marked tests skip. The argv composition, the failure mapping and the
-containment checks are proven; **that ffmpeg accepts these exact flags is not**. The flag set
-(`-protocol_whitelist file`, `-map 0:a:0`, `-c:a flac`, `mpeg4`/`aac` for fixture synthesis) is written
-from documentation, never executed. First run on a machine with ffmpeg is a real verification step,
-not a formality — treat a failure there as expected-to-be-possible, not as a regression.
+**✔ VERIFIED 2026-08-31 — the integration tests now run and pass.** ffmpeg 9.0.1 (gyan.dev, installed
+via winget) put `ffmpeg`/`ffprobe` on PATH, and all 13 `integration`-marked tests across 3a and 3b pass
+against the real binaries on the first attempt. The flag set written from documentation and never
+executed — `-protocol_whitelist file`, `-map 0:a:0`, `-c:a flac`, `mpeg4`/`aac` for fixture synthesis —
+is accepted as written. Nothing needed changing.
 
 **Deviation — the fixture is generated, not checked in.** Task 3.5 called for "a tiny checked-in
 fixture", but `.gitignore` lines 25/29/30 exclude `*.mp4`/`*.mp3`/`*.wav` to keep operator media out of
@@ -384,10 +384,10 @@ threat-matrix row **ffmpeg subprocess argv**. First real subprocess adapter in t
 | 3b-ii | `feat(adapters): slice the normalized track into planned chunks` | 339 |
 | 3b-iii | `docs: add README, and cover slicing in the integration tests` | 192 |
 
-**⚠ 13 integration tests now written and SKIPPED** — ffmpeg is still not installed on the development
-machine. Slicing adds three more unverified claims to 3a's ten, and one of them matters more than the
-rest: `test_a_slice_really_holds_the_requested_duration` is the only check that `-ss` before `-i` and
-`-t` as a length behave as the argv unit tests assume.
+**✔ VERIFIED 2026-08-31 — all 13 integration tests pass against real ffmpeg.** The claim that mattered
+most, `test_a_slice_really_holds_the_requested_duration`, is the one that confirms `-ss` before `-i` and
+`-t` as a length behave as the argv unit tests assume. They do. The re-encode decision below is
+therefore verified end to end, not just argued.
 
 ### Port-contract gap found during implementation
 
@@ -426,24 +426,72 @@ dependency the design doesn't require.
 
 ---
 
-## Slice 4a: Filesystem `TranscriptStoragePort` Adapter (~340 lines)
+## Slice 4a: Filesystem `TranscriptStoragePort` Adapter — DONE (split into 4a-i … 4a-vi)
 
-Closes: `transcript-artifacts` Intermediate Chunk Result Persistence, Storage Location (Q5 assumption). **Gap fix
-vs rev 2**: the port has 12 methods; rev 2's task list only explicitly RED-tested the atomic-write and
-single-writer behaviors, leaving 8 CRUD methods "used by this slice" with no test task. Tasks 4.0a/4.0b close that
-gap. First real filesystem adapter — no slice 1 comparable (only the fake existed), +15% uncertainty margin applied.
+**Actual: 1,642 lines vs ~340 estimated — 4.8x, the worst ratio of the change so far.** Suite 276 passed,
+0 skipped, `mypy src tests` clean over 66 files.
 
-- [ ] 4.0a **RED (new)**: `tests/unit/adapters/storage/test_filesystem_transcript_storage.py` — `create_job`/
+| Unit | Commit | Lines |
+| --- | --- | --- |
+| 4a-i | `feat(adapters): decode persisted job state instead of trusting it` | 319 |
+| 4a-ii | `feat(adapters): persist transcript content without dropping its classification` | 271 |
+| 4a-iii | `feat(adapters): store the job record as one directory per job` | 286 |
+| 4a-iv | `feat(adapters): persist the plan, transcript and artifacts a job accumulates` | 293 |
+| 4a-v | `feat(adapters): commit a chunk result by rename so resume can trust it` | 289 |
+| 4a-vi | `feat(adapters): request cancellation through a file the worker does not own` | 194 |
+
+Closes: `transcript-artifacts` Intermediate Chunk Result Persistence, Storage Location (Q5 assumption),
+Per-Job Storage Isolation, Plain-Text Export.
+
+### Why 4.8x, and what the estimate keeps missing
+
+The 3a retro already revised "first-of-its-kind adapter" up to ~700-800 lines and warned that 4a was
+still costed on the old +15% margin. That warning was right and still too low. Two costs were not in
+any calibration unit:
+
+- **A codec is a second module.** Persisting nine entity types explicitly is ~270 lines of `src` before
+  the adapter exists. Reflective `Entity(**payload)` would have been ~30, and was rejected: it accepts
+  whatever an older process wrote and fails somewhere far away, which is the one thing resume cannot
+  afford.
+- **Absence is a test case per method.** Every read has a "not produced yet" state, every write has an
+  "against a job that does not exist" state. Twelve port methods generate roughly twenty tests that a
+  dict-backed fake never needed, because a dict has no half-created directories.
+
+Test share was **68%** (1,113 test / 529 src), against the 56% the rev-3 calibration assumed. **Revised
+unit: an adapter with its own persistence format ≈ 1,600 lines.** Slice 5a (web/upload) is the next one
+carrying an unmeasured category, and is still estimated at ~260.
+
+### Decisions taken here that were not in the design
+
+- **`create_job` refuses an existing id** (`JobAlreadyExists`). The port declares create and update
+  separately; a create that also overwrote would let a reused id silently discard a running job's state.
+- **Reads are tolerant, writes are strict.** `load_chunk_plan`/`load_transcript` return `None` for a job
+  that does not exist, but every save requires `job.json` to be present. A save against an uncreated job
+  would leave a directory holding a transcript and no record — the exact shape `list_jobs` skips, so the
+  orphan would be invisible rather than merely wrong.
+- **Every write is atomic, not just `save_chunk_result`.** The design specified the `.tmp` → fsync →
+  `os.replace` contract only for chunk results. A torn `job.json` is no more survivable, and the worker
+  rewrites it at every state transition, so `_write` is the one commit path.
+- **`list_jobs` skips a non-job directory but not a corrupt job record.** A scratch folder is not a
+  listing failure; a job silently missing from the list invites re-running a three-hour transcription.
+- **A malformed job id reports `JobNotFound`, not a distinct error**, so the store never reveals which
+  ids exist. The id is validated *before* being joined onto a path, rather than resolved and then checked
+  for containment — containment answers "did we escape?" after the path exists.
+- **`request_cancellation` / `cancellation_requested` live on the adapter, not the port.** The port has no
+  cancellation method and the design's single-writer rule needs one. Whether it is promoted to
+  `TranscriptStoragePort` is slice 4b's call, when the core loop actually polls it.
+
+- [x] 4.0a **RED (new)**: `tests/unit/adapters/storage/test_filesystem_transcript_storage.py` — `create_job`/
       `load_job`/`update_job`/`list_jobs` round-trip through real JSON files on disk; `save_chunk_plan`/
       `load_chunk_plan`, `save_transcript`/`load_transcript`, `save_artifacts`, `export_text` round-trip.
-- [ ] 4.0b **GREEN (new)**: `adapters/storage/filesystem_transcript_storage.py` implementing all non-atomic
+- [x] 4.0b **GREEN (new)**: `adapters/storage/filesystem_transcript_storage.py` implementing all non-atomic
       `TranscriptStoragePort` methods against `{TRANSCRIBE_DATA_DIR}/jobs/{job_id}/`.
-- [ ] 4.15 RED: atomic chunk-write test — a simulated crash between `.tmp` write and `os.replace` leaves
+- [x] 4.15 RED: atomic chunk-write test — a simulated crash between `.tmp` write and `os.replace` leaves
       the loader unaffected by a stale `.tmp`.
-- [ ] 4.16 GREEN: `save_chunk_result` — `os.replace`, fsync-before-replace, stale `.tmp` ignored by loader.
-- [ ] 4.17 RED: single-writer test — only the worker writes `job.json`; `control.json` cancellation flag
+- [x] 4.16 GREEN: `save_chunk_result` — `os.replace`, fsync-before-replace, stale `.tmp` ignored by loader.
+- [x] 4.17 RED: single-writer test — only the worker writes `job.json`; `control.json` cancellation flag
       is polled at chunk boundaries.
-- [ ] 4.18 GREEN: `control.json` read path in the filesystem adapter.
+- [x] 4.18 GREEN: `control.json` read path in the filesystem adapter.
 
 ## Slice 4b: `transcribe_job` Core Loop (~350 lines)
 

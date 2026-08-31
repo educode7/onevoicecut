@@ -152,14 +152,18 @@ This repo runs **Spec-Driven Development** (`openspec/`) with **strict TDD** (`s
 
 ### Current state
 
-Slices 1 and 1b are complete and green: **61 tests, mypy clean over 39 files**. On disk today are
-`domain/`, `ports/`, one use case (`usecases/ingest_media.py`), and `tests/fakes/` (two transcription
-doubles — one that classifies, one that declares it cannot). There is **no** `adapters/` or `runtime/`
-package yet, no real ffmpeg/ASR/LLM adapter, and no web app.
+Slices 1, 1b, 2a, 2b, 3a, 3b and 4a are complete and green: **276 tests, 0 skipped, mypy clean over 66
+files**. On disk today are `domain/`, `ports/`, three use cases (`ingest_media`, `plan_chunks`,
+`stitch_transcript`), `adapters/ffmpeg/` (real `AudioExtractorPort`), `adapters/storage/` (real
+`TranscriptStoragePort` + its JSON codec), and `tests/fakes/`. There is still **no** `runtime/` package,
+no ASR or LLM adapter, and no web app.
 
-Next up is **Slice 2a**: chunk planning (`usecases/plan_chunks.py`), then 2b overlap stitching — pure
-use-case logic proven against fakes before any real engine exists. That ordering is deliberate: the
-long-audio arithmetic is provable without a single real transcription.
+ffmpeg 9.0.1 is installed (winget, `Gyan.FFmpeg`), so the 13 `integration`-marked tests run rather than
+skip — the flag set in `adapters/ffmpeg/argv.py` is verified against the real binaries, not just argued.
+
+Next up is **Slice 4b**: the `transcribe_job` core loop — the first code that drives a job end to end
+over the storage adapter, and the first consumer of `cancellation_requested`. Decide there whether
+cancellation is promoted onto `TranscriptStoragePort`; 4a deliberately left it on the concrete adapter.
 
 One decision is deliberately left open for slice 10a: whether MAP windowing excludes `UNCERTAIN`
 segments or marks them the way the `.txt` export does. Excluding risks an empty summary on a
