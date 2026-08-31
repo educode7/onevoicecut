@@ -17,7 +17,7 @@ from transcribe.domain.errors import (
     UnsupportedContainer,
     UploadTooLarge,
 )
-from transcribe.domain.ids import JobId
+from transcribe.domain.ids import InvalidIdError, JobId, make_job_id
 from transcribe.domain.media import SourceMedia
 from transcribe.ports.audio_extractor import AudioExtractorPort
 from transcribe.ports.media_source import MediaSourcePort
@@ -26,6 +26,29 @@ from transcribe.usecases.admit_job import admit_job
 # The client's filename travels as metadata, never in the URL — a path parameter
 # would invite treating it as one.
 FILENAME_HEADER = "x-filename"
+
+
+def _validated_job_id(raw: str) -> JobId:
+    """Check the id at the door, against the pattern the domain owns.
+
+    The filesystem adapter validates too, and until now that was the only check —
+    which made the guarantee a property of one storage backend rather than of the
+    route. Worse, it held partly by accident of statement order: a hostile id died
+    at `load_job` because no such job existed, so a handler that built the writer
+    first would have handed it a path outside the data directory and nothing would
+    have complained.
+
+    `%2e%2e` is the form that matters. `../..` is normalised away by the client and
+    the router before any handler sees it; the percent-encoded version survives
+    routing and arrives as `..` in the path parameter.
+
+    A malformed id answers 404, the same as a well-formed unknown one, so the store
+    never reveals which ids exist.
+    """
+    try:
+        return make_job_id(raw)
+    except InvalidIdError as error:
+        raise HTTPException(status_code=404, detail="no such job") from error
 
 
 def _refuse_if_declared_too_large(request: Request, max_bytes: int) -> None:
@@ -146,7 +169,7 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         decided that before this handler ran.
         """
         try:
-            job = deps.storage.load_job(JobId(job_id))
+            job = deps.storage.load_job(_validated_job_id(job_id))
         except JobNotFound as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
