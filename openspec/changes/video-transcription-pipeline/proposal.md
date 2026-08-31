@@ -1,21 +1,41 @@
 # Proposal: Video Transcription Pipeline
 
-> Phase: `sdd-propose` (rev 3 — non-speech audio) · Artifact store: hybrid (mirror of Engram `sdd/video-transcription-pipeline/proposal`)
-> Inputs: `exploration.md`, Engram 637/639/640/641, the answered proposal question round (rev 2), plus the
-> **rev 3 answer to Open Question 8** (music and singing in the source audio), given after slice 1 shipped.
+> Phase: `sdd-propose` (rev 4 — vertical clip rendering) · Artifact store: hybrid (mirror of Engram `sdd/video-transcription-pipeline/proposal`)
+> Inputs: `exploration.md`, Engram 637/639/640/641, the answered proposal question round (rev 2), the
+> **rev 3 answer to Open Question 8** (music and singing in the source audio), plus the **rev 4 scope
+> decision** taken after slice 4a shipped: the operator's real outcome is a publishable vertical clip,
+> not a script.
 > **[BINDING]** = user decision, not re-openable. **[ANSWERED]** = resolved in the question round.
+
+## Why This Revision Exists
+
+Rev 1-3 stopped at the script artifact, and said so as a **[BINDING]** non-goal. That boundary was
+drawn on a stated intent — "the next step (cutting and producing the clip)" was assumed to be a human
+with an editor.
+
+That assumption was wrong about the actual job. The source material is **sermons filmed by the
+operator's church**, and the outcome wanted is a short vertical video published to social networks.
+Cutting each clip by hand is exactly the manual labor this change exists to remove; stopping at a
+script relocates the work rather than eliminating it. The operator confirmed the revised outcome
+directly.
+
+**A binding non-goal is reversible only by the person who bound it, and only deliberately.** This
+revision records that reversal rather than quietly widening scope — the same treatment speaker
+diarization received in rev 2, which moved from non-goal to opt-in path with the change stated in
+line. What was learned from that precedent applies here too: the cost is not in the feature, it is in
+the honest asymmetry the feature exposes. See *Vertical Reframing Reality*.
 
 ## Intent
 
-The user produces high-impact short-form social video. The raw material for that is what was said in
-existing footage, and today extracting it is manual: watch the video, take notes, retype quotes, guess
-where the good moments are. No application code exists yet — the repository is initialized and nothing
-is committed.
+The user produces high-impact short-form social video from **multi-hour church sermon footage**. Today
+extracting it is manual end to end: watch the video, take notes, retype quotes, guess where the good
+moments are, then cut and reframe each clip by hand.
 
-The outcome wanted is not "a transcript". It is: drop a video in, get back a summary plus a shortlist
-of **clip-worthy moments with timestamps that point back into the source footage**, each with a short
-script, so the next step (cutting and producing the clip) starts from evidence instead of memory.
-The transcript is the intermediate representation that makes that possible.
+The outcome wanted is: drop a sermon in, get back a summary, a shortlist of **clip-worthy moments with
+timestamps that point back into the source footage**, and — as of rev 4 — **the rendered vertical clips
+themselves**, subtitled and ready to upload. The transcript is the intermediate representation that
+makes the selection possible; the crop trajectory is the intermediate representation that makes the
+reframe possible. Neither is the deliverable.
 
 **The defining operational fact: source videos are always multi-hour** **[ANSWERED]**. Multi-hour is
 the normal case, not the tail. This is not a scaling concern to handle later — it is the constraint
@@ -29,7 +49,9 @@ slice 1 onward.
 - **Local web UI with HTTP upload** as the ingest path **[BINDING]**, plus **asynchronous job handling**:
   job creation, chunk-level status/progress polling, terminal success/failure. A multi-hour
   transcription MUST NOT block an HTTP request. Upload size limits and request timeouts are in scope.
-- **Hexagonal decomposition** with five ports (see Approach). ASR is a port with **two interchangeable
+- **Hexagonal decomposition** with **eight ports — seven implemented, one declared** (see Approach); five
+  through rev 3, plus `SubjectTrackerPort`, `VideoRenderPort` and a declared-only `PublishPort` **[rev 4]**.
+  ASR is a port with **two interchangeable
   adapters — one local engine, one cloud API engine** **[BINDING]**.
 - **Per-job ASR engine selection** **[ANSWERED]**: the operator chooses local or cloud **per job**,
   because the choice is content-dependent — sensitive material goes local, the rest may go cloud.
@@ -52,6 +74,18 @@ slice 1 onward.
 - **Generation output contract** **[BINDING]**: summary + list of candidate clip moments (each carrying
   source timestamps and a short script), designed so **N script variants** (per network/format) is a
   natural shape, not a later bolt-on.
+- **Vertical (9:16) clip rendering** **[rev 4]** — a selected clip candidate is cut from the source and
+  reframed to 9:16 with **subject tracking**, because the source is a fixed wide camera and the speaker
+  moves within the frame **[ANSWERED — Open Question 10]**. Detection and rendering are separated: see
+  *Vertical Reframing Reality*.
+- **Burned-in subtitles** **[rev 4]** on the rendered clip, derived from the same structured transcript.
+  A sidecar `.srt` is not a substitute — vertical social video is watched muted, and the caption is the
+  clip's only channel in that state. This requires **word-level timestamps**, which the current domain
+  model does not carry; see the retrofit risk below.
+- **Clip export to disk** **[rev 4]** — the rendered clip plus its metadata (title, description, the
+  script variant, source timestamps) written to the job directory, ready for the operator to upload.
+  **Automatic publishing to social networks is a declared seam, not in this delivery** — see
+  Open Question 11.
 - **Bootstrapping**: dependency manager = **venv + pip + `requirements.txt`** (skill default — no
   `uv.lock`/`pyproject.toml`/`Pipfile`/`environment.yml` present); test runner = **pytest** recorded as
   `test_command` in `openspec/config.yaml`; **ffmpeg as a system binary** with its own install/verify
@@ -59,17 +93,33 @@ slice 1 onward.
 
 ### Out of Scope (explicit non-goals)
 
-- Rendering, assembling, or publishing video. **The script/summary artifact is the stopping point** and
-  the seam for a future change **[BINDING]**.
-- AI avatar generation (HeyGen/Synthesia), programmatic rendering (Remotion/Hyperframes), AI footage
-  generation (Veo/Sora/Runway).
-- Publishing or scheduling to social networks.
+- **Generating footage that was never filmed.** AI avatar generation (HeyGen/Synthesia), AI footage
+  generation (Veo/Sora/Runway), synthetic actors, AI voice dubbing. Every frame and every word in an
+  output clip MUST come from the source sermon. This is the non-goal that actually matters for this
+  product: the artifact is a record of something a person said in a church, and a synthesized version
+  of it is a different thing wearing its face.
+- **Automatic publishing or scheduling to social networks** — declared as `PublishPort` and deliberately
+  left unimplemented in this delivery. See Open Question 11.
+- Compositing that is not a reframe: B-roll insertion, Ken Burns effects, stock footage, background
+  music beds, transitions between unrelated shots.
 - Real-time / streaming transcription.
 - Multi-user authentication, hosted storage, remote access. This is a single-operator local app.
 - Multi-language and code-switching transcription — Spanish only **[ANSWERED]**.
 - **Automatic** speaker detection. Diarization is opt-in per job, never inferred from the audio.
 
-> Speaker diarization is **no longer a non-goal.** It moved into scope as a conditional, opt-in path.
+> **Speaker diarization** is no longer a non-goal (rev 2). It moved into scope as a conditional, opt-in path.
+>
+> **Rendering and assembling video** is no longer a non-goal (rev 4). The rev 1-3 text read: *"Rendering,
+> assembling, or publishing video. The script/summary artifact is the stopping point and the seam for a
+> future change **[BINDING]**."* That boundary was drawn assuming a human editor performed the cut. The
+> operator reversed it deliberately: cutting and reframing by hand is the manual labor this change exists
+> to remove. **Publishing remains out**, so the seam moved rather than disappeared — it now sits after the
+> rendered clip instead of after the script.
+>
+> Note what did **not** move: programmatic composition of footage that was never filmed. Rev 1-3 bundled
+> "programmatic rendering (Remotion/Hyperframes)" together with AI generation in one non-goal. Rev 4
+> separates them, because they are not the same risk. Reframing real footage is editing. Synthesizing a
+> speaker is fabrication.
 
 ## Long-Audio: The Driving Constraint
 
@@ -156,6 +206,58 @@ The concrete controls per provider are an implementation question for slices 7a/
 consequence is settled here: classification is declared per adapter and asserted in the shared contract
 suite, not assumed.
 
+## Vertical Reframing Reality (the camera does not move; the preacher does)
+
+**[ANSWERED — Open Question 10]** The sermons are filmed by **one fixed camera on a wide shot** of the
+platform. Nobody operates it. The preacher walks, steps away from the pulpit, turns to the
+congregation. There are no cuts between angles, because there is only one angle.
+
+That single fact settles three things and creates one real problem.
+
+**Settled — scene detection is unnecessary.** A fixed uncut camera has no shot boundaries to detect.
+PySceneDetect and the whole scene-segmentation layer that a general-purpose tool needs is dead weight
+here. Likewise the multi-layout machinery (split-screen for two speakers, screencast with webcam inset,
+speaker-cut alternation) solves problems this footage does not have.
+
+**Settled — a static centered crop is not viable.** It is the cheap option and it fails on exactly this
+input: a 9:16 window carved out of a wide platform shot will hold the pulpit and lose the preacher the
+moment he steps left. Subject tracking is required, not a refinement.
+
+**Settled — detection and rendering must be separate concerns.** The technique worth adopting (observed
+in `mutonby/openshorts`, `reframe_v2.py`) is *analyze in Python, render natively in ffmpeg*: decode at
+reduced resolution (≤640px) purely to locate the subject, emit a **crop trajectory**, then apply that
+trajectory in a single native ffmpeg pass. Raw frames are never piped between processes.
+
+This maps onto the existing hexagon without straining it:
+
+| Concern | Where it lives | Proven by |
+| --- | --- | --- |
+| Where the subject is, frame by frame | `SubjectTrackerPort` adapter (YOLO/MediaPipe) | `localmodel`-marked tests only |
+| Smoothing, dead-zone, clamping to frame edges, interpolation across gaps | **Use case, pure** | Default suite, against a fake detector |
+| Turning a trajectory into a rendered file | `VideoRenderPort` adapter (ffmpeg `sendcmd`) | `integration`-marked tests |
+
+**The trajectory is a domain object, and that is what protects the existing success criterion.** All the
+behavior that is easy to get wrong — jitter, a crop that leaves the frame, what happens across a gap in
+detections — is arithmetic over a list of keyframes. It is testable with no weights, no GPU, and no
+video, exactly as chunk planning was testable with no ASR. The default `pytest` run continues to load
+no model weights; the vision dependency goes in its own `requirements-vision.txt`, alongside the
+already-established `requirements-local-asr.txt` and `requirements-diarization.txt`.
+
+**The third no-silent-degradation axis.** A tracker that lost the subject MUST NOT return a centered
+crop indistinguishable from a tracked one. This is the same failure shape as an adapter that cannot
+diarize returning unlabeled segments, and an adapter that cannot classify returning `speech`: *the
+output looks fine*. A clip silently centered on an empty pulpit for nine seconds is a defect nobody
+notices until it is published. Therefore each keyframe records its origin — `TRACKED`, `INTERPOLATED`,
+or `FALLBACK_CENTER` — and a clip whose trajectory is mostly fallback is reported as such rather than
+delivered as a successful reframe. **Mark, never silently substitute**, on a third axis.
+
+**The real problem: a wide shot spends resolution.** Cropping 9:16 out of a 16:9 frame keeps at most
+`height × 9/16` of the width — from 1920×1080 that is **608×1080**, and punching in tighter on a distant
+preacher costs more. Vertical delivery targets are 1080×1920. So the source resolution determines
+whether output is native, upscaled, or unacceptable, and a fixed wide camera is the worst case for it:
+the subject occupies a small part of an already-cropped frame. This is **not solvable in software** and
+must be measured against real footage before slice sizing is trusted. See Open Question 12.
+
 ## Capabilities
 
 ### New Capabilities
@@ -167,10 +269,13 @@ suite, not assumed.
 - `speech-transcription`: `TranscriptionPort` contract, two adapters, **capability declaration**, chunk planning, overlap stitching, timestamp preservation, opt-in diarization, **non-speech segment classification and hallucination containment**.
 - `transcript-artifacts`: structured `Transcript`/`TranscriptSegment` (with optional speaker **and a content classification**), **intermediate chunk results**, storage, `.txt` export **restricted to the spoken message**.
 - `script-generation`: summary + timestamped clip candidates + N script variants, map-reduce over long transcripts, **summarizing speech segments only**.
+- `subject-tracking` **[rev 4]**: `SubjectTrackerPort` contract, crop-trajectory domain object, smoothing/clamping/interpolation as pure use-case logic, keyframe provenance (`TRACKED`/`INTERPOLATED`/`FALLBACK_CENTER`), capability declaration and the low-confidence rejection path.
+- `clip-rendering` **[rev 4]**: cut a clip candidate from the source, apply the crop trajectory as a single native ffmpeg pass, burn in subtitles derived from the structured transcript, export the clip plus its metadata to the job directory.
 
 ### Modified Capabilities
 
-None — `openspec/specs/` is empty.
+- `transcript-artifacts` **[rev 4]**: `TranscriptSegment` gains **word-level timing**. Burned-in captions cannot be built from segment-level timestamps alone — a Whisper segment routinely spans 5-10 seconds, which is far more text than a vertical frame can hold at a readable size, and re-splitting it without word times means guessing where the words fall. This is a domain-model change on a type that already crosses ports, storage, both ASR adapters and generation. See the retrofit risk.
+- `speech-transcription` **[rev 4]**: adapters must surface word timings where the engine provides them (`faster-whisper` supports `word_timestamps=True`), and declare the capability where it does not — the same declaration pattern as diarization and classification, on a fourth axis.
 
 ## Approach
 
@@ -183,6 +288,17 @@ Hexagonal architecture. The swappability requirement is the reason for the shape
 | `TranscriptionPort` | `AudioChunk` + requested speaker mode → segments with **start/end timestamps**, text, optional speaker, **and a content classification (speech/music/uncertain)**. Provider-neutral. **Declares its capabilities** (diarization: yes/no; non-speech classification: yes/no) so the use case can reject an impossible job up front instead of degrading silently. An adapter that cannot classify reports `uncertain`, never `speech`. |
 | `TextGenerationPort` | Prompt/context → text completion. Provider-neutral. Knows nothing about summaries, clips, or chunking. |
 | `TranscriptStoragePort` | Persist and retrieve the job record, **per-chunk intermediate results**, the assembled `Transcript`, and generated artifacts, by job id. Resume is built on this. |
+| `SubjectTrackerPort` **[rev 4]** | `SourceMedia` + time range → subject detections at a sampling rate. Provider-neutral (YOLO, MediaPipe, or anything else). **Declares its capabilities**, and reports where it failed to detect rather than substituting a centered guess. Knows nothing about cropping, smoothing, or aspect ratio — it answers "where is the person", nothing more. |
+| `VideoRenderPort` **[rev 4]** | `SourceMedia` + time range + `CropTrajectory` + subtitle cues → a rendered vertical file. ffmpeg lives behind this, as it already does for extraction. Knows nothing about *why* the trajectory says what it says. |
+| `PublishPort` **[rev 4, declared not implemented]** | Rendered clip + metadata → a published or queued post. Declared now so the shape of `ClipExport` is not accidentally hostile to it later; deliberately unimplemented in this delivery (Open Question 11). |
+
+**Why tracking is a port and not a function inside the renderer.** The renderer takes a trajectory as
+data. That keeps every decision worth testing — smoothing, dead-zone, clamping, gap interpolation,
+what counts as "lost the subject" — in a use case above the ports, provable against a fake detector
+with no model weights. It also means swapping YOLO for MediaPipe, or for a hand-authored trajectory,
+never touches the renderer. The alternative (a detect-and-render adapter) would put that arithmetic
+behind a `localmodel` marker and out of the default suite, which is precisely the trade the hexagon
+exists to refuse.
 
 Chunk planning, overlap stitching, resume orchestration, and map-reduce summarization live in **use
 cases** above the ports, so swapping an ASR engine or LLM provider never forces rewriting them.
@@ -204,12 +320,14 @@ adapters on the single-speaker path; diarization behavior is asserted per declar
 | `pytest.ini` / `pyproject.toml` | New | pytest config, `integration` marker registration |
 | `openspec/config.yaml` | Modified | Fill `test_command`, `build_command` (currently `""`) |
 | `.gitignore` | Exists | Already excludes uploaded media, local ASR model weights, `.env` |
-| `src/transcribe/domain/` | New | `SourceMedia`, `AudioTrack`, `AudioChunk`, `ChunkPlan`, `ChunkResult`, `Transcript`, `TranscriptSegment`, `SegmentKind`, `SpeakerMode`, `EngineChoice`, `JobRecord`, `ClipCandidate`, `ScriptVariant` |
-| `src/transcribe/ports/` | New | Five port protocols + capability declaration |
-| `src/transcribe/usecases/` | New | Ingest, chunk plan/transcribe/stitch/resume, map-reduce generate |
-| `src/transcribe/adapters/` | New | web/upload, ffmpeg, local ASR, cloud ASR, LLM, filesystem storage |
+| `src/transcribe/domain/` | New | `SourceMedia`, `AudioTrack`, `AudioChunk`, `ChunkPlan`, `ChunkResult`, `Transcript`, `TranscriptSegment`, `SegmentKind`, `SpeakerMode`, `EngineChoice`, `JobRecord`, `ClipCandidate`, `ScriptVariant`; **[rev 4]** `WordTiming`, `CropKeyframe`, `CropTrajectory`, `KeyframeOrigin`, `SubtitleCue`, `RenderedClip` |
+| `src/transcribe/ports/` | New | Five port protocols + capability declaration; **[rev 4]** `SubjectTrackerPort`, `VideoRenderPort`, and `PublishPort` declared but unimplemented |
+| `src/transcribe/usecases/` | New | Ingest, chunk plan/transcribe/stitch/resume, map-reduce generate; **[rev 4]** trajectory planning (smoothing/clamping/interpolation), subtitle cue building, clip render orchestration |
+| `src/transcribe/adapters/` | New | web/upload, ffmpeg, local ASR, cloud ASR, LLM, filesystem storage; **[rev 4]** vision tracker, ffmpeg vertical renderer |
+| `requirements-vision.txt` | **New [rev 4]** | Object/face detection weights, kept out of the default install for the same reason as local ASR and diarization |
+| `pytest.ini` | Modified **[rev 4]** | The existing `localmodel` marker now also covers vision weights; no new marker needed |
 | `tests/` | New | Fast unit suite (fakes) + marked adapter contract tests |
-| `README.md` | New | ffmpeg install step, diarization setup caveats, run instructions |
+| `README.md` | New | ffmpeg install step, diarization setup caveats, run instructions; **[rev 4]** vision model setup, and the source-resolution guidance from Open Question 12 |
 
 ## Size Forecast (400-line review budget)
 
@@ -242,10 +360,34 @@ Revised chained/stacked PR sequence:
 | 8 | Cloud ASR adapter + 25MB per-request cap handling + contract test | ~250 | Interchangeability |
 | 9 | Opt-in diarization across both adapters + capability declaration + rejection path | ~250 | Speaker mode, with honest asymmetry |
 | 10 | `TextGenerationPort` adapter + map-reduce + summary/clip-candidates/N-variant output | ~450 | The actual product outcome |
+| 11 **[rev 4]** | Word-level timing retrofit: `WordTiming` on the segment, through storage codec, stitcher and fakes | ~350 | Captions become possible at all |
+| 12 **[rev 4]** | `SubjectTrackerPort` + `CropTrajectory` + trajectory planning use case, against a fake detector | ~600 | The reframe arithmetic, with no model weights |
+| 13 **[rev 4]** | Vision tracker adapter (`localmodel`) + ffmpeg vertical renderer + subtitle burn-in + clip export | ~700 | A real 9:16 subtitled clip on disk |
 
 **Slice 10 remains above budget** and should be split at `sdd-tasks` time (map-reduce summary, then
 clip candidates + variants). **Slices 1 and 4 sit at the ceiling** and have no headroom for surprises.
 `delivery_strategy: ask-on-risk` → **a delivery decision is required before apply.**
+
+### Rev 4 estimate honesty (read this before trusting the three numbers above)
+
+Every slice measured so far overran: slice 1 by 3.35x, 1b by 3.2x, 3a and 3b by 3.9x, **4a by 4.8x**.
+The measured test share is now **68%**, not the 56% the rev-3 calibration assumed. Applying the measured
+factor rather than the estimate, slices 11-13 are realistically **~4,000-6,000 lines, not ~1,650** —
+which would roughly double the whole change.
+
+Two of the three carry categories with no measured comparable, which is exactly what produced the 4a
+miss:
+
+- **Slice 12** is pure geometry and should behave like the well-measured pure-logic slices (2a, 2b). It
+  is the one number here with real grounding.
+- **Slice 13** introduces *two* first-of-their-kind adapters at once (a vision runtime and a video
+  renderer). The 4a retro established that an adapter which also owns its own format runs ~1,600 lines.
+  Two of them is not ~700. **This slice must be split at `sdd-tasks` time, not at apply time.**
+- **Slice 11** is a retrofit through a type that already crosses ports, storage, the stitcher and every
+  fake — the shape the rev-3 risk table already flagged as expensive when it justified landing
+  `SegmentKind` early as slice 1b. That warning applies here, minus the option of landing it early.
+
+**Treat these three numbers as lower bounds.**
 
 ## Risks
 
@@ -265,7 +407,13 @@ clip candidates + variants). **Slices 1 and 4 sit at the ceiling** and have no h
 | Resume correctness (partial chunk writes, duplicated work after crash) | Med | Chunk results written atomically; resume tested against fakes in slice 4 |
 | Long-form ASR quality varies sharply by provider (~7% vs ~43.8% WER in one 2026 benchmark), and every job here is long-form | Med | Two adapters behind one port; evaluate on real multi-hour Spanish content, not short clips |
 | Cloud ASR/LLM per-minute cost leaking into CI or default test runs — worse now, since diarization add-ons bill on top | Med | Marked integration tests excluded from default suite |
-| Scope creep toward actual video generation | Med | Non-goal stated explicitly above |
+| ~~Scope creep toward actual video generation~~ — **SUPERSEDED in rev 4.** Rendering is now in scope by decision, not by drift. The residual risk is different: creep from *editing real footage* into *generating footage*. | Med | Redrawn non-goal: every frame and word in an output clip comes from the source sermon. No synthesis, no avatars, no dubbing, no B-roll |
+| **Word-level timing is a retrofit through a type that already crosses every layer.** `TranscriptSegment` is in the storage codec, the stitcher, both fakes, and every construction site in the test suite. The rev-3 table flagged exactly this shape for `SegmentKind` and mitigated it by landing it as slice 1b, *before* adapters existed. That option is gone — `adapters/storage` and `adapters/ffmpeg` now exist | **High** | Land it as its own slice (11) before any rendering work, and treat the codec's explicit field-by-field decoding as the thing that makes the migration visible rather than silent |
+| **Wide-shot source resolution may make native 1080×1920 output impossible.** A 9:16 crop of 1920×1080 yields at most 608×1080 before any punch-in; a distant preacher costs more | **High** | Not solvable in software. Measure against real footage before slice 12/13 sizing is trusted — Open Question 12 |
+| **A tracker that lost the subject returns a plausible centered crop** — a clip framed on an empty pulpit looks like a successful render | **High** (same shape as the two silent-degradation failures already in this table) | Keyframe provenance (`TRACKED`/`INTERPOLATED`/`FALLBACK_CENTER`); a mostly-fallback trajectory is reported, not delivered as success |
+| Vision weights leaking into the default test run, breaking the "no model weights by default" criterion | Med | Detection behind `SubjectTrackerPort`; all trajectory arithmetic proven against a fake detector; real adapter tests carry the existing `localmodel` marker; `requirements-vision.txt` kept out of the default install |
+| **Rev 4 roughly doubles the change**, and it is being added to a change already running 3-5x over every estimate | **High** | Estimate honesty section above; slice 13 split mandated at `sdd-tasks` time; the alternative of shipping rev 1-3 first and rendering as a separate change stays available |
+| Render time on multi-hour source: detection sampling plus a native ffmpeg pass, per clip | Med | Detection runs only over the selected clip range, never the whole sermon — the clip candidates already narrowed it to minutes |
 | Chunk-boundary word loss when stitching | Med | Overlap handling is an explicit spec requirement, not adapter discretion |
 
 ## Rollback Plan
@@ -276,11 +424,16 @@ clip candidates + variants). **Slices 1 and 4 sit at the ceiling** and have no h
 2. Per-slice rollback: each slice is additive. Revert its commit; earlier slices keep passing because
    every slice ends with a green default suite.
 3. ffmpeg is a system binary installed outside the project; uninstalling it is optional and independent.
-   The same applies to any local diarization model weights pulled in at slice 9 — they live outside the
-   repository and are already `.gitignore`d.
+   The same applies to any local diarization model weights pulled in at slice 9, and to the vision
+   weights pulled in at slice 13 **[rev 4]** — they live outside the repository and are already
+   `.gitignore`d.
 4. No external state is mutated: no database, no remote service writes, no published artifacts.
-   Rolling back a slice may leave per-job working directories and intermediate chunk files on disk;
-   these are inert data, safe to delete manually.
+   Rolling back a slice may leave per-job working directories, intermediate chunk files and **rendered
+   clips [rev 4]** on disk; these are inert data, safe to delete manually.
+   **This property is what Open Question 11 protects.** It holds only while publishing stays out of
+   scope — the moment a clip is posted to a social network, rollback stops being a local operation and
+   this clause becomes false. That is the real cost of flipping OQ 11, and it is not a technical
+   inconvenience: an unpublish is a different act from a revert, and some networks do not offer one.
 
 ## Dependencies
 
@@ -290,6 +443,10 @@ clip candidates + variants). **Slices 1 and 4 sit at the ceiling** and have no h
   tests and real runs, never for the default suite.
 - **Local diarization component** (`pyannote.audio` or `WhisperX`, plus model weights and a gated
   Hugging Face license acceptance) — required only for slice 9's local speaker-mode path.
+- **Vision detection component** **[rev 4]** (`requirements-vision.txt`: a person/face detector plus its
+  weights) — required only for slice 13's real tracker. The trajectory arithmetic in slice 12 needs none
+  of it. ffmpeg is already a dependency and gains no new requirement: the vertical render is a filter
+  pass, not a new binary.
 - An **initial commit** — remaining prerequisite (see Rollback).
 
 ## Open Questions & Stated Assumptions
@@ -298,13 +455,17 @@ clip candidates + variants). **Slices 1 and 4 sit at the ceiling** and have no h
 | --- | --- | --- |
 | 1 | Source audio language(s)? Multi-language / code-switching? | **ANSWERED — Spanish only.** No multi-language, no code-switching. Promoted to a stated requirement in scope. |
 | 2 | Is speaker diarization needed? | **ANSWERED — conditional and opt-in.** Mostly one voice to camera; multi-speaker material exists but is rare. Default is single-voice/talking-head; a per-job option declares two or more speakers. No longer a non-goal. |
-| 3 | Which social networks/formats matter for script variants? | **OPEN.** Output contract is designed for **N variants** so the answer changes data, not structure. Determines whether slice 10 ships one variant or four. |
+| 3 | Which social networks/formats matter for script variants? | **OPEN — and it stays data, not structure, only because publishing is out.** With export-to-disk as the delivery, the answer sets duration and aspect presets and the number of script variants. It would become structural the moment Open Question 11 flips to automatic publishing, since each network is then its own adapter and its own credential. |
 | 4 | Typical and worst-case video duration? | **ANSWERED — always multi-hour.** Multi-hour is the normal case, not the tail. Supersedes the previous "typical 10–60 min" assumption and drives the whole job model. |
 | 5 | Where do transcripts and outputs live between steps? | **OPEN.** Assumed local filesystem, per-job directory behind `TranscriptStoragePort`, no database. Now also has to hold intermediate chunk results. |
 | 6 | Is retention/cleanup of uploaded video required? | **OPEN — and sharper now.** With multi-hour video as the normal case, each job stores a large source file plus extracted audio plus chunk files. Without a retention policy, disk consumption grows without bound. Assumed for now: no automatic deletion. This assumption is the most likely to cause a real operational problem. |
 | 7 | Local vs cloud ASR as the default adapter? | **ANSWERED — no global default; selectable per job.** Content-dependent: sensitive material goes local, the rest may go cloud. Both adapters are first-class from slice 6 onward. |
 | 8 | Does the source audio contain non-speech (music, singing)? | **ANSWERED — yes, routinely.** The speaker is sometimes accompanied by a singer, sometimes over background music. Music is normal input. Drives `SegmentKind`, speech-only message export, speech-only summarization input, and hallucination containment. See *Non-Speech Audio Reality*. |
-| 9 | Should musical/sung ranges be actively **promoted** as clip candidates, or merely permitted? | **OPEN.** Settled so far: they are *permitted* — timestamps are retained and a candidate MAY reference a non-speech range. Whether generation should additionally *favor* them (a singer's moment is often strong short-form material) is a ranking-policy question that changes prompt and scoring in slice 10b only, not any type. |
+| 9 | Should musical/sung ranges be actively **promoted** as clip candidates, or merely permitted? | **OPEN.** Settled so far: they are *permitted* — timestamps are retained and a candidate MAY reference a non-speech range. Whether generation should additionally *favor* them (a singer's moment is often strong short-form material) is a ranking-policy question that changes prompt and scoring in slice 10b only, not any type. **Rev 4 raises the stakes**: with rendering in scope, a promoted musical range becomes a rendered worship clip, which is plausibly the single most shareable artifact this system could produce. |
+| 10 | How is the source footage filmed? | **ANSWERED (rev 4) — one fixed camera, wide shot, no operator, no cuts.** The preacher moves within a static frame. Kills scene detection and multi-layout as unnecessary; makes subject tracking mandatory rather than optional. See *Vertical Reframing Reality*. |
+| 11 | Automatic publishing to social networks, or export to disk? | **ASSUMED — export to disk for this delivery.** Stated so it is a live decision, not a buried one. Rationale: per-network OAuth, token refresh, rate limits and new stored credentials is heavy machinery for a single operator posting occasionally, and automatic publishing breaks the rollback property *"no external state is mutated"* that holds today. `PublishPort` is declared so flipping this later is an added adapter, not a reshape. **The operator's stated goal does include publishing** — this defers it, it does not deny it. |
+| 12 | What is the source footage's actual resolution, and how large is the preacher in frame? | **OPEN — and blocking for slice 12/13 sizing.** A 9:16 crop of 1920×1080 yields at most 608×1080 before punch-in, against a 1080×1920 delivery target. If the church records 1080p on a wide shot, output is upscaled and the quality ceiling is set by the camera, not by this software. 4K source removes the concern entirely. **Cannot be answered from the repository — needs one real sermon file measured.** |
+| 13 | Which clip candidates get rendered — all of them, or an operator selection? | **OPEN.** Rendering every candidate of a multi-hour sermon is expensive and mostly wasted; rendering none until asked adds a step. Assumed for now: the operator selects from the candidate list, and rendering is explicit. Changes the job model's terminal states, so it should be settled before slice 13. |
 
 ## Success Criteria
 
@@ -321,4 +482,10 @@ clip candidates + variants). **Slices 1 and 4 sit at the ceiling** and have no h
 - [ ] A source passage that is music or singing does not contribute invented text to the transcript, and its timestamps remain available to clip candidates.
 - [ ] A multi-hour transcript produces a summary via map-reduce without exceeding LLM context.
 - [ ] The generation output can carry more than one script variant without a structural change.
-- [ ] The default `pytest` run invokes no paid API and no real local model.
+- [ ] Every transcript segment carries word-level timing, or its adapter declares it cannot produce it.
+- [ ] A crop trajectory is smoothed, clamped inside the source frame, and interpolated across detection gaps — all proven with no model weights loaded.
+- [ ] Every trajectory keyframe records whether it was tracked, interpolated, or fell back to centre, and a mostly-fallback trajectory is reported rather than delivered as a successful reframe.
+- [ ] A selected clip candidate renders to a 9:16 file with burned-in subtitles, in a single native ffmpeg pass, with the subject in frame throughout.
+- [ ] Every frame and every word in a rendered clip comes from the source sermon — nothing synthesized, dubbed, or composited from elsewhere.
+- [ ] The rendered clip and its metadata land in the job directory, and no external service is written to.
+- [ ] **The default `pytest` run invokes no paid API and no real local model — including no vision weights.** This criterion predates rev 4 and survives it unchanged; it is the one rev 4 was most likely to break.
