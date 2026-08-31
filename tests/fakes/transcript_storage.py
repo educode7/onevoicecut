@@ -6,6 +6,7 @@ only way to observe that from outside. A fake that merely stored the final state
 would pass identically for a loop that batched every write to the end.
 """
 
+from collections.abc import Callable
 from pathlib import Path
 
 from transcribe.domain.chunking import ChunkPlan, ChunkResult
@@ -27,6 +28,9 @@ class FakeTranscriptStoragePort:
         self._cancelled: dict[JobId, bool] = {}
         self.calls: list[str] = []
         self._states: dict[JobId, list[JobState]] = {}
+        # Lets a test act *between* chunks — the only way to exercise a stop
+        # request that arrives mid-run rather than before the loop starts.
+        self.on_chunk_saved: Callable[[int], None] | None = None
 
     def state_history(self, job_id: JobId | None = None) -> list[JobState]:
         """Every state the job was *moved to*, in order. Excludes its initial one."""
@@ -74,6 +78,8 @@ class FakeTranscriptStoragePort:
         ]
         kept.append(result)
         self._chunk_results[result.job_id] = kept
+        if self.on_chunk_saved is not None:
+            self.on_chunk_saved(result.index)
 
     def load_chunk_results(self, job_id: JobId) -> tuple[ChunkResult, ...]:
         return tuple(

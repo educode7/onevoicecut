@@ -20,7 +20,8 @@ import time
 from collections.abc import Callable
 from dataclasses import replace
 
-from transcribe.domain.chunking import ChunkPlan, ChunkResult, ChunkState
+from transcribe.domain.chunking import AudioChunk, ChunkPlan, ChunkResult, ChunkState
+from transcribe.domain.errors import TranscriptionFailed
 from transcribe.domain.ids import JobId
 from transcribe.domain.jobs import JobRecord, JobState, SpeakerMode
 from transcribe.domain.media import AudioTrack, SourceMedia
@@ -37,6 +38,9 @@ SOURCE_LANGUAGE = "es"
 # would abort correct work; a chunk that has not returned in this long is stuck.
 DEFAULT_CHUNK_TIMEOUT_S = 30 * 60.0
 
+# An error listing 87 chunk indices is no more useful than one listing six.
+MAX_REPORTED_FAILURES = 6
+
 Clock = Callable[[], float]
 
 
@@ -50,7 +54,15 @@ def transcribe_job(
     now: Clock = time.time,
     target_chunk_s: float = DEFAULT_TARGET_CHUNK_S,
     chunk_timeout_s: float | None = DEFAULT_CHUNK_TIMEOUT_S,
-) -> Transcript:
+) -> JobRecord:
+    """Returns the job as it ended, not the transcript.
+
+    Three outcomes are normal here — completed, failed with chunks preserved for
+    resume, and cancelled — and only one of them produces a transcript. Returning
+    the record says which happened without making the caller catch an exception
+    for an outcome that is not exceptional. The transcript, when there is one, is
+    in storage.
+    """
     job = storage.load_job(job_id)
 
     track = _extract(job, media, extractor=extractor, storage=storage, now=now)
@@ -69,26 +81,90 @@ def transcribe_job(
         speaker_mode=job.speaker_mode,
         timeout_s=chunk_timeout_s,
     )
+
+    failed: list[int] = []
     for planned in plan.chunks:
+        # Polled every iteration, not once before the loop: a three-hour job
+        # checked at the start would ignore the stop button for three hours.
+        if storage.cancellation_requested(job_id):
+            return _finish(job, JobState.CANCELLED, storage=storage, now=now)
+
         chunk = extractor.slice(
             track, planned, storage.chunk_path(job_id, planned.index)
         )
-        segments = transcriber.transcribe(chunk, request)
+        result = _transcribe_chunk(
+            chunk, request, transcriber=transcriber, now=now
+        )
         # Committed here, inside the loop, not accumulated for a final batch.
-        storage.save_chunk_result(
-            ChunkResult(
-                job_id=job_id,
-                index=planned.index,
-                state=ChunkState.DONE,
-                segments=segments,
-                engine_id=transcriber.capabilities().engine_id,
-                attempts=1,
-                error=None,
-                finished_at=now(),
-            )
+        storage.save_chunk_result(result)
+        if result.state is ChunkState.FAILED:
+            failed.append(planned.index)
+
+    if failed:
+        return _finish(
+            job,
+            JobState.FAILED,
+            storage=storage,
+            now=now,
+            error=_failure_summary(failed, len(plan.chunks)),
         )
 
     return _stitch(job, plan, transcriber=transcriber, storage=storage, now=now)
+
+
+def _transcribe_chunk(
+    chunk: AudioChunk,
+    request: TranscriptionRequest,
+    *,
+    transcriber: TranscriptionPort,
+    now: Clock,
+) -> ChunkResult:
+    """One chunk's outcome, never the job's.
+
+    `TranscriptionFailed` is contained: chunk 84 of 87 failing must not discard
+    the first 83, so it becomes a recorded `FAILED` result and the loop continues.
+
+    `DiarizationUnsupported` is deliberately *not* contained. It is a capability
+    gap, not a chunk defect — every remaining chunk would raise it identically, so
+    grinding through 87 of them discovers the same fact 87 times and then blames
+    the last chunk for the job's configuration.
+    """
+    try:
+        segments = transcriber.transcribe(chunk, request)
+    except TranscriptionFailed as error:
+        return ChunkResult(
+            job_id=chunk.job_id,
+            index=chunk.index,
+            state=ChunkState.FAILED,
+            segments=(),
+            engine_id=transcriber.capabilities().engine_id,
+            attempts=1,
+            error=str(error),
+            finished_at=now(),
+        )
+
+    return ChunkResult(
+        job_id=chunk.job_id,
+        index=chunk.index,
+        state=ChunkState.DONE,
+        segments=segments,
+        engine_id=transcriber.capabilities().engine_id,
+        attempts=1,
+        error=None,
+        finished_at=now(),
+    )
+
+
+def _failure_summary(failed: list[int], total: int) -> str:
+    """Names the chunks, so the operator knows where in a three-hour sermon to look.
+
+    Truncated past a handful: an error listing 87 indices is not more informative
+    than one listing six and saying how many there were.
+    """
+    shown = ", ".join(str(index) for index in failed[:MAX_REPORTED_FAILURES])
+    if len(failed) > MAX_REPORTED_FAILURES:
+        shown += f", … (+{len(failed) - MAX_REPORTED_FAILURES} more)"
+    return f"{len(failed)} of {total} chunks failed: {shown}"
 
 
 def _extract(
@@ -136,7 +212,13 @@ def _stitch(
     transcriber: TranscriptionPort,
     storage: TranscriptStoragePort,
     now: Clock,
-) -> Transcript:
+) -> JobRecord:
+    """Only reached when every chunk succeeded.
+
+    A hole must never be stitched. The words either side of a missing chunk simply
+    run together, so the resulting transcript reads perfectly and nothing in it
+    announces that a quarter of the sermon is absent.
+    """
     _advance(job, JobState.STITCHING, storage=storage, now=now)
     transcript = Transcript(
         job_id=job.job_id,
@@ -149,8 +231,7 @@ def _stitch(
         language=SOURCE_LANGUAGE,
     )
     storage.save_transcript(transcript)
-    _advance(job, JobState.COMPLETED, storage=storage, now=now)
-    return transcript
+    return _finish(job, JobState.COMPLETED, storage=storage, now=now)
 
 
 def _advance(
@@ -159,6 +240,21 @@ def _advance(
     *,
     storage: TranscriptStoragePort,
     now: Clock,
-) -> None:
+) -> JobRecord:
     """Update, never create: the worker owns a job the web process already admitted."""
-    storage.update_job(replace(job, state=state, updated_at=now()))
+    moved = replace(job, state=state, updated_at=now())
+    storage.update_job(moved)
+    return moved
+
+
+def _finish(
+    job: JobRecord,
+    state: JobState,
+    *,
+    storage: TranscriptStoragePort,
+    now: Clock,
+    error: str | None = None,
+) -> JobRecord:
+    moved = replace(job, state=state, updated_at=now(), error=error)
+    storage.update_job(moved)
+    return moved

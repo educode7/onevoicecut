@@ -6,8 +6,10 @@ well-behaved engine that classifies; `NonClassifyingFakeTranscriptionPort` stand
 for one that cannot, and must say so rather than assert speech.
 """
 
+from collections.abc import Callable
+
 from transcribe.domain.chunking import AudioChunk
-from transcribe.domain.errors import DiarizationUnsupported
+from transcribe.domain.errors import DiarizationUnsupported, TranscriptionFailed
 from transcribe.domain.jobs import SpeakerMode
 from transcribe.domain.transcript import SegmentKind, TranscriptSegment
 from transcribe.ports.capabilities import (
@@ -63,6 +65,46 @@ class FakeTranscriptionPort:
         if request.speaker_mode is SpeakerMode.MULTI:
             raise DiarizationUnsupported("fake-asr cannot satisfy speaker_mode=multi")
         return _lay_out(self._script, chunk)
+
+
+class FlakyFakeTranscriptionPort:
+    """Fails on chosen chunks, a chosen number of times each.
+
+    One double covers both failure isolation and retry, because they are the same
+    engine seen over different numbers of attempts: `{84: 99}` is a chunk that
+    never recovers, `{84: 1}` is the transient cloud error that succeeds on the
+    second try. Recording every attempt is what lets a test assert that a retry
+    re-ran *only* the failed chunk.
+    """
+
+    def __init__(
+        self,
+        failures: dict[int, int] | None = None,
+        *,
+        error: Callable[[str], Exception] = TranscriptionFailed,
+    ) -> None:
+        self._remaining = dict(failures or {})
+        self._error = error
+        self.attempts: list[int] = []
+
+    def capabilities(self) -> TranscriptionCapabilities:
+        return TranscriptionCapabilities(
+            engine_id="flaky-fake-asr",
+            diarization=DiarizationSupport.UNSUPPORTED,
+            non_speech_classification=ClassificationSupport.AVAILABLE,
+            max_chunk_bytes=None,
+            max_chunk_duration_s=None,
+        )
+
+    def transcribe(
+        self, chunk: AudioChunk, request: TranscriptionRequest
+    ) -> tuple[TranscriptSegment, ...]:
+        self.attempts.append(chunk.index)
+        remaining = self._remaining.get(chunk.index, 0)
+        if remaining > 0:
+            self._remaining[chunk.index] = remaining - 1
+            raise self._error(f"engine failed on chunk {chunk.index}")
+        return _lay_out(_DEFAULT_SCRIPT, chunk)
 
 
 class NonClassifyingFakeTranscriptionPort:
