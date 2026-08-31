@@ -2,7 +2,7 @@ from dataclasses import FrozenInstanceError, fields
 
 import pytest
 
-from transcribe.ports.capabilities import (
+from onevoicecut.ports.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
     TranscriptionCapabilities,

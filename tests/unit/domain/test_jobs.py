@@ -2,8 +2,8 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from transcribe.domain.ids import make_job_id, make_media_id
-from transcribe.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.domain.ids import make_job_id, make_media_id
+from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 
 JOB_ID = make_job_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 MEDIA_ID = make_media_id("01BX5ZZKBKACTAV9WEVGEMMVRZ")

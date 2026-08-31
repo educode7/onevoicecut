@@ -7,8 +7,8 @@ from tests.fakes.audio_extractor import FakeAudioExtractorPort
 from tests.fakes.media_source import FakeMediaSourcePort
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.fakes.transcription import FakeTranscriptionPort
-from transcribe.domain.ids import JobId, MediaId, make_job_id, make_media_id
-from transcribe.ports.transcription import TranscriptionPort
+from onevoicecut.domain.ids import JobId, MediaId, make_job_id, make_media_id
+from onevoicecut.ports.transcription import TranscriptionPort
 
 DEFAULT_JOB_ID: JobId = make_job_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 DEFAULT_MEDIA_ID: MediaId = make_media_id("01BX5ZZKBKACTAV9WEVGEMMVRZ")

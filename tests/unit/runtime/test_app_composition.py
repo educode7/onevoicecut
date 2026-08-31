@@ -11,19 +11,19 @@ from pathlib import Path
 
 import pytest
 
-from transcribe.adapters.storage.filesystem_transcript_storage import (
+from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
-from transcribe.domain.chunking import ChunkPlan, PlannedChunk
-from transcribe.domain.ids import JobId, make_job_id, make_media_id
-from transcribe.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
-from transcribe.runtime.app import (
+from onevoicecut.domain.chunking import ChunkPlan, PlannedChunk
+from onevoicecut.domain.ids import JobId, make_job_id, make_media_id
+from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.runtime.app import (
     WORKER_MODULE,
     build_dependencies,
     reconcile_interrupted_jobs,
     spawn_worker,
 )
-from transcribe.runtime.settings import Settings
+from onevoicecut.runtime.settings import Settings
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
 OTHER_JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFF")
@@ -73,7 +73,7 @@ def storage(tmp_path: Path) -> FilesystemTranscriptStorage:
 def test_settings_read_the_data_directory_from_the_environment(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setenv("TRANSCRIBE_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ONEVOICECUT_DATA_DIR", str(tmp_path))
 
     assert Settings().data_dir == tmp_path  # type: ignore[call-arg]
 
@@ -83,7 +83,7 @@ def test_a_missing_data_directory_is_refused_rather_than_guessed(
 ) -> None:
     """A default would put multi-hour sermons somewhere the operator did not
     choose, and the first they would know of it is a full disk."""
-    monkeypatch.delenv("TRANSCRIBE_DATA_DIR", raising=False)
+    monkeypatch.delenv("ONEVOICECUT_DATA_DIR", raising=False)
 
     with pytest.raises(Exception):
         Settings()  # type: ignore[call-arg]
@@ -92,7 +92,7 @@ def test_a_missing_data_directory_is_refused_rather_than_guessed(
 def test_the_app_is_wired_to_the_configured_directory(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setenv("TRANSCRIBE_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ONEVOICECUT_DATA_DIR", str(tmp_path))
 
     deps = build_dependencies(Settings())  # type: ignore[call-arg]
 

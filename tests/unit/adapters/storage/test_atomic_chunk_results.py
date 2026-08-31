@@ -16,14 +16,14 @@ from typing import Any
 
 import pytest
 
-from transcribe.adapters.storage.filesystem_transcript_storage import (
+from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
-from transcribe.domain.chunking import ChunkResult, ChunkState
-from transcribe.domain.errors import JobNotFound
-from transcribe.domain.ids import JobId, make_job_id, make_media_id
-from transcribe.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
-from transcribe.domain.transcript import SegmentKind, TranscriptSegment
+from onevoicecut.domain.chunking import ChunkResult, ChunkState
+from onevoicecut.domain.errors import JobNotFound
+from onevoicecut.domain.ids import JobId, make_job_id, make_media_id
+from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
 OTHER_JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFF")

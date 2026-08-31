@@ -72,7 +72,7 @@ ffmpeg is a **system binary**, never a pip dependency.
 Hexagonal, with the boundary enforced by a test rather than by convention.
 
 ```
-src/transcribe/
+src/onevoicecut/
   domain/     # zero third-party imports; frozen slotted dataclasses only
   ports/      # typing.Protocol definitions; imports domain only
   usecases/   # imports domain + ports only — all orchestration lives here
@@ -81,7 +81,7 @@ src/transcribe/
 ```
 
 `tests/test_architecture.py` walks `domain`, `usecases`, and `ports` with `ast` and fails if any of them
-imports `transcribe.adapters` or `transcribe.runtime`. It parses source text rather than importing, so it
+imports `onevoicecut.adapters` or `onevoicecut.runtime`. It parses source text rather than importing, so it
 works before those packages exist. Do not weaken it.
 
 ### The five ports
@@ -164,8 +164,8 @@ generation, and the browser UI — the HTTP surface exists but nothing renders i
 The pipeline runs end to end today with a fake ASR engine — real HTTP, real filesystem, real ffmpeg:
 
 ```powershell
-$env:TRANSCRIBE_DATA_DIR = ".\data"; $env:PYTHONPATH = "src"
-.venv\Scripts\python.exe -m uvicorn transcribe.runtime.app:get_app --factory
+$env:ONEVOICECUT_DATA_DIR = ".\data"; $env:PYTHONPATH = "src"
+.venv\Scripts\python.exe -m uvicorn onevoicecut.runtime.app:get_app --factory
 ```
 
 `POST /api/jobs` → `PUT /api/jobs/{id}/media` → the web process spawns a worker → `GET /api/jobs/{id}`

@@ -11,9 +11,9 @@ from tests.fakes.transcription import (
     FakeTranscriptionPort,
     NonClassifyingFakeTranscriptionPort,
 )
-from transcribe.domain.jobs import EngineChoice, SpeakerMode
-from transcribe.domain.transcript import SegmentKind
-from transcribe.usecases.ingest_media import IngestMedia
+from onevoicecut.domain.jobs import EngineChoice, SpeakerMode
+from onevoicecut.domain.transcript import SegmentKind
+from onevoicecut.usecases.ingest_media import IngestMedia
 
 
 async def _fake_upload_stream() -> AsyncIterator[bytes]:

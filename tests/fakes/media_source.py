@@ -3,8 +3,8 @@
 from pathlib import Path
 from typing import AsyncIterator
 
-from transcribe.domain.ids import MediaId
-from transcribe.domain.media import SourceMedia
+from onevoicecut.domain.ids import MediaId
+from onevoicecut.domain.media import SourceMedia
 
 
 class FakeMediaSourcePort:

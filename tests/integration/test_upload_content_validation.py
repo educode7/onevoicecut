@@ -18,11 +18,11 @@ from urllib.parse import quote
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from transcribe.adapters.storage.filesystem_transcript_storage import (
+from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
-from transcribe.adapters.web.app import WebDependencies, create_app
-from transcribe.domain.ids import JobId, make_job_id
+from onevoicecut.adapters.web.app import WebDependencies, create_app
+from onevoicecut.domain.ids import JobId, make_job_id
 
 pytestmark = pytest.mark.integration
 

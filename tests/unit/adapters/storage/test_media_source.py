@@ -15,9 +15,9 @@ from pathlib import Path
 
 import pytest
 
-from transcribe.adapters.storage.media_source import FilesystemMediaSource
-from transcribe.domain.errors import UploadTooLarge
-from transcribe.domain.ids import make_media_id
+from onevoicecut.adapters.storage.media_source import FilesystemMediaSource
+from onevoicecut.domain.errors import UploadTooLarge
+from onevoicecut.domain.ids import make_media_id
 
 MEDIA_ID = make_media_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFE")
 GENEROUS = 1024**3

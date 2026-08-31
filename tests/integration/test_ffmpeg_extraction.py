@@ -14,9 +14,9 @@ from pathlib import Path
 
 import pytest
 
-from transcribe.adapters.ffmpeg.extractor import FfmpegAudioExtractor
-from transcribe.domain.ids import make_job_id, make_media_id
-from transcribe.domain.media import SourceMedia
+from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor
+from onevoicecut.domain.ids import make_job_id, make_media_id
+from onevoicecut.domain.media import SourceMedia
 
 pytestmark = pytest.mark.integration
 
@@ -157,7 +157,7 @@ def test_hostile_filenames_survive_a_real_invocation(
 def test_slicing_produces_one_file_per_planned_chunk(
     ffmpeg_available: None, job_dir: Path
 ) -> None:
-    from transcribe.domain.chunking import PlannedChunk
+    from onevoicecut.domain.chunking import PlannedChunk
 
     source = job_dir / "source.mp4"
     _synthesize(source)
@@ -188,7 +188,7 @@ def test_a_slice_really_holds_the_requested_duration(
     The unit tests assert `-ss` precedes `-i` and `-t` carries a length; only this
     one shows ffmpeg agrees.
     """
-    from transcribe.domain.chunking import PlannedChunk
+    from onevoicecut.domain.chunking import PlannedChunk
 
     source = job_dir / "source.mp4"
     _synthesize(source)
@@ -217,7 +217,7 @@ def test_a_slice_keeps_the_normalized_format(
 ) -> None:
     """A chunk in a different format from its track would break the byte-cap
     arithmetic the planner already applied."""
-    from transcribe.domain.chunking import PlannedChunk
+    from onevoicecut.domain.chunking import PlannedChunk
 
     source = job_dir / "source.mp4"
     _synthesize(source)
@@ -246,7 +246,7 @@ def test_a_slice_keeps_the_normalized_format(
 def test_a_non_media_file_is_refused(ffmpeg_available: None, job_dir: Path) -> None:
     """Content decides, not the extension — the threat-matrix row for a text file
     wearing a media extension."""
-    from transcribe.domain.errors import UnsupportedContainer
+    from onevoicecut.domain.errors import UnsupportedContainer
 
     source = job_dir / "source.mp4"
     source.write_text("this is plainly not a video", encoding="utf-8")

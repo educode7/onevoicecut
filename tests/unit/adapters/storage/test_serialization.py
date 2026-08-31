@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from transcribe.adapters.storage.serialization import (
+from onevoicecut.adapters.storage.serialization import (
     decode_artifacts,
     decode_chunk_plan,
     decode_chunk_result,
@@ -25,13 +25,13 @@ from transcribe.adapters.storage.serialization import (
     encode_media,
     encode_transcript,
 )
-from transcribe.domain.media import SourceMedia
-from transcribe.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
-from transcribe.domain.errors import CorruptedRecord
-from transcribe.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
-from transcribe.domain.ids import make_job_id, make_media_id
-from transcribe.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
-from transcribe.domain.transcript import SegmentKind, Transcript, TranscriptSegment
+from onevoicecut.domain.media import SourceMedia
+from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
+from onevoicecut.domain.errors import CorruptedRecord
+from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
+from onevoicecut.domain.ids import make_job_id, make_media_id
+from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.domain.transcript import SegmentKind, Transcript, TranscriptSegment
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
 MEDIA_ID = make_media_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFE")

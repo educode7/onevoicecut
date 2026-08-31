@@ -14,16 +14,16 @@ from pathlib import Path
 
 import pytest
 
-from transcribe.adapters.storage.filesystem_transcript_storage import (
+from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
-from transcribe.domain.ids import JobId, make_job_id, make_media_id
-from transcribe.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
-from transcribe.domain.media import SourceMedia
-from transcribe.domain.transcript import SegmentKind
-from transcribe.ports.audio_extractor import AudioExtractorPort
-from transcribe.runtime.engine_resolver import EngineResolver
-from transcribe.runtime.worker import EXIT_FAILED, EXIT_OK, EXIT_UNUSABLE, main
+from onevoicecut.domain.ids import JobId, make_job_id, make_media_id
+from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.domain.media import SourceMedia
+from onevoicecut.domain.transcript import SegmentKind
+from onevoicecut.ports.audio_extractor import AudioExtractorPort
+from onevoicecut.runtime.engine_resolver import EngineResolver
+from onevoicecut.runtime.worker import EXIT_FAILED, EXIT_OK, EXIT_UNUSABLE, main
 from tests.fakes.audio_extractor import FakeAudioExtractorPort
 from tests.fakes.transcription import FakeTranscriptionPort, FlakyFakeTranscriptionPort
 

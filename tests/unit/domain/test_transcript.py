@@ -2,8 +2,8 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from transcribe.domain.ids import make_job_id
-from transcribe.domain.transcript import (
+from onevoicecut.domain.ids import make_job_id
+from onevoicecut.domain.transcript import (
     SegmentKind,
     Transcript,
     TranscriptSegment,

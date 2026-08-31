@@ -15,12 +15,12 @@ from pathlib import Path
 
 import pytest
 
-from transcribe.domain.chunking import ChunkState
-from transcribe.domain.errors import ChunkTimeout
-from transcribe.domain.ids import make_job_id, make_media_id
-from transcribe.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
-from transcribe.domain.media import SourceMedia
-from transcribe.usecases.transcribe_job import DEFAULT_MAX_ATTEMPTS, transcribe_job
+from onevoicecut.domain.chunking import ChunkState
+from onevoicecut.domain.errors import ChunkTimeout
+from onevoicecut.domain.ids import make_job_id, make_media_id
+from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.domain.media import SourceMedia
+from onevoicecut.usecases.transcribe_job import DEFAULT_MAX_ATTEMPTS, transcribe_job
 from tests.fakes.audio_extractor import FakeAudioExtractorPort
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.fakes.transcription import FlakyFakeTranscriptionPort

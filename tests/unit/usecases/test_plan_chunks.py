@@ -10,15 +10,15 @@ from pathlib import Path
 
 import pytest
 
-from transcribe.domain.errors import ChunkTooLarge
-from transcribe.domain.ids import make_job_id, make_media_id
-from transcribe.domain.media import AudioTrack
-from transcribe.ports.capabilities import (
+from onevoicecut.domain.errors import ChunkTooLarge
+from onevoicecut.domain.ids import make_job_id, make_media_id
+from onevoicecut.domain.media import AudioTrack
+from onevoicecut.ports.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
     TranscriptionCapabilities,
 )
-from transcribe.usecases.plan_chunks import (
+from onevoicecut.usecases.plan_chunks import (
     DEFAULT_OVERLAP_S,
     DEFAULT_TARGET_CHUNK_S,
     plan_chunks,

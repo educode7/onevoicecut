@@ -1,6 +1,6 @@
 import pytest
 
-from transcribe.domain.ids import InvalidIdError, make_job_id, make_media_id
+from onevoicecut.domain.ids import InvalidIdError, make_job_id, make_media_id
 
 VALID_ULID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 

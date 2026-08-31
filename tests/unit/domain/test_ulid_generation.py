@@ -11,7 +11,7 @@ import re
 
 import pytest
 
-from transcribe.domain.ids import _ULID_PATTERN, make_job_id, new_ulid
+from onevoicecut.domain.ids import _ULID_PATTERN, make_job_id, new_ulid
 
 # 2026-08-31T12:00:00Z, and one millisecond later.
 NOON_MS = 1788177600000

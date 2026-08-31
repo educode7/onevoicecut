@@ -1,7 +1,7 @@
 """Turns the hexagonal boundary into a failing test.
 
-Walks `src/transcribe/{domain,usecases,ports}` with `ast` and asserts none of
-them imports `transcribe.adapters` or `transcribe.runtime`. Uses static AST
+Walks `src/onevoicecut/{domain,usecases,ports}` with `ast` and asserts none of
+them imports `onevoicecut.adapters` or `onevoicecut.runtime`. Uses static AST
 parsing rather than `importlib`, so it works correctly whether or not the
 `adapters`/`runtime` packages exist yet on disk — an import statement is a
 violation the moment it is written in source text, regardless of whether the
@@ -11,10 +11,10 @@ imported module is importable.
 import ast
 from pathlib import Path
 
-FORBIDDEN_PREFIXES = ("transcribe.adapters", "transcribe.runtime")
+FORBIDDEN_PREFIXES = ("onevoicecut.adapters", "onevoicecut.runtime")
 GUARDED_PACKAGES = ("domain", "usecases", "ports")
 
-SRC_ROOT = Path(__file__).resolve().parent.parent / "src" / "transcribe"
+SRC_ROOT = Path(__file__).resolve().parent.parent / "src" / "onevoicecut"
 
 
 def _iter_guarded_python_files() -> list[Path]:

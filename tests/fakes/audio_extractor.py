@@ -8,9 +8,9 @@ instance to one job.
 
 from pathlib import Path
 
-from transcribe.domain.chunking import AudioChunk, PlannedChunk
-from transcribe.domain.ids import JobId
-from transcribe.domain.media import AudioTrack, MediaProbe, SourceMedia
+from onevoicecut.domain.chunking import AudioChunk, PlannedChunk
+from onevoicecut.domain.ids import JobId
+from onevoicecut.domain.media import AudioTrack, MediaProbe, SourceMedia
 
 FAKE_DURATION_S = 10.0
 

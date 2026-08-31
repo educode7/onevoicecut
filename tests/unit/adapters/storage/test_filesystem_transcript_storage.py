@@ -10,12 +10,12 @@ from pathlib import Path
 
 import pytest
 
-from transcribe.adapters.storage.filesystem_transcript_storage import (
+from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
-from transcribe.domain.errors import CorruptedRecord, JobAlreadyExists, JobNotFound
-from transcribe.domain.ids import JobId, make_job_id, make_media_id
-from transcribe.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.domain.errors import CorruptedRecord, JobAlreadyExists, JobNotFound
+from onevoicecut.domain.ids import JobId, make_job_id, make_media_id
+from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
 OTHER_JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFF")

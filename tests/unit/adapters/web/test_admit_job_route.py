@@ -16,9 +16,9 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from transcribe.adapters.web.app import WebDependencies, create_app
-from transcribe.domain.ids import _ULID_PATTERN
-from transcribe.domain.jobs import EngineChoice, JobState, SpeakerMode
+from onevoicecut.adapters.web.app import WebDependencies, create_app
+from onevoicecut.domain.ids import _ULID_PATTERN
+from onevoicecut.domain.jobs import EngineChoice, JobState, SpeakerMode
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 
 FIXED_NOW = 1723501234.5

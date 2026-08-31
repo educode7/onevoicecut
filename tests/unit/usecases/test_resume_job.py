@@ -10,10 +10,10 @@ Re-extracting the audio is cheap by comparison and is done unconditionally: a
 three-hour sermon normalizes in minutes, against hours of ASR.
 """
 
-from transcribe.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
-from transcribe.domain.ids import make_job_id
-from transcribe.domain.transcript import SegmentKind, TranscriptSegment
-from transcribe.usecases.resume_job import pending_chunks
+from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
+from onevoicecut.domain.ids import make_job_id
+from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
+from onevoicecut.usecases.resume_job import pending_chunks
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
 

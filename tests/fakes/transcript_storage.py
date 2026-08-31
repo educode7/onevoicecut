@@ -9,13 +9,13 @@ would pass identically for a loop that batched every write to the end.
 from collections.abc import Callable
 from pathlib import Path
 
-from transcribe.domain.chunking import ChunkPlan, ChunkResult
-from transcribe.domain.errors import JobNotFound
-from transcribe.domain.generation import GenerationResult
-from transcribe.domain.ids import JobId
-from transcribe.domain.jobs import JobRecord, JobState
-from transcribe.domain.media import SourceMedia
-from transcribe.domain.transcript import Transcript
+from onevoicecut.domain.chunking import ChunkPlan, ChunkResult
+from onevoicecut.domain.errors import JobNotFound
+from onevoicecut.domain.generation import GenerationResult
+from onevoicecut.domain.ids import JobId
+from onevoicecut.domain.jobs import JobRecord, JobState
+from onevoicecut.domain.media import SourceMedia
+from onevoicecut.domain.transcript import Transcript
 
 
 class FakeTranscriptStoragePort:

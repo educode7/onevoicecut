@@ -3,7 +3,7 @@ schema: spec-driven
 context: |
   Tech stack: Python 3.12, venv + pip (split requirements files + frozen lock), FastAPI/Uvicorn,
     pydantic. ffmpeg is a SYSTEM binary, never a pip dependency.
-  Architecture: hexagonal. src/transcribe/{domain,ports,usecases} is the core (domain has zero
+  Architecture: hexagonal. src/onevoicecut/{domain,ports,usecases} is the core (domain has zero
     third-party imports); adapters/ and runtime/ are planned but DO NOT EXIST YET. runtime/ is the
     composition root — the only place adapters may be constructed. The boundary is enforced by
     tests/test_architecture.py, an ast walker that fails if the core imports adapters/runtime.

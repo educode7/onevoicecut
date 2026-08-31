@@ -2,8 +2,8 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from transcribe.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
-from transcribe.domain.ids import make_job_id
+from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
+from onevoicecut.domain.ids import make_job_id
 
 JOB_ID = make_job_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 

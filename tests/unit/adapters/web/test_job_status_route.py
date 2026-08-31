@@ -17,11 +17,11 @@ from typing import Any
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from transcribe.adapters.web.app import WebDependencies, create_app
-from transcribe.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
-from transcribe.domain.ids import JobId, make_job_id, make_media_id
-from transcribe.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
-from transcribe.domain.transcript import SegmentKind, TranscriptSegment
+from onevoicecut.adapters.web.app import WebDependencies, create_app
+from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
+from onevoicecut.domain.ids import JobId, make_job_id, make_media_id
+from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.unit.adapters.web.conftest import accepting_extractor
 

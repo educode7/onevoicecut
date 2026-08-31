@@ -1,9 +1,10 @@
-# transcribe
+# OneVoiceCut
 
-Turns multi-hour Spanish source video into a structured transcript, then into a
-summary plus timestamped clip candidates with short scripts — the raw material for
-cutting short-form video. It stops at the script artifact: no rendering, no
-publishing.
+OneVoiceCut is an intelligent tool designed to automate cutting and optimizing long
+videos into short fragments (Reels, TikToks, and YouTube Shorts). This project is
+focused on spreading the Everlasting Gospel and the Three Angels' Message
+(Revelation 14), aligned with the principles of the Seventh-day Adventist Church,
+unifying the prophetic message in a single digital voice.
 
 Single operator, runs locally.
 
@@ -82,9 +83,9 @@ Run one file, or one test:
 ## Running it
 
 ```powershell
-$env:TRANSCRIBE_DATA_DIR = ".\data"
+$env:ONEVOICECUT_DATA_DIR = ".\data"
 $env:PYTHONPATH = "src"
-.venv\Scripts\python.exe -m uvicorn transcribe.runtime.app:get_app --factory
+.venv\Scripts\python.exe -m uvicorn onevoicecut.runtime.app:get_app --factory
 ```
 
 Then, against the running server:
@@ -98,14 +99,14 @@ Then, against the running server:
 The upload spawns one worker process for that job. `transcript.txt` and
 `transcript.json` land in `data\jobs\{id}\` when it finishes.
 
-`TRANSCRIBE_DATA_DIR` has no default on purpose: multi-hour sermons should not go
+`ONEVOICECUT_DATA_DIR` has no default on purpose: multi-hour sermons should not go
 somewhere you did not choose.
 
 ### Running a job directly
 
 ```powershell
 $env:PYTHONPATH = "src"
-.venv\Scripts\python.exe -m transcribe.runtime.worker --job-id <ulid> --data-dir .\data
+.venv\Scripts\python.exe -m onevoicecut.runtime.worker --job-id <ulid> --data-dir .\data
 ```
 
 One process per job — not a thread, not a queue. A process can be killed when a
@@ -137,7 +138,7 @@ The HTTP API is there; nothing renders it, and nothing transcribes for real.
 ## Layout
 
 ```
-src/transcribe/
+src/onevoicecut/
   domain/     entities and errors; zero third-party imports
   ports/      the Protocol definitions; imports domain only
   usecases/   orchestration; imports domain and ports only

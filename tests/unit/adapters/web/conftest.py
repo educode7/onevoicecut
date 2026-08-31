@@ -8,10 +8,10 @@ tests, and against a configured fake in `test_upload_content_validation.py`.
 
 from pathlib import Path
 
-from transcribe.adapters.web.app import WebDependencies
-from transcribe.domain.ids import JobId
-from transcribe.ports.audio_extractor import AudioExtractorPort
-from transcribe.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.adapters.web.app import WebDependencies
+from onevoicecut.domain.ids import JobId
+from onevoicecut.ports.audio_extractor import AudioExtractorPort
+from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from tests.fakes.audio_extractor import FakeAudioExtractorPort
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 

@@ -12,10 +12,10 @@ than no number, because the operator will plan their evening around it.
 
 import pytest
 
-from transcribe.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
-from transcribe.domain.ids import make_job_id
-from transcribe.domain.jobs import JobProgress, derive_progress
-from transcribe.domain.transcript import SegmentKind, TranscriptSegment
+from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
+from onevoicecut.domain.ids import make_job_id
+from onevoicecut.domain.jobs import JobProgress, derive_progress
+from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
 STARTED_AT = 1000.0

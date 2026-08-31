@@ -13,9 +13,9 @@ report success.
 
 import pytest
 
-from transcribe.domain.errors import EngineUnavailable
-from transcribe.domain.jobs import EngineChoice
-from transcribe.runtime.engine_resolver import EngineResolver
+from onevoicecut.domain.errors import EngineUnavailable
+from onevoicecut.domain.jobs import EngineChoice
+from onevoicecut.runtime.engine_resolver import EngineResolver
 from tests.fakes.transcription import (
     DiarizingFakeTranscriptionPort,
     FakeTranscriptionPort,
@@ -61,7 +61,7 @@ def test_a_broken_adapter_fails_at_resolution_not_mid_run() -> None:
     """
 
     def needs_a_key_that_is_not_set() -> FakeTranscriptionPort:
-        raise EngineUnavailable("TRANSCRIBE_CLOUD_API_KEY is not set")
+        raise EngineUnavailable("ONEVOICECUT_CLOUD_API_KEY is not set")
 
     resolver = EngineResolver({EngineChoice.CLOUD: needs_a_key_that_is_not_set})
 

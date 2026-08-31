@@ -11,17 +11,17 @@ from pathlib import Path
 
 import pytest
 
-from transcribe.adapters.storage.filesystem_transcript_storage import (
+from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
-from transcribe.adapters.storage.serialization import decode_artifacts
-from transcribe.domain.chunking import ChunkPlan, PlannedChunk
-from transcribe.domain.errors import JobNotFound
-from transcribe.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
-from transcribe.domain.ids import JobId, make_job_id, make_media_id
-from transcribe.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
-from transcribe.domain.media import SourceMedia
-from transcribe.domain.transcript import SegmentKind, Transcript, TranscriptSegment
+from onevoicecut.adapters.storage.serialization import decode_artifacts
+from onevoicecut.domain.chunking import ChunkPlan, PlannedChunk
+from onevoicecut.domain.errors import JobNotFound
+from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
+from onevoicecut.domain.ids import JobId, make_job_id, make_media_id
+from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.domain.media import SourceMedia
+from onevoicecut.domain.transcript import SegmentKind, Transcript, TranscriptSegment
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
 OTHER_JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFF")

@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from transcribe.domain.ids import make_media_id
-from transcribe.domain.media import AudioTrack, MediaProbe, SourceMedia
+from onevoicecut.domain.ids import make_media_id
+from onevoicecut.domain.media import AudioTrack, MediaProbe, SourceMedia
 
 MEDIA_ID = make_media_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 

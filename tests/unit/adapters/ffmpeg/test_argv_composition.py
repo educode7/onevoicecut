@@ -11,14 +11,14 @@ from pathlib import Path
 
 import pytest
 
-from transcribe.adapters.ffmpeg.argv import (
+from onevoicecut.adapters.ffmpeg.argv import (
     FFMPEG_BINARY,
     FFPROBE_BINARY,
     build_extract_argv,
     build_probe_argv,
     resolve_inside,
 )
-from transcribe.domain.errors import ExtractionFailed
+from onevoicecut.domain.errors import ExtractionFailed
 
 HOSTILE_NAMES = [
     "clip; rm -rf ~.mp4",

@@ -15,12 +15,12 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from transcribe.adapters.web.app import WebDependencies, create_app
-from transcribe.domain.errors import UnsupportedContainer
-from transcribe.domain.ids import JobId, make_job_id
-from transcribe.domain.media import MediaProbe
-from transcribe.ports.audio_extractor import AudioExtractorPort
-from transcribe.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.adapters.web.app import WebDependencies, create_app
+from onevoicecut.domain.errors import UnsupportedContainer
+from onevoicecut.domain.ids import JobId, make_job_id
+from onevoicecut.domain.media import MediaProbe
+from onevoicecut.ports.audio_extractor import AudioExtractorPort
+from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from tests.fakes.audio_extractor import FakeAudioExtractorPort
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.unit.adapters.web.conftest import accepting_extractor
