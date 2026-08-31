@@ -7,6 +7,7 @@ for one that cannot, and must say so rather than assert speech.
 """
 
 from collections.abc import Callable
+from dataclasses import replace
 
 from transcribe.domain.chunking import AudioChunk
 from transcribe.domain.errors import DiarizationUnsupported, TranscriptionFailed
@@ -65,6 +66,33 @@ class FakeTranscriptionPort:
         if request.speaker_mode is SpeakerMode.MULTI:
             raise DiarizationUnsupported("fake-asr cannot satisfy speaker_mode=multi")
         return _lay_out(self._script, chunk)
+
+
+class DiarizingFakeTranscriptionPort:
+    """The third double: an engine that *can* satisfy speaker mode.
+
+    The other two reject `MULTI`, which is right for what they stand for but makes
+    the accepted path untestable — a use case that silently dropped speaker mode
+    would pass every test written against an engine that refuses it anyway.
+    """
+
+    def capabilities(self) -> TranscriptionCapabilities:
+        return TranscriptionCapabilities(
+            engine_id="diarizing-fake-asr",
+            diarization=DiarizationSupport.AVAILABLE,
+            non_speech_classification=ClassificationSupport.AVAILABLE,
+            max_chunk_bytes=None,
+            max_chunk_duration_s=None,
+        )
+
+    def transcribe(
+        self, chunk: AudioChunk, request: TranscriptionRequest
+    ) -> tuple[TranscriptSegment, ...]:
+        speaker = "SPEAKER_00" if request.speaker_mode is SpeakerMode.MULTI else None
+        return tuple(
+            replace(segment, speaker=speaker)
+            for segment in _lay_out(_DEFAULT_SCRIPT, chunk)
+        )
 
 
 class FlakyFakeTranscriptionPort:

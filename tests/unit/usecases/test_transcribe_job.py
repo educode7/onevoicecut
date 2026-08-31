@@ -8,6 +8,7 @@ all 87 chunks correctly and persisted them in one batch at the end would pass ev
 existing test and lose three hours of work to a crash at chunk 86.
 """
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,10 @@ from transcribe.domain.transcript import SegmentKind
 from transcribe.usecases.transcribe_job import transcribe_job
 from tests.fakes.audio_extractor import FAKE_DURATION_S, FakeAudioExtractorPort
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
-from tests.fakes.transcription import FakeTranscriptionPort
+from tests.fakes.transcription import (
+    DiarizingFakeTranscriptionPort,
+    FakeTranscriptionPort,
+)
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
 MEDIA_ID = make_media_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFE")
@@ -206,6 +210,51 @@ def test_segment_classification_survives_the_whole_loop(
         SegmentKind.SPEECH,
         SegmentKind.MUSIC,
     ]
+
+
+def test_speaker_mode_reaches_the_engine_from_the_job_record(
+    storage: FakeTranscriptStoragePort, tmp_path: Path
+) -> None:
+    """The option is chosen at admission and consumed hours later by a different
+    process. The job record is the only thing carrying it across that gap."""
+    storage.update_job(replace(a_job(), state=JobState.PENDING,
+                               speaker_mode=SpeakerMode.MULTI))
+    transcriber = DiarizingFakeTranscriptionPort()
+
+    transcribe_job(
+        JOB_ID,
+        a_media(),
+        extractor=FakeAudioExtractorPort(JOB_ID),
+        transcriber=transcriber,
+        storage=storage,
+        now=lambda: FIXED_NOW,
+    )
+
+    transcript = storage.load_transcript(JOB_ID)
+    assert transcript is not None
+    assert transcript.segments[0].speaker == "SPEAKER_00"
+
+
+def test_a_diarized_job_says_so_on_its_transcript(
+    storage: FakeTranscriptStoragePort,
+) -> None:
+    """`diarized` is what tells a later consumer whether an unlabelled segment
+    means "one speaker" or "we never asked"."""
+    storage.update_job(replace(a_job(), state=JobState.PENDING,
+                               speaker_mode=SpeakerMode.MULTI))
+
+    transcribe_job(
+        JOB_ID,
+        a_media(),
+        extractor=FakeAudioExtractorPort(JOB_ID),
+        transcriber=DiarizingFakeTranscriptionPort(),
+        storage=storage,
+        now=lambda: FIXED_NOW,
+    )
+
+    transcript = storage.load_transcript(JOB_ID)
+    assert transcript is not None
+    assert transcript.diarized is True
 
 
 def test_the_job_record_is_updated_never_recreated(

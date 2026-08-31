@@ -40,6 +40,16 @@ class ChunkTooLarge(DomainError):
     pass
 
 
+class EngineUnavailable(DomainError):
+    """Raised when the engine a job asked for cannot be built.
+
+    Never satisfied by substituting the other one. Engine choice is per job and
+    content-dependent — private material goes local — so a silent fallback would
+    ship exactly the material that was kept off a provider to a provider, and
+    report success.
+    """
+
+
 class DiarizationUnsupported(DomainError):
     """Raised when a speaker-mode request reaches a non-diarizing adapter."""
 
