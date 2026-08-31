@@ -18,13 +18,28 @@ the only order that holds when the value arrives from an HTTP route.
 
 from pathlib import Path
 
-from transcribe.adapters.storage.serialization import decode_job, encode_job
+from transcribe.adapters.storage.serialization import (
+    decode_chunk_plan,
+    decode_job,
+    decode_transcript,
+    encode_artifacts,
+    encode_chunk_plan,
+    encode_job,
+    encode_transcript,
+)
+from transcribe.domain.chunking import ChunkPlan
 from transcribe.domain.errors import JobAlreadyExists, JobNotFound
+from transcribe.domain.generation import GenerationResult
 from transcribe.domain.ids import InvalidIdError, JobId, make_job_id
 from transcribe.domain.jobs import JobRecord
+from transcribe.domain.transcript import Transcript
 
 JOBS_DIRNAME = "jobs"
 JOB_RECORD = "job.json"
+CHUNK_PLAN = "plan.json"
+TRANSCRIPT = "transcript.json"
+TRANSCRIPT_TEXT = "transcript.txt"
+ARTIFACTS = "artifacts.json"
 
 
 class FilesystemTranscriptStorage:
@@ -81,6 +96,44 @@ class FilesystemTranscriptStorage:
             if record.is_file()
         )
 
+    def save_chunk_plan(self, job_id: JobId, plan: ChunkPlan) -> None:
+        self._write(self._writable(job_id) / CHUNK_PLAN, encode_chunk_plan(plan))
+
+    def load_chunk_plan(self, job_id: JobId) -> ChunkPlan | None:
+        payload = self._read_optional(self.job_dir(job_id) / CHUNK_PLAN)
+        return None if payload is None else decode_chunk_plan(payload)
+
+    def save_transcript(self, transcript: Transcript) -> None:
+        directory = self._writable(transcript.job_id)
+        self._write(directory / TRANSCRIPT, encode_transcript(transcript))
+
+    def load_transcript(self, job_id: JobId) -> Transcript | None:
+        payload = self._read_optional(self.job_dir(job_id) / TRANSCRIPT)
+        return None if payload is None else decode_transcript(payload)
+
+    def save_artifacts(self, job_id: JobId, artifacts: GenerationResult) -> None:
+        self._write(self._writable(job_id) / ARTIFACTS, encode_artifacts(artifacts))
+
+    def export_text(self, job_id: JobId, text: str) -> Path:
+        """Writes the derived `.txt`. `transcript.json` is untouched: the export is
+        one rendering of the transcript, never a replacement for it."""
+        path = self._writable(job_id) / TRANSCRIPT_TEXT
+        self._write(path, text)
+        return path
+
+    def _writable(self, job_id: JobId) -> Path:
+        """The job directory, but only once the job record is really there.
+
+        Writes are strict where reads are tolerant. A save against a job that was
+        never created would leave a directory holding a transcript and no
+        `job.json`, and `list_jobs` skips exactly that shape — so the orphan would
+        be invisible rather than merely wrong.
+        """
+        directory = self.job_dir(job_id)
+        if not (directory / JOB_RECORD).is_file():
+            raise JobNotFound(f"no job stored under {job_id!r}")
+        return directory
+
     def _validated(self, job_id: JobId) -> str:
         try:
             return make_job_id(job_id)
@@ -99,3 +152,11 @@ class FilesystemTranscriptStorage:
     def _write(path: Path, payload: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(payload, encoding="utf-8")
+
+    @staticmethod
+    def _read_optional(path: Path) -> str | None:
+        """Absent means "not produced yet", a normal mid-run state for a plan or a
+        transcript. The port returns `None` for both rather than raising."""
+        if not path.is_file():
+            return None
+        return path.read_text(encoding="utf-8")
