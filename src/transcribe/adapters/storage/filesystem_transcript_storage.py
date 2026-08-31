@@ -16,18 +16,21 @@ path exists; this answers "is this even an id?" before anything is created, whic
 the only order that holds when the value arrives from an HTTP route.
 """
 
+import os
 from pathlib import Path
 
 from transcribe.adapters.storage.serialization import (
     decode_chunk_plan,
+    decode_chunk_result,
     decode_job,
     decode_transcript,
     encode_artifacts,
     encode_chunk_plan,
+    encode_chunk_result,
     encode_job,
     encode_transcript,
 )
-from transcribe.domain.chunking import ChunkPlan
+from transcribe.domain.chunking import ChunkPlan, ChunkResult
 from transcribe.domain.errors import JobAlreadyExists, JobNotFound
 from transcribe.domain.generation import GenerationResult
 from transcribe.domain.ids import InvalidIdError, JobId, make_job_id
@@ -37,6 +40,8 @@ from transcribe.domain.transcript import Transcript
 JOBS_DIRNAME = "jobs"
 JOB_RECORD = "job.json"
 CHUNK_PLAN = "plan.json"
+RESULTS_DIRNAME = "results"
+PENDING_SUFFIX = ".tmp"
 TRANSCRIPT = "transcript.json"
 TRANSCRIPT_TEXT = "transcript.txt"
 ARTIFACTS = "artifacts.json"
@@ -103,6 +108,31 @@ class FilesystemTranscriptStorage:
         payload = self._read_optional(self.job_dir(job_id) / CHUNK_PLAN)
         return None if payload is None else decode_chunk_plan(payload)
 
+    def save_chunk_result(self, result: ChunkResult) -> None:
+        """Committed by rename, because this is what resume reads.
+
+        A chunk lands while the job is still running and the process holding it can
+        die at any instruction. The next process distinguishes a committed result
+        from a half-written one by the directory alone — there is no journal and no
+        recovery pass — which is only true if the last step is atomic.
+        """
+        directory = self._writable(result.job_id) / RESULTS_DIRNAME
+        directory.mkdir(parents=True, exist_ok=True)
+        self._write(directory / f"{result.index:04d}.json", encode_chunk_result(result))
+
+    def load_chunk_results(self, job_id: JobId) -> tuple[ChunkResult, ...]:
+        """Sorted by chunk index: a retry can commit chunk 7 after chunk 11, but the
+        transcript may not be assembled in that order. A stale `.tmp` is skipped by
+        the glob rather than by a check, so there is no path that forgets to."""
+        directory = self.job_dir(job_id) / RESULTS_DIRNAME
+        if not directory.is_dir():
+            return ()
+        results = [
+            decode_chunk_result(path.read_text(encoding="utf-8"))
+            for path in directory.glob("*.json")
+        ]
+        return tuple(sorted(results, key=lambda result: result.index))
+
     def save_transcript(self, transcript: Transcript) -> None:
         directory = self._writable(transcript.job_id)
         self._write(directory / TRANSCRIPT, encode_transcript(transcript))
@@ -150,8 +180,29 @@ class FilesystemTranscriptStorage:
 
     @staticmethod
     def _write(path: Path, payload: str) -> None:
+        """Write to a sibling `.tmp`, force it to disk, then rename onto the target.
+
+        Every write goes through this, not only `save_chunk_result`: a torn
+        `job.json` is no more survivable than a torn chunk result, and the worker
+        rewrites it at every state transition.
+
+        The `fsync` is not decoration. A rename is atomic with respect to what is
+        already durable, so renaming a file whose bytes are still in the page cache
+        commits a name and not the data behind it.
+
+        `os.replace` rather than `os.rename` because on Windows a rename onto an
+        existing destination fails — and an existing destination is exactly the
+        retry case. A leftover `.tmp` from a crash is simply overwritten here, and
+        ignored by every reader, which is what makes resume correct rather than
+        hopeful.
+        """
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(payload, encoding="utf-8")
+        pending = path.with_name(path.name + PENDING_SUFFIX)
+        with open(pending, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(pending, path)
 
     @staticmethod
     def _read_optional(path: Path) -> str | None:
