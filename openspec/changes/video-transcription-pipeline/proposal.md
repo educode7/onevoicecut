@@ -251,12 +251,34 @@ notices until it is published. Therefore each keyframe records its origin — `T
 or `FALLBACK_CENTER` — and a clip whose trajectory is mostly fallback is reported as such rather than
 delivered as a successful reframe. **Mark, never silently substitute**, on a third axis.
 
-**The real problem: a wide shot spends resolution.** Cropping 9:16 out of a 16:9 frame keeps at most
-`height × 9/16` of the width — from 1920×1080 that is **608×1080**, and punching in tighter on a distant
-preacher costs more. Vertical delivery targets are 1080×1920. So the source resolution determines
-whether output is native, upscaled, or unacceptable, and a fixed wide camera is the worst case for it:
-the subject occupies a small part of an already-cropped frame. This is **not solvable in software** and
-must be measured against real footage before slice sizing is trusted. See Open Question 12.
+**The real problem: a wide shot spends resolution, and the source is not one resolution.**
+**[ANSWERED — Open Question 12]** The church records at **1080p on the fixed video camera, and at 4K on
+a second camera** (a photography body also used for video) when that one is present. Both are normal
+input; neither is the exception.
+
+Cropping 9:16 out of a 16:9 frame keeps at most `height × 9/16` of the width, so the two sources are not
+close to equivalent:
+
+| Source | 9:16 crop | Against a 1080×1920 target | Pixels in the delivered clip |
+| --- | --- | --- | --- |
+| 4K — 3840×2160 | **1215×2160** | downscale 0.89x — **native, with headroom to punch in** | 2.62 MP |
+| 1080p — 1920×1080 | **608×1080** | **upscale 1.78x** — visibly soft | 0.66 MP |
+
+The 4K path delivers **3.2x the pixel area**. That is the difference between a clip that holds up
+full-screen and one that only holds up as a thumbnail.
+
+**Consequence: the renderer must declare its output quality rather than silently upscaling.** A clip
+upscaled 1.78x from a 608-pixel-wide crop looks unremarkable in a file listing and soft only once it is
+full-screen on a phone — which is to say, once it is published. This is the same failure shape as the
+three silent-degradation axes already in this proposal, arriving on a fourth: *the artifact looks fine*.
+The render reports whether the clip is native or upscaled, and by how much.
+
+**This requires a domain change that rev 1-3 had no reason to make.** `MediaProbe` currently carries
+`duration_s`, `container` and `has_audio` — **no frame dimensions at all**. That was correct while the
+product ended at a transcript and the only question about a file was whether it had audio worth
+decoding. With rendering in scope it is a gap: neither the crop geometry nor the quality declaration can
+be computed without width and height, and `ffprobe` already returns both in the payload the adapter
+currently discards.
 
 ## Capabilities
 
@@ -360,7 +382,7 @@ Revised chained/stacked PR sequence:
 | 8 | Cloud ASR adapter + 25MB per-request cap handling + contract test | ~250 | Interchangeability |
 | 9 | Opt-in diarization across both adapters + capability declaration + rejection path | ~250 | Speaker mode, with honest asymmetry |
 | 10 | `TextGenerationPort` adapter + map-reduce + summary/clip-candidates/N-variant output | ~450 | The actual product outcome |
-| 11 **[rev 4]** | Word-level timing retrofit: `WordTiming` on the segment, through storage codec, stitcher and fakes | ~350 | Captions become possible at all |
+| 11 **[rev 4]** | Domain gaps rendering exposed: `WordTiming` on the segment (through storage codec, stitcher and fakes) **plus frame dimensions on `MediaProbe`** | ~400 | Captions and crop geometry become possible at all |
 | 12 **[rev 4]** | `SubjectTrackerPort` + `CropTrajectory` + trajectory planning use case, against a fake detector | ~600 | The reframe arithmetic, with no model weights |
 | 13 **[rev 4]** | Vision tracker adapter (`localmodel`) + ffmpeg vertical renderer + subtitle burn-in + clip export | ~700 | A real 9:16 subtitled clip on disk |
 
@@ -409,7 +431,8 @@ miss:
 | Cloud ASR/LLM per-minute cost leaking into CI or default test runs — worse now, since diarization add-ons bill on top | Med | Marked integration tests excluded from default suite |
 | ~~Scope creep toward actual video generation~~ — **SUPERSEDED in rev 4.** Rendering is now in scope by decision, not by drift. The residual risk is different: creep from *editing real footage* into *generating footage*. | Med | Redrawn non-goal: every frame and word in an output clip comes from the source sermon. No synthesis, no avatars, no dubbing, no B-roll |
 | **Word-level timing is a retrofit through a type that already crosses every layer.** `TranscriptSegment` is in the storage codec, the stitcher, both fakes, and every construction site in the test suite. The rev-3 table flagged exactly this shape for `SegmentKind` and mitigated it by landing it as slice 1b, *before* adapters existed. That option is gone — `adapters/storage` and `adapters/ffmpeg` now exist | **High** | Land it as its own slice (11) before any rendering work, and treat the codec's explicit field-by-field decoding as the thing that makes the migration visible rather than silent |
-| **Wide-shot source resolution may make native 1080×1920 output impossible.** A 9:16 crop of 1920×1080 yields at most 608×1080 before any punch-in; a distant preacher costs more | **High** | Not solvable in software. Measure against real footage before slice 12/13 sizing is trusted — Open Question 12 |
+| **The 1080p path cannot deliver a native vertical clip.** A 9:16 crop of 1920×1080 yields 608×1080 against a 1080×1920 target — a 1.78x upscale before any punch-in on a distant preacher | **High** on 1080p sources, **absent** on 4K | Not solvable in software; the camera sets the ceiling. Mitigated by *declaring* it: the render reports native vs upscaled rather than quietly producing a soft clip. Prefer the 4K source when the service has one |
+| **`MediaProbe` carries no frame dimensions**, so neither the crop geometry nor the quality declaration is computable today | **High** (blocks slices 12-13 outright) | Small, well-bounded fix: `ffprobe` already returns width/height in the payload the adapter currently discards. Land it with the word-timing retrofit in slice 11 — both are domain-model gaps that rendering exposed |
 | **A tracker that lost the subject returns a plausible centered crop** — a clip framed on an empty pulpit looks like a successful render | **High** (same shape as the two silent-degradation failures already in this table) | Keyframe provenance (`TRACKED`/`INTERPOLATED`/`FALLBACK_CENTER`); a mostly-fallback trajectory is reported, not delivered as success |
 | Vision weights leaking into the default test run, breaking the "no model weights by default" criterion | Med | Detection behind `SubjectTrackerPort`; all trajectory arithmetic proven against a fake detector; real adapter tests carry the existing `localmodel` marker; `requirements-vision.txt` kept out of the default install |
 | **Rev 4 roughly doubles the change**, and it is being added to a change already running 3-5x over every estimate | **High** | Estimate honesty section above; slice 13 split mandated at `sdd-tasks` time; the alternative of shipping rev 1-3 first and rendering as a separate change stays available |
@@ -464,7 +487,8 @@ miss:
 | 9 | Should musical/sung ranges be actively **promoted** as clip candidates, or merely permitted? | **OPEN.** Settled so far: they are *permitted* — timestamps are retained and a candidate MAY reference a non-speech range. Whether generation should additionally *favor* them (a singer's moment is often strong short-form material) is a ranking-policy question that changes prompt and scoring in slice 10b only, not any type. **Rev 4 raises the stakes**: with rendering in scope, a promoted musical range becomes a rendered worship clip, which is plausibly the single most shareable artifact this system could produce. |
 | 10 | How is the source footage filmed? | **ANSWERED (rev 4) — one fixed camera, wide shot, no operator, no cuts.** The preacher moves within a static frame. Kills scene detection and multi-layout as unnecessary; makes subject tracking mandatory rather than optional. See *Vertical Reframing Reality*. |
 | 11 | Automatic publishing to social networks, or export to disk? | **ASSUMED — export to disk for this delivery.** Stated so it is a live decision, not a buried one. Rationale: per-network OAuth, token refresh, rate limits and new stored credentials is heavy machinery for a single operator posting occasionally, and automatic publishing breaks the rollback property *"no external state is mutated"* that holds today. `PublishPort` is declared so flipping this later is an added adapter, not a reshape. **The operator's stated goal does include publishing** — this defers it, it does not deny it. |
-| 12 | What is the source footage's actual resolution, and how large is the preacher in frame? | **OPEN — and blocking for slice 12/13 sizing.** A 9:16 crop of 1920×1080 yields at most 608×1080 before punch-in, against a 1080×1920 delivery target. If the church records 1080p on a wide shot, output is upscaled and the quality ceiling is set by the camera, not by this software. 4K source removes the concern entirely. **Cannot be answered from the repository — needs one real sermon file measured.** |
+| 12 | What is the source footage's actual resolution? | **ANSWERED (rev 4) — both. 1080p on the fixed video camera, 4K on a second (photography) camera when present.** Neither is the exception, so resolution is a **per-job property**, not a global assumption. 4K crops native with headroom; 1080p upscales 1.78x from a 608-pixel-wide crop. Drives the `MediaProbe` dimensions gap and the quality declaration. Still unmeasured: how large the preacher is within the wide frame, which decides how much punch-in the 1080p path can afford before it stops being usable. |
+| 14 | Two cameras record the same sermon. Is a job **one file**, or **two files aligned to each other**? | **OPEN — and it decides whether a whole subsystem exists.** Coverage is not the obstacle: the 4K camera records the full sermon **[ANSWERED]**, so alignment is viable rather than pointless. The question is whether it is *needed*. Three topologies: **(A)** one file per job, whichever camera — zero new machinery, quality follows that file; **(B)** transcribe the 1080p fixed camera, render from the 4K — best of both, but requires estimating a global offset **and drift**, since two consumer cameras diverge over a 90-minute recording and clip boundaries care about half a second; **(C)** 4K only, if its audio is good enough to transcribe. **A and C cost nothing. B is a new port, a new failure axis, and a misaligned clip cuts the wrong sentence while looking entirely correct.** The deciding fact is where each camera's audio comes from — a soundboard feed transcribes well, an on-camera mic in a reverberant room is exactly the input that makes Whisper hallucinate, which this proposal already rates a High risk. |
 | 13 | Which clip candidates get rendered — all of them, or an operator selection? | **OPEN.** Rendering every candidate of a multi-hour sermon is expensive and mostly wasted; rendering none until asked adds a step. Assumed for now: the operator selects from the candidate list, and rendering is explicit. Changes the job model's terminal states, so it should be settled before slice 13. |
 
 ## Success Criteria
@@ -486,6 +510,7 @@ miss:
 - [ ] A crop trajectory is smoothed, clamped inside the source frame, and interpolated across detection gaps — all proven with no model weights loaded.
 - [ ] Every trajectory keyframe records whether it was tracked, interpolated, or fell back to centre, and a mostly-fallback trajectory is reported rather than delivered as a successful reframe.
 - [ ] A selected clip candidate renders to a 9:16 file with burned-in subtitles, in a single native ffmpeg pass, with the subject in frame throughout.
+- [ ] `MediaProbe` reports frame dimensions, and the render declares whether the delivered clip is native or upscaled — a 1080p source never yields a soft clip that is presented as a successful render.
 - [ ] Every frame and every word in a rendered clip comes from the source sermon — nothing synthesized, dubbed, or composited from elsewhere.
 - [ ] The rendered clip and its metadata land in the job directory, and no external service is written to.
 - [ ] **The default `pytest` run invokes no paid API and no real local model — including no vision weights.** This criterion predates rev 4 and survives it unchanged; it is the one rev 4 was most likely to break.
