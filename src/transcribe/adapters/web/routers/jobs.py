@@ -11,13 +11,19 @@ from urllib.parse import unquote
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from transcribe.adapters.web.app import WebDependencies
-from transcribe.adapters.web.schemas import AdmitJobRequest, AdmitJobResponse
+from transcribe.adapters.web.schemas import (
+    AdmitJobRequest,
+    AdmitJobResponse,
+    JobStatusResponse,
+    ProgressResponse,
+)
 from transcribe.domain.errors import (
     JobNotFound,
     UnsupportedContainer,
     UploadTooLarge,
 )
 from transcribe.domain.ids import InvalidIdError, JobId, make_job_id
+from transcribe.domain.jobs import JobRecord, derive_progress
 from transcribe.domain.media import SourceMedia
 from transcribe.ports.audio_extractor import AudioExtractorPort
 from transcribe.ports.media_source import MediaSourcePort
@@ -26,6 +32,14 @@ from transcribe.usecases.admit_job import admit_job
 # The client's filename travels as metadata, never in the URL — a path parameter
 # would invite treating it as one.
 FILENAME_HEADER = "x-filename"
+
+
+def _load(job_id: str, deps: WebDependencies) -> JobRecord:
+    """Validate then load, in that order, on every route that names a job."""
+    try:
+        return deps.storage.load_job(_validated_job_id(job_id))
+    except JobNotFound as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
 
 
 def _validated_job_id(raw: str) -> JobId:
@@ -154,6 +168,35 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         )
         return AdmitJobResponse(job_id=job.job_id, state=job.state)
 
+    @router.get("/{job_id}", response_model=JobStatusResponse)
+    def status(job_id: str) -> JobStatusResponse:
+        """Read-only by construction, which is what makes it safe to poll.
+
+        The worker is the sole writer of the job record. This reads the record,
+        reads the plan, counts the results and computes — there is nothing to race
+        against because nothing is written.
+
+        Elapsed time is measured from admission rather than from the moment
+        transcription began, which the record does not carry. The difference is
+        the upload, so the rate comes out slightly low and the ETA slightly long.
+        That is the direction to be wrong in.
+        """
+        job = _load(job_id, deps)
+        progress = derive_progress(
+            deps.storage.load_chunk_plan(job.job_id),
+            deps.storage.load_chunk_results(job.job_id),
+            started_at=job.created_at,
+            now=deps.now(),
+        )
+        return JobStatusResponse(
+            job_id=job.job_id,
+            state=job.state,
+            engine=job.engine,
+            speaker_mode=job.speaker_mode,
+            error=job.error,
+            progress=None if progress is None else ProgressResponse.of(progress),
+        )
+
     @router.put("/{job_id}/media", status_code=204)
     async def upload_media(job_id: str, request: Request) -> Response:
         """Raw body straight to disk. No multipart, no `UploadFile`.
@@ -168,10 +211,7 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         metadata. It is never consulted when deciding where anything goes: storage
         decided that before this handler ran.
         """
-        try:
-            job = deps.storage.load_job(_validated_job_id(job_id))
-        except JobNotFound as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
+        job = _load(job_id, deps)
 
         _refuse_if_declared_too_large(request, deps.max_upload_bytes)
 
