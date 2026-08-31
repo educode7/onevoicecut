@@ -76,6 +76,7 @@ margin — they are directly comparable to slice 1's well-measured domain/use-ca
 | **New total estimate** | **~6,543 lines** (was ~3,110 in rev 2 — 2.10x, not 3.35x, because scaffolding is sunk) |
 | Slice 1b actual (DONE) | 553 lines, delivered as **two** units after a mid-flight split: 1b-i 309 (PR 2) + 1b-ii 244 (PR 3). Estimated ~150 as one unit — 3.2x. Both units land under budget; the unsplit slice would have been 21% over |
 | Slice 4a actual (DONE) | 1,642 lines across **six** units, all under budget. Estimated ~340 — 4.8x, the worst ratio so far. Test share 68% against the 56% assumed. Revised unit: an adapter that also owns its persistence format ≈ 1,600 lines |
+| Slices 4b+4c+4d actual (DONE) | 2,425 lines across **nine** units, all under budget. Estimated ~680 — 3.6x. Test share 70%. **The 56% test share in the rev-3 calibration is now disproved by three consecutive measurements (68%, 70%, 70%); every remaining estimate built on it is low by roughly a third on the test axis alone** |
 | Per-unit 400-line budget risk | **Low** — every one of the 21 remaining work units is individually estimated at 145–350 lines, with margin, not at the ceiling |
 | Aggregate 400-line budget risk | **High** by construction — this is why the change stays split into 23 work units total |
 | Chained PRs recommended | Yes |
@@ -493,49 +494,109 @@ carrying an unmeasured category, and is still estimated at ~260.
       is polled at chunk boundaries.
 - [x] 4.18 GREEN: `control.json` read path in the filesystem adapter.
 
-## Slice 4b: `transcribe_job` Core Loop (~350 lines)
+## Slices 4b + 4c + 4d — ALL DONE (delivered as nine units)
 
-Closes: `transcription-jobs` Asynchronous Job Lifecycle, Chunk-Level Failure Isolation, Per-Chunk Timeout, Job
-Record Carries Speaker Mode and Engine Choice (propagation half). Highest RED/GREEN-pair density of any remaining
-slice (5 pairs) — this is the orchestration hub; kept separate from storage (4a) and resume/progress (4c) so a bug
-in retry logic never forces reverting the storage adapter or vice versa.
+**Actual: 2,425 lines vs ~680 estimated — 3.6x.** Suite 362 passed, 0 skipped, `mypy src tests` clean
+over 81 files. Test share 70% (1,689 test / 736 src), consistent with 4a's 68% and again above the
+rev-3 calibration's 56%.
 
-- [ ] 4.1 RED: `tests/unit/usecases/test_transcribe_job.py` — job runs against fake ports through all
+| Unit | Commit | Lines |
+| --- | --- | --- |
+| 4b-i | `feat(ports): storage answers where a job's working files go` | 129 |
+| 4b-ii | `feat(usecases): drive one job from source media to a stored transcript` | 383 |
+| 4b-iii | `feat(usecases): contain a chunk failure, and stop when the operator says stop` | 399 |
+| 4b-iv | `feat(usecases): retry a failed chunk, but never a timed-out one` | 309 |
+| 4b-v | `feat(runtime): resolve the engine a job asked for, and never substitute it` | 219 |
+| 4c-i | `feat(domain): derive progress from what is on disk, never from a counter` | 230 |
+| 4c-ii | `feat(usecases): make resume a property of the loop, not a second code path` | 371 |
+| 4d-i | `feat(adapters): record the source media the worker will need hours later` | 127 |
+| 4d-ii | `feat(runtime): headless worker entrypoint, one process per job` | 380 |
+
+Closes: `transcription-jobs` Asynchronous Job Lifecycle, Chunk-Level Failure Isolation, Per-Chunk
+Timeout, Resume From First Incomplete Chunk, Chunk-Level Progress Reporting, Job Record Carries Speaker
+Mode and Engine Choice (propagation half); `transcript-artifacts` Retention Is Unbounded (seam only).
+
+### Task 4.20 has nothing to extract, and that is the result
+
+The task called for extracting "the chunk-loop state machine shared by `transcribe_job`/`resume_job`".
+There is no such shared machine, because 4c did not build a second loop. **Resume is a property of the
+one loop**: it asks `pending_chunks` what is still owed and works on that, so a first run and a restart
+take the same route. A dedicated resume path would have executed rarely, been tested rarely, and been
+exactly where a bug survives a year. The refactor the plan anticipated was avoided rather than
+performed.
+
+### Deviations from the task list, and why
+
+- **4.4 named `usecases/progress.py`; `derive_progress` landed in `domain/jobs.py`.** It is pure
+  arithmetic over domain entities with no port involved, and `domain/transcript.py` already establishes
+  that shape — `without_music` and `render_message_text` are the same thing. The codebase's own
+  precedent beat the plan.
+- **4.12 named a "watchdog stub".** None was built. The use case passes `timeout_s` into the request and
+  treats the resulting failure as a chunk failure; enforcing a wall-clock kill needs a real process to
+  supervise, which is slice 7b's job. A stub would have been a stub of nothing.
+
+### Design decisions taken here that the design did not specify
+
+- **`ChunkTimeout` is a new error, and it is the one failure that is never retried.** A retry mostly
+  spends the budget again: three attempts at a thirty-minute chunk is ninety minutes to learn the same
+  thing. It subclasses `TranscriptionFailed` so adapters raising it satisfy existing callers, and is
+  caught first so the broader handler cannot retry it.
+- **`DiarizationUnsupported` is not contained per chunk.** Every remaining chunk raises it identically,
+  so containing it would discover the same fact 87 times and then blame the last chunk for the job's
+  configuration. It fails the job at the first chunk.
+- **A job with any failed chunk never stitches.** A hole reads as continuous text once stitched, because
+  the words either side run together. `FAILED`, no transcript, failed indices named on the record.
+- **`transcribe_job` returns `JobRecord`, not `Transcript`.** Three outcomes are normal — completed,
+  failed, cancelled — and only one produces a transcript.
+- **The engine resolver never substitutes.** Falling back from local to cloud would, on precisely the
+  job where the distinction mattered, ship private material to a provider and report success.
+  `EngineUnavailable` instead. Adapters are constructed at resolution so a missing key fails before the
+  run, not three hours in.
+- **An existing chunk plan is reused, never recomputed.** Stored results are indexed against the stored
+  plan; a plan differing by one chunk would re-map every completed result onto the wrong range.
+- **Extraction re-runs on resume.** Minutes against hours of ASR, and the alternative — a use case
+  stat-ing the filesystem to decide — would put I/O above the ports.
+- **The purge seam takes `keep`, not `remove`.** A policy listing what to delete silently grows to cover
+  new artifact kinds; one listing what to keep fails closed. Source video, transcript and artifacts are
+  absent from the purgeable set: the first cannot be regenerated, the others are the product.
+
+### Port gaps the wiring exposed
+
+Both found by writing the composition root, neither anticipated by the design — the same shape as the
+`job_id` gap `AudioExtractorPort.slice()` turned out to have in 3b.
+
+1. **`audio_path` / `chunk_path`** — the loop must hand the extractor somewhere to write. Composing
+   those paths in a use case would put the on-disk layout in a second module.
+2. **`save_media` / `load_media`** — the worker runs in another process and could not rebuild
+   `SourceMedia`: the job record carries only a `media_id`, and an invented checksum is worse than none.
+
+`cancellation_requested` was also promoted onto the port, which 4a had explicitly left for this slice to
+decide. The Protocol conformance assignment added in 4a-vi caught the real adapter falling behind the
+port the moment it grew — before any caller existed.
+
+- [x] 4.1 RED: `tests/unit/usecases/test_transcribe_job.py` — job runs against fake ports through all
       chunks, `JobRecord` transitions `PENDING→…→COMPLETED`.
-- [ ] 4.2 GREEN: `usecases/transcribe_job.py` orchestrating plan → slice → transcribe → persist per chunk.
-- [ ] 4.5 RED: chunk-84-of-87 failure test — chunks 1-83 remain persisted/intact, job record not terminated.
-- [ ] 4.6 GREEN: per-chunk error isolation in `transcribe_job.py`; `ChunkResult(state=FAILED)` recorded.
-- [ ] 4.9 RED: transient-cloud-error retry test — only the failed chunk retries.
-- [ ] 4.10 GREEN: bounded per-chunk retry in `transcribe_job.py`.
-- [ ] 4.11 RED: per-chunk timeout test — a timed-out chunk marks `FAILED(TIMEOUT)`, job continues; a
-      3-hour job within per-chunk timeouts is never terminated on elapsed time alone.
-- [ ] 4.12 GREEN: `TranscriptionRequest.timeout_s` honored in-call (watchdog stub; real watchdog is slice 7b).
-- [ ] 4.13 RED: job-record propagation test — `engine_choice=cloud, speaker_mode=multi-speaker` resolves
-      to the matching fake adapter and a diarized request.
-- [ ] 4.14 GREEN: `runtime/engine_resolver.py` stub (fakes only this slice) + propagation wiring.
-
-## Slice 4c: Resume + Derived Progress (~170 lines)
-
-Closes: `transcription-jobs` Resume From First Incomplete Chunk, Chunk-Level Progress Reporting. Pure-derivation
-and work-set-selection logic layered on top of 4a/4b — smallest remaining slice in this family, kept separate so
-progress-reporting changes never touch the resume state machine.
-
-- [ ] 4.3 RED: `tests/unit/usecases/test_progress.py` — progress derived from `results/` listing vs
-      `ChunkPlan`, never a mutable counter; ETA `None` until first chunk done.
-- [ ] 4.4 GREEN: `usecases/progress.py` — pure derivation function.
-- [ ] 4.7 RED: `tests/unit/usecases/test_resume_job.py` — resume after a simulated crash continues at the
+- [x] 4.2 GREEN: `usecases/transcribe_job.py` orchestrating plan → slice → transcribe → persist per chunk.
+- [x] 4.3 RED: progress derived from `results/` listing vs `ChunkPlan`, never a mutable counter; ETA
+      `None` until first chunk done.
+- [x] 4.4 GREEN: pure derivation function (`domain/jobs.py`, see deviation above).
+- [x] 4.5 RED: chunk-84-of-87 failure test — chunks 1-83 remain persisted/intact, job record not terminated.
+- [x] 4.6 GREEN: per-chunk error isolation in `transcribe_job.py`; `ChunkResult(state=FAILED)` recorded.
+- [x] 4.7 RED: `tests/unit/usecases/test_resume_job.py` — resume after a simulated crash continues at the
       first `!= DONE` chunk; completed chunks untouched.
-- [ ] 4.8 GREEN: `usecases/resume_job.py` — work-set = chunks where state != DONE.
-
-## Slice 4d: Worker Entrypoint + Purge Seam + Refactor (~160 lines)
-
-Closes: `transcript-artifacts` Retention Is Unbounded (seam only). Wiring/cleanup slice — depends on 4a/4b/4c all
-landing first.
-
-- [ ] 4.19 RED+GREEN: headless entrypoint `python -m transcribe.runtime.worker --job-id <id>` proven by
+- [x] 4.8 GREEN: `usecases/resume_job.py` — work-set = chunks where state != DONE.
+- [x] 4.9 RED: transient-cloud-error retry test — only the failed chunk retries.
+- [x] 4.10 GREEN: bounded per-chunk retry in `transcribe_job.py`.
+- [x] 4.11 RED: per-chunk timeout test — a timed-out chunk marks `FAILED`, job continues; a
+      3-hour job within per-chunk timeouts is never terminated on elapsed time alone.
+- [x] 4.12 GREEN: `TranscriptionRequest.timeout_s` honored in-call (no watchdog stub — see deviation).
+- [x] 4.13 RED: job-record propagation test — engine choice resolves to the matching fake adapter, and
+      `speaker_mode=multi` produces a diarized request and a labelled transcript.
+- [x] 4.14 GREEN: `runtime/engine_resolver.py` (fakes only this slice) + propagation wiring.
+- [x] 4.19 RED+GREEN: headless entrypoint `python -m transcribe.runtime.worker --job-id <id>` proven by
       an E2E-style test — real filesystem, fake engines.
-- [ ] 4.20 REFACTOR: extract the chunk-loop state machine shared by `transcribe_job`/`resume_job`; suite green.
-- [ ] 4.21 GREEN: add an unused `usecases/purge_job_artifacts.py` seam (`PurgeJobArtifacts(job_id, keep)`),
+- [x] 4.20 REFACTOR: **not applicable** — no shared state machine exists to extract (see above).
+- [x] 4.21 GREEN: add an unused `usecases/purge_job_artifacts.py` seam (`PurgeJobArtifacts(job_id, keep)`),
       no caller wired. **Answers Q6 later**.
 
 ---

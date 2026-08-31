@@ -152,18 +152,23 @@ This repo runs **Spec-Driven Development** (`openspec/`) with **strict TDD** (`s
 
 ### Current state
 
-Slices 1, 1b, 2a, 2b, 3a, 3b and 4a are complete and green: **276 tests, 0 skipped, mypy clean over 66
-files**. On disk today are `domain/`, `ports/`, three use cases (`ingest_media`, `plan_chunks`,
-`stitch_transcript`), `adapters/ffmpeg/` (real `AudioExtractorPort`), `adapters/storage/` (real
-`TranscriptStoragePort` + its JSON codec), and `tests/fakes/`. There is still **no** `runtime/` package,
-no ASR or LLM adapter, and no web app.
+Slices 1 through 4d are complete and green: **362 tests, 0 skipped, mypy clean over 81 files**. On disk
+today are `domain/`, `ports/` (now eight protocols), the use cases (`ingest_media`, `plan_chunks`,
+`stitch_transcript`, `transcribe_job`, `resume_job`, plus the uncalled `purge_job_artifacts` seam),
+`adapters/ffmpeg/`, `adapters/storage/`, `runtime/` (`engine_resolver`, `worker`), and `tests/fakes/`.
+Still missing: any ASR or LLM adapter, and the web app.
 
-ffmpeg 9.0.1 is installed (winget, `Gyan.FFmpeg`), so the 13 `integration`-marked tests run rather than
+A job runs end to end today with fake engines:
+`PYTHONPATH=src python -m transcribe.runtime.worker --job-id <ulid> --data-dir <dir>`. It exits 3
+("nothing usable to run") because no real engine is wired yet.
+
+ffmpeg 9.0.1 is installed (winget, `Gyan.FFmpeg`), so the `integration`-marked tests run rather than
 skip — the flag set in `adapters/ffmpeg/argv.py` is verified against the real binaries, not just argued.
 
-Next up is **Slice 4b**: the `transcribe_job` core loop — the first code that drives a job end to end
-over the storage adapter, and the first consumer of `cancellation_requested`. Decide there whether
-cancellation is promoted onto `TranscriptStoragePort`; 4a deliberately left it on the concrete adapter.
+Next up is **Slice 5a**: job creation + streaming upload — the first real HTTP surface and the first
+real `MediaSourcePort`. Note that the proposal is at **rev 4**: rendering vertical clips is now in
+scope, which adds slices 11-13 after 10b and modifies `transcript-artifacts` (word-level timing) and
+`MediaProbe` (frame dimensions). Those two domain gaps are recorded but not yet built.
 
 One decision is deliberately left open for slice 10a: whether MAP windowing excludes `UNCERTAIN`
 segments or marks them the way the `.txt` export does. Excluding risks an empty summary on a
