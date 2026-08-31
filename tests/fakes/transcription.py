@@ -4,21 +4,26 @@ Two of them, because the port has two independent capability axes and a single
 fake cannot represent both sides of either. `FakeTranscriptionPort` stands for a
 well-behaved engine that classifies; `NonClassifyingFakeTranscriptionPort` stands
 for one that cannot, and must say so rather than assert speech.
+
+Both use `_validate_compatibility` from the use-case layer for port-level
+defense-in-depth — the same single definition of compatibility that admission
+uses, closing the spec's "single definition of compatibility" requirement.
 """
 
 from collections.abc import Callable
 from dataclasses import replace
 
-from transcribe.domain.chunking import AudioChunk
-from transcribe.domain.errors import DiarizationUnsupported, TranscriptionFailed
-from transcribe.domain.jobs import SpeakerMode
-from transcribe.domain.transcript import SegmentKind, TranscriptSegment
-from transcribe.ports.capabilities import (
+from onevoicecut.domain.chunking import AudioChunk
+from onevoicecut.domain.errors import DiarizationUnsupported, TranscriptionFailed
+from onevoicecut.domain.jobs import SpeakerMode
+from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
+from onevoicecut.ports.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
     TranscriptionCapabilities,
 )
-from transcribe.ports.transcription import TranscriptionRequest
+from onevoicecut.ports.transcription import TranscriptionRequest
+from onevoicecut.usecases.admit_job import _validate_compatibility
 
 Script = tuple[tuple[str, SegmentKind], ...]
 
@@ -63,8 +68,9 @@ class FakeTranscriptionPort:
     def transcribe(
         self, chunk: AudioChunk, request: TranscriptionRequest
     ) -> tuple[TranscriptSegment, ...]:
-        if request.speaker_mode is SpeakerMode.MULTI:
-            raise DiarizationUnsupported("fake-asr cannot satisfy speaker_mode=multi")
+        _validate_compatibility(
+            self.capabilities().diarization, request.speaker_mode
+        )
         return _lay_out(self._script, chunk)
 
 
@@ -160,9 +166,8 @@ class NonClassifyingFakeTranscriptionPort:
     def transcribe(
         self, chunk: AudioChunk, request: TranscriptionRequest
     ) -> tuple[TranscriptSegment, ...]:
-        if request.speaker_mode is SpeakerMode.MULTI:
-            raise DiarizationUnsupported(
-                "unclassifying-fake-asr cannot satisfy speaker_mode=multi"
-            )
+        _validate_compatibility(
+            self.capabilities().diarization, request.speaker_mode
+        )
         script: Script = tuple((t, SegmentKind.UNCERTAIN) for t in self._texts)
         return _lay_out(script, chunk)

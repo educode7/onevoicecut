@@ -10,10 +10,21 @@ from pathlib import Path
 
 import pytest
 
+from onevoicecut.domain.chunking import AudioChunk
 from onevoicecut.domain.errors import DiarizationUnsupported
+from onevoicecut.domain.ids import JobId
 from onevoicecut.domain.jobs import EngineChoice, JobState, SpeakerMode
-from onevoicecut.ports.capabilities import DiarizationSupport, TranscriptionCapabilities
+from onevoicecut.ports.capabilities import (
+    ClassificationSupport,
+    DiarizationSupport,
+    TranscriptionCapabilities,
+)
+from onevoicecut.ports.transcription import TranscriptionRequest
 from onevoicecut.usecases.admit_job import _validate_compatibility, admit_job
+from tests.fakes.transcription import (
+    FakeTranscriptionPort,
+    NonClassifyingFakeTranscriptionPort,
+)
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 
 
@@ -21,7 +32,7 @@ def _caps(diarization: DiarizationSupport) -> TranscriptionCapabilities:
     return TranscriptionCapabilities(
         engine_id="test-engine",
         diarization=diarization,
-        non_speech_classification="unsupported",
+        non_speech_classification=ClassificationSupport.UNSUPPORTED,
         max_chunk_bytes=None,
         max_chunk_duration_s=None,
     )
@@ -138,3 +149,57 @@ class TestAdmitJobCapabilities:
 
         assert job.speaker_mode is SpeakerMode.SINGLE
         assert len(storage.list_jobs()) == 1
+
+
+def _fake_chunk() -> AudioChunk:
+    return AudioChunk(
+        job_id=JobId("00000000000000000000000000"),
+        index=0,
+        path=Path("/tmp/chunk.flac"),
+        start_s=0.0,
+        end_s=10.0,
+        size_bytes=1024,
+    )
+
+
+def _multi_request() -> TranscriptionRequest:
+    return TranscriptionRequest(language="es", speaker_mode=SpeakerMode.MULTI, timeout_s=60.0)
+
+
+def _single_request() -> TranscriptionRequest:
+    return TranscriptionRequest(language="es", speaker_mode=SpeakerMode.SINGLE, timeout_s=60.0)
+
+
+class TestPortLevelDefense:
+    """Port-level defense-in-depth: fakes refuse MULTI when diarization != AVAILABLE.
+
+    This is the second line of defence — admission should have caught it first —
+    but a job that somehow reaches dispatch with an incompatible combination
+    must still fail at the port, not produce unlabeled output.
+    """
+
+    def test_fake_transcription_port_refuses_multi(self) -> None:
+        """6.13: FakeTranscriptionPort (UNSUPPORTED) raises on MULTI."""
+        port = FakeTranscriptionPort()
+
+        with pytest.raises(DiarizationUnsupported, match="diarization"):
+            port.transcribe(_fake_chunk(), _multi_request())
+
+    def test_non_classifying_fake_refuses_multi(self) -> None:
+        """6.13: NonClassifyingFakeTranscriptionPort (UNSUPPORTED) raises on MULTI."""
+        port = NonClassifyingFakeTranscriptionPort()
+
+        with pytest.raises(DiarizationUnsupported, match="diarization"):
+            port.transcribe(_fake_chunk(), _multi_request())
+
+    def test_fake_transcription_port_accepts_single(self) -> None:
+        """6.15: SINGLE mode always accepted at port level."""
+        port = FakeTranscriptionPort()
+        result = port.transcribe(_fake_chunk(), _single_request())
+        assert len(result) > 0
+
+    def test_non_classifying_fake_accepts_single(self) -> None:
+        """6.15: SINGLE mode always accepted at port level."""
+        port = NonClassifyingFakeTranscriptionPort()
+        result = port.transcribe(_fake_chunk(), _single_request())
+        assert len(result) > 0
