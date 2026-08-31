@@ -22,11 +22,13 @@ from pathlib import Path
 from transcribe.adapters.storage.serialization import (
     decode_chunk_plan,
     decode_chunk_result,
+    decode_control,
     decode_job,
     decode_transcript,
     encode_artifacts,
     encode_chunk_plan,
     encode_chunk_result,
+    encode_control,
     encode_job,
     encode_transcript,
 )
@@ -39,6 +41,7 @@ from transcribe.domain.transcript import Transcript
 
 JOBS_DIRNAME = "jobs"
 JOB_RECORD = "job.json"
+CONTROL = "control.json"
 CHUNK_PLAN = "plan.json"
 RESULTS_DIRNAME = "results"
 PENDING_SUFFIX = ".tmp"
@@ -150,6 +153,26 @@ class FilesystemTranscriptStorage:
         path = self._writable(job_id) / TRANSCRIPT_TEXT
         self._write(path, text)
         return path
+
+    def request_cancellation(self, job_id: JobId, *, requested: bool = True) -> None:
+        """The web process's only way to influence a running job.
+
+        It is a separate file on purpose. Both processes have a reason to write job
+        state, which is a guaranteed race; the resolution is not a lock but an
+        ownership split — while a worker is alive it is the sole writer of
+        `job.json`, so a cancellation must never be expressed by editing it.
+        """
+        self._write(self._writable(job_id) / CONTROL, encode_control(requested))
+
+    def cancellation_requested(self, job_id: JobId) -> bool:
+        """Polled by the worker at every chunk boundary, so it writes nothing.
+
+        An unreadable control file is reported rather than shrugged off: silently
+        ignoring it turns the operator's stop button into a no-op on a job that
+        runs for hours, and naming the file to delete is the more useful failure.
+        """
+        payload = self._read_optional(self.job_dir(job_id) / CONTROL)
+        return False if payload is None else decode_control(payload)
 
     def _writable(self, job_id: JobId) -> Path:
         """The job directory, but only once the job record is really there.

@@ -151,6 +151,17 @@ def _segments(record: Record) -> tuple[TranscriptSegment, ...]:
     return tuple(_segment(item) for item in _objects(record, "segments"))
 
 
+def encode_control(cancel_requested: bool) -> str:
+    """The control file is not a domain entity — it is a message from the web
+    process to the worker — but it is still persistence, so its shape lives here
+    rather than as raw `json` inside the adapter."""
+    return _dumps({"cancel_requested": cancel_requested})
+
+
+def decode_control(payload: str) -> bool:
+    return _flag(_loads(payload), "cancel_requested")
+
+
 def encode_job(job: JobRecord) -> str:
     return _dumps(asdict(job))
 
