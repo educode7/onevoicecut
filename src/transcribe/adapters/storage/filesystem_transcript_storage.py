@@ -43,6 +43,8 @@ JOBS_DIRNAME = "jobs"
 JOB_RECORD = "job.json"
 CONTROL = "control.json"
 CHUNK_PLAN = "plan.json"
+AUDIO_TRACK = "audio.flac"
+CHUNKS_DIRNAME = "chunks"
 RESULTS_DIRNAME = "results"
 PENDING_SUFFIX = ".tmp"
 TRANSCRIPT = "transcript.json"
@@ -62,6 +64,19 @@ class FilesystemTranscriptStorage:
         it is.
         """
         return self._jobs_root / self._validated(job_id)
+
+    def audio_path(self, job_id: JobId) -> Path:
+        """Where the extractor writes the normalized track.
+
+        Storage answers this rather than the caller composing it, so the layout
+        stays in one module. Like `job_dir`, it computes a path and creates
+        nothing — the extractor owns making the file.
+        """
+        return self.job_dir(job_id) / AUDIO_TRACK
+
+    def chunk_path(self, job_id: JobId, index: int) -> Path:
+        """Zero-padded so the directory sorts the way the chunks are numbered."""
+        return self.job_dir(job_id) / CHUNKS_DIRNAME / f"{index:04d}.flac"
 
     def create_job(self, job: JobRecord) -> None:
         directory = self.job_dir(job.job_id)

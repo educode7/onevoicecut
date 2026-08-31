@@ -1,11 +1,17 @@
-"""Fake conforming to TranscriptStoragePort — in-memory dicts + a real export file."""
+"""Fake conforming to TranscriptStoragePort — in-memory dicts + a real export file.
+
+It records the calls it received. That is not decoration: the core loop's central
+claim is that a chunk result is committed *as it completes*, and ordering is the
+only way to observe that from outside. A fake that merely stored the final state
+would pass identically for a loop that batched every write to the end.
+"""
 
 from pathlib import Path
 
 from transcribe.domain.chunking import ChunkPlan, ChunkResult
 from transcribe.domain.generation import GenerationResult
 from transcribe.domain.ids import JobId
-from transcribe.domain.jobs import JobRecord
+from transcribe.domain.jobs import JobRecord, JobState
 from transcribe.domain.transcript import Transcript
 
 
@@ -18,32 +24,64 @@ class FakeTranscriptStoragePort:
         self._transcripts: dict[JobId, Transcript] = {}
         self._artifacts: dict[JobId, GenerationResult] = {}
         self._export_paths: dict[JobId, Path] = {}
+        self._cancelled: dict[JobId, bool] = {}
+        self.calls: list[str] = []
+        self._states: dict[JobId, list[JobState]] = {}
+
+    def state_history(self, job_id: JobId | None = None) -> list[JobState]:
+        """Every state the job was *moved to*, in order. Excludes its initial one."""
+        if job_id is None:
+            job_id = next(iter(self._states))
+        return self._states.get(job_id, [])
+
+    def job_dir(self, job_id: JobId) -> Path:
+        return self._root / job_id
+
+    def audio_path(self, job_id: JobId) -> Path:
+        return self.job_dir(job_id) / "audio.flac"
+
+    def chunk_path(self, job_id: JobId, index: int) -> Path:
+        return self.job_dir(job_id) / "chunks" / f"{index:04d}.flac"
 
     def create_job(self, job: JobRecord) -> None:
+        self.calls.append("create_job")
         self._jobs[job.job_id] = job
 
     def load_job(self, job_id: JobId) -> JobRecord:
         return self._jobs[job_id]
 
     def update_job(self, job: JobRecord) -> None:
+        self.calls.append(f"update_job:{job.state}")
+        self._states.setdefault(job.job_id, []).append(job.state)
         self._jobs[job.job_id] = job
 
     def list_jobs(self) -> tuple[JobRecord, ...]:
         return tuple(self._jobs.values())
 
     def save_chunk_plan(self, job_id: JobId, plan: ChunkPlan) -> None:
+        self.calls.append("save_chunk_plan")
         self._chunk_plans[job_id] = plan
 
     def load_chunk_plan(self, job_id: JobId) -> ChunkPlan | None:
         return self._chunk_plans.get(job_id)
 
     def save_chunk_result(self, result: ChunkResult) -> None:
-        self._chunk_results.setdefault(result.job_id, []).append(result)
+        self.calls.append(f"save_chunk_result:{result.index}")
+        kept = [
+            existing
+            for existing in self._chunk_results.setdefault(result.job_id, [])
+            if existing.index != result.index
+        ]
+        kept.append(result)
+        self._chunk_results[result.job_id] = kept
 
     def load_chunk_results(self, job_id: JobId) -> tuple[ChunkResult, ...]:
-        return tuple(self._chunk_results.get(job_id, []))
+        return tuple(
+            sorted(self._chunk_results.get(job_id, []), key=lambda r: r.index)
+        )
 
     def save_transcript(self, transcript: Transcript) -> None:
+        self.calls.append("save_transcript")
         self._transcripts[transcript.job_id] = transcript
 
     def load_transcript(self, job_id: JobId) -> Transcript | None:
@@ -60,3 +98,10 @@ class FakeTranscriptStoragePort:
 
     def load_export_path(self, job_id: JobId) -> Path | None:
         return self._export_paths.get(job_id)
+
+    def request_cancellation(self, job_id: JobId, *, requested: bool = True) -> None:
+        self._cancelled[job_id] = requested
+
+    def cancellation_requested(self, job_id: JobId) -> bool:
+        self.calls.append("cancellation_requested")
+        return self._cancelled.get(job_id, False)

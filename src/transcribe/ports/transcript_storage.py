@@ -11,6 +11,19 @@ from transcribe.domain.transcript import Transcript
 
 
 class TranscriptStoragePort(Protocol):
+    def job_dir(self, job_id: JobId) -> Path:
+        """The directory holding everything for one job.
+
+        On the port because the worker must hand an extractor somewhere to write,
+        and inventing that path in a use case would put the on-disk layout in two
+        places. Storage owns the layout; callers ask it where things go.
+        """
+        ...
+
+    def audio_path(self, job_id: JobId) -> Path: ...
+
+    def chunk_path(self, job_id: JobId, index: int) -> Path: ...
+
     def create_job(self, job: JobRecord) -> None: ...
 
     def load_job(self, job_id: JobId) -> JobRecord: ...
@@ -36,3 +49,16 @@ class TranscriptStoragePort(Protocol):
     def save_artifacts(self, job_id: JobId, artifacts: GenerationResult) -> None: ...
 
     def export_text(self, job_id: JobId, text: str) -> Path: ...
+
+    def request_cancellation(self, job_id: JobId, *, requested: bool = True) -> None:
+        """Written by the web process, never by the worker."""
+        ...
+
+    def cancellation_requested(self, job_id: JobId) -> bool:
+        """Polled by the worker at chunk boundaries.
+
+        Promoted to the port in slice 4b, as 4a left open. The core loop is a use
+        case and cannot reach for a concrete adapter, and cancelling a multi-hour
+        job is not an adapter detail — it is how the operator stops the work.
+        """
+        ...

@@ -111,6 +111,41 @@ def an_artifact_set() -> GenerationResult:
     )
 
 
+def test_the_working_paths_stay_inside_the_job_directory(
+    storage: FilesystemTranscriptStorage,
+) -> None:
+    """The extractor is handed these and writes to them. Storage answers where
+    things go so the layout lives in one module instead of at every call site."""
+    assert storage.audio_path(JOB_ID).parent == storage.job_dir(JOB_ID)
+    assert storage.chunk_path(JOB_ID, 7).parent == storage.job_dir(JOB_ID) / "chunks"
+
+
+def test_a_chunk_file_is_named_by_its_zero_padded_index(
+    storage: FilesystemTranscriptStorage,
+) -> None:
+    assert storage.chunk_path(JOB_ID, 7).name == "0007.flac"
+
+
+def test_asking_where_a_file_goes_creates_nothing(
+    storage: FilesystemTranscriptStorage,
+) -> None:
+    """A path is an answer, not a side effect. The extractor owns making the file,
+    and a job that was planned but never ran must not leave an empty chunks/."""
+    before = sorted(path.name for path in storage.job_dir(JOB_ID).iterdir())
+
+    storage.audio_path(JOB_ID)
+    storage.chunk_path(JOB_ID, 0)
+
+    assert sorted(p.name for p in storage.job_dir(JOB_ID).iterdir()) == before
+
+
+def test_a_hostile_job_id_is_refused_before_a_path_is_built(
+    storage: FilesystemTranscriptStorage,
+) -> None:
+    with pytest.raises(JobNotFound):
+        storage.chunk_path(JobId("../../etc"), 0)
+
+
 def test_a_chunk_plan_round_trips(storage: FilesystemTranscriptStorage) -> None:
     storage.save_chunk_plan(JOB_ID, a_plan())
 
