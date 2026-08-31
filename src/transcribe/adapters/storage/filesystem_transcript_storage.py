@@ -47,6 +47,7 @@ JOB_RECORD = "job.json"
 CONTROL = "control.json"
 MEDIA = "media.json"
 CHUNK_PLAN = "plan.json"
+SOURCE = "source"
 AUDIO_TRACK = "audio.flac"
 CHUNKS_DIRNAME = "chunks"
 RESULTS_DIRNAME = "results"
@@ -68,6 +69,16 @@ class FilesystemTranscriptStorage:
         it is.
         """
         return self._jobs_root / self._validated(job_id)
+
+    def source_path(self, job_id: JobId) -> Path:
+        """Extensionless by design.
+
+        The layout in the design sketch said `source.<ext>`, but the extension was
+        never load-bearing: content type is validated by `ffprobe`, never by a
+        suffix. Keeping it out removes the last place a client-supplied filename
+        could reach a path at all.
+        """
+        return self.job_dir(job_id) / SOURCE
 
     def audio_path(self, job_id: JobId) -> Path:
         """Where the extractor writes the normalized track.

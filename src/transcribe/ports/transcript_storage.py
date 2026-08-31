@@ -21,6 +21,15 @@ class TranscriptStoragePort(Protocol):
         """
         ...
 
+    def source_path(self, job_id: JobId) -> Path:
+        """Where the uploaded bytes land.
+
+        Deliberately extensionless. Content type is decided by `ffprobe`, never by
+        a suffix, so an extension here would carry no meaning and would be one
+        more thing a client could influence.
+        """
+        ...
+
     def audio_path(self, job_id: JobId) -> Path: ...
 
     def chunk_path(self, job_id: JobId, index: int) -> Path: ...

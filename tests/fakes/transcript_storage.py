@@ -10,6 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from transcribe.domain.chunking import ChunkPlan, ChunkResult
+from transcribe.domain.errors import JobNotFound
 from transcribe.domain.generation import GenerationResult
 from transcribe.domain.ids import JobId
 from transcribe.domain.jobs import JobRecord, JobState
@@ -43,6 +44,9 @@ class FakeTranscriptStoragePort:
     def job_dir(self, job_id: JobId) -> Path:
         return self._root / job_id
 
+    def source_path(self, job_id: JobId) -> Path:
+        return self.job_dir(job_id) / "source"
+
     def audio_path(self, job_id: JobId) -> Path:
         return self.job_dir(job_id) / "audio.flac"
 
@@ -54,6 +58,11 @@ class FakeTranscriptStoragePort:
         self._jobs[job.job_id] = job
 
     def load_job(self, job_id: JobId) -> JobRecord:
+        # `JobNotFound`, not `KeyError`. A fake that raises a different type than
+        # the real adapter is not a fake, it is a second implementation with its
+        # own contract — and callers written against it break in production.
+        if job_id not in self._jobs:
+            raise JobNotFound(f"no job stored under {job_id!r}")
         return self._jobs[job_id]
 
     def update_job(self, job: JobRecord) -> None:
@@ -68,6 +77,8 @@ class FakeTranscriptStoragePort:
         self._media[job_id] = media
 
     def load_media(self, job_id: JobId) -> SourceMedia:
+        if job_id not in self._media:
+            raise JobNotFound(f"no source media recorded for {job_id!r}")
         return self._media[job_id]
 
     def save_chunk_plan(self, job_id: JobId, plan: ChunkPlan) -> None:
