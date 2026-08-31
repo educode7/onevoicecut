@@ -21,7 +21,7 @@ from onevoicecut.domain.ids import (
     generate_media_id,
 )
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
-from onevoicecut.ports.capabilities import DiarizationSupport
+from onevoicecut.ports.capabilities import DiarizationSupport, TranscriptionCapabilities
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 
 
@@ -46,6 +46,7 @@ def admit_job(
     engine: EngineChoice,
     speaker_mode: SpeakerMode,
     storage: TranscriptStoragePort,
+    capabilities: Callable[[EngineChoice], TranscriptionCapabilities] | None = None,
     now: Callable[[], float] = time.time,
     new_job_id: Callable[[], JobId] = generate_job_id,
     new_media_id: Callable[[], MediaId] = generate_media_id,
@@ -55,7 +56,14 @@ def admit_job(
     The media id is allocated now even though no bytes have arrived, so the
     upload that follows has somewhere to belong rather than inventing an identity
     from whatever the client sent.
+
+    When a capabilities callable is supplied, engine/speaker-mode compatibility
+    is validated before any storage operation — IDs are not minted, no storage
+    is touched, when validation fails.
     """
+    if capabilities is not None:
+        _validate_compatibility(capabilities(engine).diarization, speaker_mode)
+
     job = JobRecord(
         job_id=new_job_id(),
         media_id=new_media_id(),
