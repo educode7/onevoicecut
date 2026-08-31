@@ -13,8 +13,10 @@ root appears.
 """
 
 import argparse
+import os
 import sys
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from pathlib import Path
 
 from transcribe.adapters.ffmpeg.extractor import FfmpegAudioExtractor
@@ -60,6 +62,12 @@ def run_job(
     """
     storage = FilesystemTranscriptStorage(data_dir)
     job = storage.load_job(job_id)
+
+    # Claim the job by writing this process's pid, before any work starts.
+    # Startup reconciliation reads it to tell a worker that died from one that is
+    # still going; without it every running job would look abandoned after a web
+    # restart and be marked INTERRUPTED out from under a live process.
+    storage.update_job(replace(job, worker_pid=os.getpid()))
 
     return transcribe_job(
         job_id,

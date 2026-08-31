@@ -80,6 +80,19 @@ def test_a_job_runs_end_to_end_from_the_command_line(data_dir: Path) -> None:
     assert run(data_dir) == EXIT_OK
 
 
+def test_the_worker_claims_the_job_with_its_own_pid(data_dir: Path) -> None:
+    """Startup reconciliation reads this to tell a worker that died from one still
+    going. Without it every running job looks abandoned after a web restart and
+    gets marked INTERRUPTED out from under a live process."""
+    import os
+
+    run(data_dir)
+
+    assert FilesystemTranscriptStorage(data_dir).load_job(JOB_ID).worker_pid == (
+        os.getpid()
+    )
+
+
 def test_the_artifacts_land_on_the_real_filesystem(data_dir: Path) -> None:
     run(data_dir)
 
