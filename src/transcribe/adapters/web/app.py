@@ -9,9 +9,12 @@ data directory.
 
 import time
 from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 
 from fastapi import FastAPI
+
+Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None]] | None
 
 from transcribe.adapters.ffmpeg.extractor import FfmpegAudioExtractor
 from transcribe.adapters.storage.media_source import FilesystemMediaSource
@@ -80,9 +83,17 @@ class WebDependencies:
     start_job: JobStarter = field(default=no_job_starter)
 
 
-def create_app(deps: WebDependencies) -> FastAPI:
+def create_app(deps: WebDependencies, *, lifespan: Lifespan = None) -> FastAPI:
+    """`lifespan` is supplied by the composition root, not built here.
+
+    Startup checks — ffmpeg present, stale jobs reconciled — need real adapters
+    and a real data directory. A test drives the same routes with neither, which
+    is only possible while this stays optional.
+    """
     from transcribe.adapters.web.routers.jobs import build_jobs_router
 
-    app = FastAPI(title="transcribe", docs_url=None, redoc_url=None)
+    app = FastAPI(
+        title="transcribe", docs_url=None, redoc_url=None, lifespan=lifespan
+    )
     app.include_router(build_jobs_router(deps))
     return app

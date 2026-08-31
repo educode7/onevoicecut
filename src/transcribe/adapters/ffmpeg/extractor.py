@@ -19,6 +19,8 @@ from typing import Protocol
 from transcribe.adapters.ffmpeg.argv import (
     AUDIO_CODEC,
     CHANNELS,
+    FFMPEG_BINARY,
+    FFPROBE_BINARY,
     SAMPLE_RATE_HZ,
     build_extract_argv,
     build_probe_argv,
@@ -47,6 +49,19 @@ def _missing_binary_message(binary: str) -> str:
         f"`winget install Gyan.FFmpeg`) and make sure {binary} is on PATH, then "
         f"retry the job."
     )
+
+
+def require_binaries() -> None:
+    """Check both binaries once, at startup, rather than at first use.
+
+    The adapter already fails with the same message when a job reaches it, but by
+    then the operator has uploaded a multi-hour file and walked away. Failing when
+    the app boots costs nothing and is the difference between a clear error and a
+    job that dies an hour later.
+    """
+    for binary in (FFMPEG_BINARY, FFPROBE_BINARY):
+        if shutil.which(binary) is None:
+            raise FfmpegUnavailable(_missing_binary_message(binary))
 
 
 class ProcessRunner(Protocol):
