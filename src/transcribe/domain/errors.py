@@ -33,6 +33,15 @@ class DiarizationUnsupported(DomainError):
     """Raised when a speaker-mode request reaches a non-diarizing adapter."""
 
 
+class CorruptedRecord(DomainError):
+    """Raised when persisted state cannot be read back as the entity it claims to be.
+
+    Resume reads files a previous process wrote, so this is a routine failure mode
+    after a crash, not an impossible one. It is a domain error because a caller must
+    never have to catch `json.JSONDecodeError` to survive a half-written file.
+    """
+
+
 class ContextLengthExceeded(DomainError):
     pass
 
