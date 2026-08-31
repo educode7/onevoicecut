@@ -490,7 +490,7 @@ carrying an unmeasured category, and is still estimated at ~260.
       `load_job`/`update_job`/`list_jobs` round-trip through real JSON files on disk; `save_chunk_plan`/
       `load_chunk_plan`, `save_transcript`/`load_transcript`, `save_artifacts`, `export_text` round-trip.
 - [x] 4.0b **GREEN (new)**: `adapters/storage/filesystem_transcript_storage.py` implementing all non-atomic
-      `TranscriptStoragePort` methods against `{TRANSCRIBE_DATA_DIR}/jobs/{job_id}/`.
+      `TranscriptStoragePort` methods against `{ONEVOICECUT_DATA_DIR}/jobs/{job_id}/`.
 - [x] 4.15 RED: atomic chunk-write test — a simulated crash between `.tmp` write and `os.replace` leaves
       the loader unaffected by a stale `.tmp`.
 - [x] 4.16 GREEN: `save_chunk_result` — `os.replace`, fsync-before-replace, stale `.tmp` ignored by loader.
@@ -803,27 +803,27 @@ raises `DiarizationUnsupported` on `speaker_mode=MULTI`, built in slice 1), so i
 tax that forced other slices to split. No uncertainty margin applied — directly comparable to slice 1's use-case
 test ratio.
 
-- [ ] 6.1 RED: speaker-mode-omitted test — defaults to single-voice.
-- [ ] 6.2 GREEN: schema default + domain default.
-- [ ] 6.3 RED: multi-speaker-declared test — job record stores `speaker_mode=multi-speaker`.
-- [ ] 6.4 GREEN: propagate through `AdmitJob`.
-- [ ] 6.5 RED: engine-not-selected test — `422`, no job created.
-- [ ] 6.6 GREEN: required-field validation in the `POST /api/jobs` schema.
-- [ ] 6.7 RED: engine-selected test — job record stores `engine_choice=local`.
-- [ ] 6.8 GREEN: propagate through `AdmitJob`.
-- [ ] 6.9 RED: incompatible-combination test — `speaker_mode=multi` against `diarization=UNSUPPORTED`
+- [x] 6.1 RED: speaker-mode-omitted test — defaults to single-voice.
+- [x] 6.2 GREEN: schema default + domain default.
+- [x] 6.3 RED: multi-speaker-declared test — job record stores `speaker_mode=multi-speaker`.
+- [x] 6.4 GREEN: propagate through `AdmitJob`.
+- [x] 6.5 RED: engine-not-selected test — `422`, no job created.
+- [x] 6.6 GREEN: required-field validation in the `POST /api/jobs` schema.
+- [x] 6.7 RED: engine-selected test — job record stores `engine_choice=local`.
+- [x] 6.8 GREEN: propagate through `AdmitJob`.
+- [x] 6.9 RED: incompatible-combination test — `speaker_mode=multi` against `diarization=UNSUPPORTED`
       rejects before job creation; error names the missing capability, suggests switch-engine-or-drop-mode.
-- [ ] 6.10 GREEN: `AdmitJob` capability check via `engine_resolver.resolve(engine).capabilities()`.
-- [ ] 6.11 RED: zero-chunks-processed test — a multi-hour fixture with an incompatible combination never
+- [x] 6.10 GREEN: `AdmitJob` capability check via `engine_resolver.resolve(engine).capabilities()`.
+- [x] 6.11 RED: zero-chunks-processed test — a multi-hour fixture with an incompatible combination never
       reaches chunk dispatch; no billable/local-model call recorded by the fake.
-- [ ] 6.12 GREEN: confirm rejection strictly precedes `ingest_media`/`transcribe_job` invocation.
-- [ ] 6.13 RED: compatible-combination test — `diarization=AVAILABLE` + multi-speaker admits normally.
-- [ ] 6.14 GREEN: confirm existing path unaffected.
-- [ ] 6.15 RED: port-level defense-in-depth test — a fake `diarization=UNSUPPORTED` adapter refuses
+- [x] 6.12 GREEN: confirm rejection strictly precedes `ingest_media`/`transcribe_job` invocation.
+- [x] 6.13 RED: compatible-combination test — `diarization=AVAILABLE` + multi-speaker admits normally.
+- [x] 6.14 GREEN: confirm existing path unaffected.
+- [x] 6.15 RED: port-level defense-in-depth test — a fake `diarization=UNSUPPORTED` adapter refuses
       (names the capability) if asked to transcribe with `speaker_mode=multi`, simulating an admission bypass.
-- [ ] 6.16 GREEN: guard clause at the top of every adapter's `transcribe()` (fakes now; real adapters
+- [x] 6.16 GREEN: guard clause at the top of every adapter's `transcribe()` (fakes now; real adapters
       inherit it in slices 7a/8a).
-- [ ] 6.17 REFACTOR: extract the compatibility check into one `usecases/admit_job.py` helper reused by
+- [x] 6.17 REFACTOR: extract the compatibility check into one `usecases/admit_job.py` helper reused by
       the schema-level and port-level checks; suite green.
 
 ---

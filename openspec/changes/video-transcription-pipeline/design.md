@@ -495,7 +495,7 @@ Per-job directory (**Open Question 5** assumption — local filesystem, no datab
 changes the `TranscriptStoragePort` adapter and one config value, not any type or use case):
 
 ```
-{TRANSCRIBE_DATA_DIR}/jobs/{job_id}/
+{ONEVOICECUT_DATA_DIR}/jobs/{job_id}/
   job.json  control.json  source.<ext>  audio.flac
   chunks/NNNN.flac  results/NNNN.json
   transcript.json  transcript.txt  artifacts.json
@@ -582,11 +582,11 @@ root only; the core never reads the environment.
 
 | Variable | Purpose | Needed for |
 | --- | --- | --- |
-| `TRANSCRIBE_DATA_DIR` | Job directory root | Always |
-| `TRANSCRIBE_MAX_UPLOAD_BYTES` | Upload ceiling (default 16 GiB) | Always |
-| `TRANSCRIBE_TARGET_CHUNK_SECONDS` / `_CHUNK_OVERLAP_SECONDS` | Plan defaults (600 / 5.0) | Always |
-| `TRANSCRIBE_CHUNK_TIMEOUT_SECONDS` | Watchdog threshold | Always |
-| `TRANSCRIBE_SCRIPT_TARGETS` | Comma-separated variant targets (**Open Q3**) | Generation |
+| `ONEVOICECUT_DATA_DIR` | Job directory root | Always |
+| `ONEVOICECUT_MAX_UPLOAD_BYTES` | Upload ceiling (default 16 GiB) | Always |
+| `ONEVOICECUT_TARGET_CHUNK_SECONDS` / `_CHUNK_OVERLAP_SECONDS` | Plan defaults (600 / 5.0) | Always |
+| `ONEVOICECUT_CHUNK_TIMEOUT_SECONDS` | Watchdog threshold | Always |
+| `ONEVOICECUT_SCRIPT_TARGETS` | Comma-separated variant targets (**Open Q3**) | Generation |
 | `CLOUD_ASR_API_KEY` | Cloud adapter | `paid` tests + real cloud runs |
 | `LLM_API_KEY` | Generation adapter | `paid` tests + real runs |
 | `HUGGINGFACE_TOKEN` | Gated pyannote weights | Local diarization only |
