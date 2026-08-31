@@ -77,6 +77,7 @@ margin — they are directly comparable to slice 1's well-measured domain/use-ca
 | Slice 1b actual (DONE) | 553 lines, delivered as **two** units after a mid-flight split: 1b-i 309 (PR 2) + 1b-ii 244 (PR 3). Estimated ~150 as one unit — 3.2x. Both units land under budget; the unsplit slice would have been 21% over |
 | Slice 4a actual (DONE) | 1,642 lines across **six** units, all under budget. Estimated ~340 — 4.8x, the worst ratio so far. Test share 68% against the 56% assumed. Revised unit: an adapter that also owns its persistence format ≈ 1,600 lines |
 | Slices 4b+4c+4d actual (DONE) | 2,425 lines across **nine** units, all under budget. Estimated ~680 — 3.6x. Test share 70%. **The 56% test share in the rev-3 calibration is now disproved by three consecutive measurements (68%, 70%, 70%); every remaining estimate built on it is low by roughly a third on the test axis alone** |
+| Slice 5a actual (DONE) | 1,017 lines across **four** units, all under budget. Estimated ~260 — 3.9x. Test share 61%, the lowest since 4a: a route handler is mostly delegation and Pydantic does its own validating. **Running overrun across every measured slice is now 3.2x–4.8x with no slice under 3.2x** |
 | Per-unit 400-line budget risk | **Low** — every one of the 21 remaining work units is individually estimated at 145–350 lines, with margin, not at the ceiling |
 | Aggregate 400-line budget risk | **High** by construction — this is why the change stays split into 23 work units total |
 | Chained PRs recommended | Yes |
@@ -601,18 +602,67 @@ port the moment it grew — before any caller existed.
 
 ---
 
-## Slice 5a: Job Creation + Streaming Upload (~260 lines)
+## Slice 5a: Job Creation + Streaming Upload — DONE (split into 5a-i … 5a-iv)
 
-Closes: `media-ingest` Non-Blocking Upload Acceptance. First real HTTP surface and first real `MediaSourcePort`
-implementation in the codebase (only the fake existed) — +15% uncertainty margin applied.
+**Actual: 1,017 lines vs ~260 estimated — 3.9x.** Suite 411 passed, 0 skipped, `mypy src tests` clean
+over 93 files. Test share 61% (620 test / 392 src) — the lowest since 4a, because a route handler is
+mostly delegation and the schema does its own validating.
 
-- [ ] 5.1 RED: `tests/unit/adapters/web/test_admit_job_route.py` — `POST /api/jobs` with valid JSON
+| Unit | Commit | Lines |
+| --- | --- | --- |
+| 5a-i | `feat(domain): generate the ULIDs, not just validate them` | 148 |
+| 5a-ii | `feat(adapters): admit a job over HTTP without starting any work` | 321 |
+| 5a-iii | `feat(adapters): stream an upload to disk without ever holding the file` | 271 |
+| 5a-iv | `feat(adapters): PUT the sermon as a raw body, no multipart anywhere` | 279 |
+
+Closes: `media-ingest` Non-Blocking Upload Acceptance.
+
+### An unplanned prerequisite: nothing could mint an id
+
+`domain/ids.py` only validated. Every test so far supplied its own id, and admission is the first code
+that has to create one — so ULID generation landed first, as its own unit. Written rather than added as
+a dependency: the encoding is forty lines, and the property the system already leans on deserves a test
+rather than trust. `list_jobs` returns jobs in directory-name order and calls that creation order, which
+is true only because the 48-bit millisecond timestamp comes first and big-endian. That claim now has a
+test.
+
+### Two defects the tests caught, both real
+
+1. **The fake storage raised `KeyError` where the real adapter raises `JobNotFound`.** The upload route
+   catches `JobNotFound`, so it worked against the real adapter and 404-ed into a 500 against the double.
+   A fake that raises a different type than the thing it stands in for is not a fake — it is a second
+   implementation with its own contract, and every caller written against it is wrong somewhere else.
+2. **HTTP header values are ASCII and the source language is not.** `predicación del domingo.mp4` cannot
+   travel in a header as written, and that filename is the ordinary case here rather than an edge case.
+   The filename now travels percent-encoded and is decoded on arrival; decoding is a no-op for a plain
+   ASCII name, so a simple client still works.
+
+### Deviation: the stored source has no extension
+
+The design sketch said `jobs/{ulid}/source{ext}`. The extension was never load-bearing — content type is
+validated by `ffprobe`, never by a suffix — so keeping it removes nothing and adds one more thing a
+client could influence. `source_path` is extensionless. This also removes the need for slice 5b to
+derive a path extension from an allowlist; what 5b still owes is validating the *probed* container.
+
+### How the memory claim is actually proven
+
+Task 5.3 asked for constant memory. Structural absence of `UploadFile` is necessary but not sufficient —
+a handler could still accumulate the stream itself. So the writer's test measures peak heap while eight
+megabytes stream past in 64 KiB chunks, and the threshold was checked against a deliberately
+accumulating writer, which peaks at 17 MB against a 2 MB limit. Watching the file grow on disk was tried
+first and does not work: Python's buffered writer holds early chunks in memory anyway, and durability of
+a half-finished upload has no consumer.
+
+A second, structural test parses every module in the web adapter and asserts `UploadFile`, `File` and
+`Form` are never imported — an absence a request-level test cannot demonstrate.
+
+- [x] 5.1 RED: `tests/unit/adapters/web/test_admit_job_route.py` — `POST /api/jobs` with valid JSON
       returns `201 {job_id}`; missing engine returns `422`.
-- [ ] 5.2 GREEN: FastAPI app skeleton, `POST /api/jobs` route + Pydantic schema, `AdmitJob` wiring
+- [x] 5.2 GREEN: FastAPI app skeleton, `POST /api/jobs` route + Pydantic schema, `AdmitJob` wiring
       (single-speaker/no-diarization path only — MI5 rejection lands slice 6).
-- [ ] 5.3 RED: `PUT /api/jobs/{id}/media` streams raw bytes to disk with constant memory (assert no
+- [x] 5.3 RED: `PUT /api/jobs/{id}/media` streams raw bytes to disk with constant memory (assert no
       `UploadFile`/multipart path exists).
-- [ ] 5.4 GREEN: `adapters/web/routers/jobs.py` — `async for part in request.stream()` writer;
+- [x] 5.4 GREEN: `adapters/web/routers/jobs.py` — `async for part in request.stream()` writer;
       `adapters/storage/media_source.py` (real, replacing the fake for this path).
 
 ## Slice 5b: Upload Security Threat-Matrix (~270 lines)

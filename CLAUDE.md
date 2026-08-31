@@ -152,23 +152,33 @@ This repo runs **Spec-Driven Development** (`openspec/`) with **strict TDD** (`s
 
 ### Current state
 
-Slices 1 through 4d are complete and green: **362 tests, 0 skipped, mypy clean over 81 files**. On disk
-today are `domain/`, `ports/` (now eight protocols), the use cases (`ingest_media`, `plan_chunks`,
+Slices 1 through 5a are complete and green: **411 tests, 0 skipped, mypy clean over 93 files**. On disk
+today are `domain/`, `ports/`, the use cases (`ingest_media`, `admit_job`, `plan_chunks`,
 `stitch_transcript`, `transcribe_job`, `resume_job`, plus the uncalled `purge_job_artifacts` seam),
-`adapters/ffmpeg/`, `adapters/storage/`, `runtime/` (`engine_resolver`, `worker`), and `tests/fakes/`.
-Still missing: any ASR or LLM adapter, and the web app.
+`adapters/ffmpeg/`, `adapters/storage/`, `adapters/web/`, `runtime/` (`engine_resolver`, `worker`), and
+`tests/fakes/`. Still missing: any ASR or LLM adapter, the job status route, and the browser UI.
 
 A job runs end to end today with fake engines:
 `PYTHONPATH=src python -m transcribe.runtime.worker --job-id <ulid> --data-dir <dir>`. It exits 3
 ("nothing usable to run") because no real engine is wired yet.
 
+Two HTTP routes exist: `POST /api/jobs` (admit) and `PUT /api/jobs/{id}/media` (raw-body streaming
+upload). The filename travels percent-encoded in an `X-Filename` header — HTTP headers are ASCII and
+Spanish filenames are the normal case. The upload path deliberately imports no `UploadFile`/`File`/`Form`,
+and a structural test enforces that.
+
 ffmpeg 9.0.1 is installed (winget, `Gyan.FFmpeg`), so the `integration`-marked tests run rather than
 skip — the flag set in `adapters/ffmpeg/argv.py` is verified against the real binaries, not just argued.
 
-Next up is **Slice 5a**: job creation + streaming upload — the first real HTTP surface and the first
-real `MediaSourcePort`. Note that the proposal is at **rev 4**: rendering vertical clips is now in
-scope, which adds slices 11-13 after 10b and modifies `transcript-artifacts` (word-level timing) and
-`MediaProbe` (frame dimensions). Those two domain gaps are recorded but not yet built.
+Next up is **Slice 5b**: the upload security threat matrix — `Content-Length` precheck, deleting the
+partial file when a lying header is caught, `ffprobe` validation of the *probed* container, and
+route-level id validation. Note 5a's deviation: the stored source is extensionless (`jobs/{ulid}/source`,
+not `source{ext}`), because content type is decided by ffprobe and a suffix would only be one more thing
+a client could influence — so 5b owes container validation, not a path-extension allowlist.
+
+The proposal is at **rev 4**: rendering vertical clips is now in scope, which adds slices 11-13 after
+10b and modifies `transcript-artifacts` (word-level timing) and `MediaProbe` (frame dimensions). Those
+two domain gaps are recorded but not yet built.
 
 One decision is deliberately left open for slice 10a: whether MAP windowing excludes `UNCERTAIN`
 segments or marks them the way the `.txt` export does. Excluding risks an empty summary on a

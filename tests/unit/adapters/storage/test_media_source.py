@@ -1,9 +1,11 @@
 """The upload writer: bytes to disk without ever holding the file.
 
 Multi-hour video is the normal input, so "read it and write it" is not an option
-at any size the operator actually uploads. The load-bearing test here watches the
-file grow *between* the chunks the stream yields — which is the only way to tell
-a writer that streams from one that buffers and happens to finish.
+at any size the operator actually uploads. The load-bearing test here measures
+peak heap while eight megabytes go past — the only way to tell a writer that
+streams from one that accumulates and happens to finish. Watching the file grow
+on disk would not do it: Python's buffered writer holds the first chunks in
+memory anyway, and durability of a half-finished upload has no consumer.
 """
 
 import hashlib
