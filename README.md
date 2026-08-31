@@ -79,7 +79,29 @@ Run one file, or one test:
 .venv\Scripts\python.exe -m pytest tests/unit/usecases/test_plan_chunks.py::test_byte_cap_shortens_the_stride
 ```
 
-## Running a job
+## Running it
+
+```powershell
+$env:TRANSCRIBE_DATA_DIR = ".\data"
+$env:PYTHONPATH = "src"
+.venv\Scripts\python.exe -m uvicorn transcribe.runtime.app:get_app --factory
+```
+
+Then, against the running server:
+
+| Step | Request |
+| --- | --- |
+| Create a job | `POST /api/jobs` with `{"engine": "local"}` |
+| Upload the sermon | `PUT /api/jobs/{id}/media`, raw body, filename percent-encoded in `X-Filename` |
+| Watch it | `GET /api/jobs/{id}` — chunk-level progress, ETA once a chunk has finished |
+
+The upload spawns one worker process for that job. `transcript.txt` and
+`transcript.json` land in `data\jobs\{id}\` when it finishes.
+
+`TRANSCRIBE_DATA_DIR` has no default on purpose: multi-hour sermons should not go
+somewhere you did not choose.
+
+### Running a job directly
 
 ```powershell
 $env:PYTHONPATH = "src"
@@ -94,9 +116,9 @@ record.
 `requirements.txt` pins dependencies and there is no `pyproject.toml`. `pytest`
 sets the same path itself via `pytest.ini`.
 
-**It will not transcribe anything yet.** No real ASR engine is wired, so the
-worker exits `3` and says so rather than failing later. Exit codes: `0` completed,
-`1` failed, `2` cancelled, `3` nothing usable to run.
+**It will not transcribe anything yet.** No real ASR engine is wired, so a
+spawned worker exits `3` and says so rather than failing later. Exit codes:
+`0` completed, `1` failed, `2` cancelled, `3` nothing usable to run.
 
 Killing the worker mid-job is safe. Re-running the same command resumes: every
 finished chunk is already committed, and the loop only picks up what is still
@@ -104,11 +126,13 @@ owed. Resume is not a separate mode — it is the same command.
 
 ## Status
 
-Under construction, delivered in reviewable slices. Working today: the domain
-model, the ports, chunk planning, overlap stitching, the ffmpeg extraction
-adapter, the filesystem storage adapter, the job loop with per-chunk failure
-isolation, retry, cancellation and resume, and the worker entrypoint. Not built
-yet: the web upload UI, either real ASR engine, and script generation.
+Under construction, delivered in reviewable slices. The whole path from an HTTP
+upload to a transcript on disk exists and is exercised end to end by
+`tests/integration/test_ingest_to_transcript.py` — real HTTP, real filesystem,
+real ffmpeg, fake ASR.
+
+**Not built yet: either real ASR engine, script generation, and any browser UI.**
+The HTTP API is there; nothing renders it, and nothing transcribes for real.
 
 ## Layout
 

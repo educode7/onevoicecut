@@ -79,6 +79,8 @@ margin — they are directly comparable to slice 1's well-measured domain/use-ca
 | Slices 4b+4c+4d actual (DONE) | 2,425 lines across **nine** units, all under budget. Estimated ~680 — 3.6x. Test share 70%. **The 56% test share in the rev-3 calibration is now disproved by three consecutive measurements (68%, 70%, 70%); every remaining estimate built on it is low by roughly a third on the test axis alone** |
 | Slice 5a actual (DONE) | 1,017 lines across **four** units, all under budget. Estimated ~260 — 3.9x. Test share 61%, the lowest since 4a: a route handler is mostly delegation and Pydantic does its own validating. **Running overrun across every measured slice is now 3.2x–4.8x with no slice under 3.2x** |
 | Slice 5b actual (DONE) | 1,018 lines across **four** units, all under budget. Estimated ~270 — 3.8x. Test share **81%**, the highest of the change: a threat matrix is mostly cases, and the code answering them is short (190 lines of `src` for eleven closed threat rows) |
+| Slice 5c actual (DONE) | 1,274 lines across **five** units, all under budget. Estimated ~250 — **5.1x, the worst ratio of the change**. The estimate priced a status route and a wiring file; what it did not price is that the first end-to-end assembly is where the gaps between seven slices of adapters become visible |
+| **Estimate reliability after nine measured slices** | Range 3.2x–5.1x, **mean ≈ 4.0x, no slice under 3.2x**. This is no longer estimation noise — it is a fixed multiplier. Treat every remaining number in this document as `estimate × 4`, and note that the two categories that ran worst (first-of-its-kind adapter, first end-to-end assembly) both still lie ahead for the render work in slices 11-13 |
 | Per-unit 400-line budget risk | **Low** — every one of the 21 remaining work units is individually estimated at 145–350 lines, with margin, not at the ceiling |
 | Aggregate 400-line budget risk | **High** by construction — this is why the change stays split into 23 work units total |
 | Chained PRs recommended | Yes |
@@ -729,19 +731,65 @@ value at exactly that point.
       excluded Crockford letters) rejected before the writer is reached.
 - [x] 5.12 GREEN: route-level validation reusing `domain/ids.py`.
 
-## Slice 5c: Status Route + App Wiring + E2E (~250 lines)
+## Slice 5c: Status Route + App Wiring + E2E — DONE (split into 5c-i … 5c-v)
 
-Closes: `transcription-jobs` Chunk-Level Progress Reporting (HTTP surface). Depends on 4c's progress derivation and
-5a's route skeleton — this is the slice that proves the whole ingest→worker→poll loop end to end for the first
-time.
+**Actual: 1,274 lines vs ~250 estimated — 5.1x, the worst ratio of the change.** Suite 511 passed,
+0 skipped, `mypy src tests` clean over 104 files. Test share 74%.
 
-- [ ] 5.13 RED: `GET /api/jobs/{id}` status test — chunk-derived progress + ETA surfaced over HTTP.
-- [ ] 5.14 GREEN: status route reading `usecases/progress.py` output.
-- [ ] 5.15 GREEN: wire `runtime/app.py` lifespan — spawn `Supervisor`, startup reconciliation
-      (`TRANSCRIBING` + no live PID → `INTERRUPTED`), verify ffmpeg on startup.
-- [ ] 5.16 RED: E2E test — real HTTP client + real filesystem + fake engines: upload → poll → `.txt`.
-- [ ] 5.17 GREEN: close any wiring gap the E2E test exposes.
-- [ ] 5.18 REFACTOR: extract shared Pydantic schemas into `adapters/web/schemas.py`; suite green.
+| Unit | Commit | Lines |
+| --- | --- | --- |
+| 5c-i | `feat(adapters): report chunk-level progress over HTTP` | 309 |
+| 5c-ii | `feat: export the .txt, and hand the job to a worker after upload` | 318 |
+| 5c-iii | `feat(runtime): compose the web process from configuration` | 219 |
+| 5c-iv | `feat(runtime): mark jobs whose worker died, and let a worker claim its own` | 243 |
+| 5c-v | `test(integration): a sermon uploaded over HTTP becomes a transcript on disk` | 195 |
+
+Closes: `transcription-jobs` Chunk-Level Progress Reporting (HTTP surface); the ingest→worker→poll loop
+proven end to end for the first time.
+
+### Why 5.1x: the E2E did not expose a gap, writing towards it did
+
+Task 5.17 anticipated "any wiring gap the E2E test exposes". The E2E passed on its first run — because
+two gaps were found and closed *before* it, while building what it needed:
+
+1. **The core loop never wrote the `.txt`.** It stored the transcript and stopped. The export is what
+   the operator actually opens, so a job that finished without one had not finished. It is written only
+   on a complete run, since an export over a hole reads as a whole sermon.
+2. **Nothing started the worker.** Admission cannot be the trigger — there is nothing to transcribe yet
+   — and nothing polls for work. The upload is the handoff, and the media record is saved before the
+   starter is called, because the worker's first act is to read it.
+
+A third gap surfaced while writing reconciliation: **the worker never recorded its pid**, so every
+running job would have looked abandoned after a web restart and been marked `INTERRUPTED` out from
+under a live process.
+
+### The liveness probe was verified, not assumed
+
+Reconciliation must not overwrite the record of a worker that outlived its parent — the normal case,
+since workers are separate processes. That needs a liveness check, and on Windows most signal values
+passed to `os.kill` reach `TerminateProcess`, which made the POSIX idiom look dangerous.
+
+Measured on CPython 3.12 / Windows: **`os.kill(pid, 0)` is special-cased** — a live process survives it,
+a dead pid raises `OSError`, and `os.kill(pid, 9)` on the same platform kills with exit code 9. So the
+idiom holds here. A recycled pid reads as alive; accepted on a single-operator machine against a
+stronger check nobody maintains.
+
+### Task 5.18 was already done, and 5.15 named something that does not exist
+
+`adapters/web/schemas.py` was created in slice 5a, so the refactor had nothing to extract.
+
+5.15 called for spawning a `Supervisor`. There is no such object: the web process spawns a worker
+process per job at upload, and there is nothing to supervise between them — the watchdog that *would*
+supervise a running chunk is slice 7b. What 5.15 actually needed was the composition root, and that is
+what landed.
+
+- [x] 5.13 RED: `GET /api/jobs/{id}` status test — chunk-derived progress + ETA surfaced over HTTP.
+- [x] 5.14 GREEN: status route reading `derive_progress` output; read-only, asserted by test.
+- [x] 5.15 GREEN: `runtime/app.py` composition root + `runtime/settings.py`; lifespan verifies ffmpeg and
+      reconciles `TRANSCRIBING` + no live PID → `INTERRUPTED`. **No `Supervisor`** — see above.
+- [x] 5.16 RED: E2E test — real HTTP + real filesystem + **real ffmpeg** + fake ASR: upload → poll → `.txt`.
+- [x] 5.17 GREEN: the two wiring gaps were closed before the E2E, which then passed first run.
+- [x] 5.18 REFACTOR: **not applicable** — `adapters/web/schemas.py` already existed from slice 5a.
 
 ---
 
