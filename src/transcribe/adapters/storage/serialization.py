@@ -18,6 +18,7 @@ type that would not survive.
 import json
 from dataclasses import asdict
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, TypeVar
 
 from transcribe.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
@@ -31,6 +32,7 @@ from transcribe.domain.ids import (
     make_media_id,
 )
 from transcribe.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from transcribe.domain.media import SourceMedia
 from transcribe.domain.transcript import SegmentKind, Transcript, TranscriptSegment
 
 Record = dict[str, Any]
@@ -178,6 +180,26 @@ def decode_job(payload: str) -> JobRecord:
         updated_at=_number(record, "updated_at"),
         worker_pid=_optional_whole(record, "worker_pid"),
         error=_optional_text(record, "error"),
+    )
+
+
+def encode_media(media: SourceMedia) -> str:
+    payload = asdict(media)
+    # The one persisted entity carrying a `Path`. Stored as text and read back as
+    # a `Path`, because JSON has no path type and guessing at load time is worse.
+    payload["stored_path"] = str(media.stored_path)
+    return _dumps(payload)
+
+
+def decode_media(payload: str) -> SourceMedia:
+    record = _loads(payload)
+    return SourceMedia(
+        media_id=_media_id(record),
+        original_filename=_text(record, "original_filename"),
+        stored_path=Path(_text(record, "stored_path")),
+        size_bytes=_whole(record, "size_bytes"),
+        container=_text(record, "container"),
+        checksum=_text(record, "checksum"),
     )
 
 

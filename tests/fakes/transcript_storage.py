@@ -13,6 +13,7 @@ from transcribe.domain.chunking import ChunkPlan, ChunkResult
 from transcribe.domain.generation import GenerationResult
 from transcribe.domain.ids import JobId
 from transcribe.domain.jobs import JobRecord, JobState
+from transcribe.domain.media import SourceMedia
 from transcribe.domain.transcript import Transcript
 
 
@@ -26,6 +27,7 @@ class FakeTranscriptStoragePort:
         self._artifacts: dict[JobId, GenerationResult] = {}
         self._export_paths: dict[JobId, Path] = {}
         self._cancelled: dict[JobId, bool] = {}
+        self._media: dict[JobId, SourceMedia] = {}
         self.calls: list[str] = []
         self._states: dict[JobId, list[JobState]] = {}
         # Lets a test act *between* chunks — the only way to exercise a stop
@@ -61,6 +63,12 @@ class FakeTranscriptStoragePort:
 
     def list_jobs(self) -> tuple[JobRecord, ...]:
         return tuple(self._jobs.values())
+
+    def save_media(self, job_id: JobId, media: SourceMedia) -> None:
+        self._media[job_id] = media
+
+    def load_media(self, job_id: JobId) -> SourceMedia:
+        return self._media[job_id]
 
     def save_chunk_plan(self, job_id: JobId, plan: ChunkPlan) -> None:
         self.calls.append("save_chunk_plan")

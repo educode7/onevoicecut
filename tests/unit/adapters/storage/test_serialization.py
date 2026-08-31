@@ -7,6 +7,7 @@ domain error rather than leaking `json`'s.
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -15,13 +16,16 @@ from transcribe.adapters.storage.serialization import (
     decode_chunk_plan,
     decode_chunk_result,
     decode_job,
+    decode_media,
     decode_transcript,
     encode_artifacts,
     encode_chunk_plan,
     encode_chunk_result,
     encode_job,
+    encode_media,
     encode_transcript,
 )
+from transcribe.domain.media import SourceMedia
 from transcribe.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
 from transcribe.domain.errors import CorruptedRecord
 from transcribe.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
@@ -116,6 +120,43 @@ def an_artifact_set() -> GenerationResult:
             ),
         ),
     )
+
+
+def test_source_media_round_trips_with_its_path_intact() -> None:
+    """The only persisted entity carrying a `Path`. JSON has no path type, so it
+    is stored as text and rebuilt — guessing at load time would be worse."""
+    media = SourceMedia(
+        media_id=MEDIA_ID,
+        original_filename="predicación del domingo.mp4",
+        stored_path=Path("jobs") / JOB_ID / "source.mp4",
+        size_bytes=4096,
+        container="mp4",
+        checksum="deadbeef",
+    )
+
+    restored = decode_media(encode_media(media))
+
+    assert restored == media
+    assert isinstance(restored.stored_path, Path)
+
+
+def test_a_media_record_with_a_broken_id_raises_a_domain_error() -> None:
+    payload = json.loads(
+        encode_media(
+            SourceMedia(
+                media_id=MEDIA_ID,
+                original_filename="a.mp4",
+                stored_path=Path("a.mp4"),
+                size_bytes=1,
+                container="mp4",
+                checksum="x",
+            )
+        )
+    )
+    payload["media_id"] = "not-a-ulid"
+
+    with pytest.raises(CorruptedRecord):
+        decode_media(json.dumps(payload))
 
 
 def test_a_job_record_round_trips_unchanged() -> None:

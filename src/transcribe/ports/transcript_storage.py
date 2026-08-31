@@ -7,6 +7,7 @@ from transcribe.domain.chunking import ChunkPlan, ChunkResult
 from transcribe.domain.generation import GenerationResult
 from transcribe.domain.ids import JobId
 from transcribe.domain.jobs import JobRecord
+from transcribe.domain.media import SourceMedia
 from transcribe.domain.transcript import Transcript
 
 
@@ -31,6 +32,18 @@ class TranscriptStoragePort(Protocol):
     def update_job(self, job: JobRecord) -> None: ...
 
     def list_jobs(self) -> tuple[JobRecord, ...]: ...
+
+    def save_media(self, job_id: JobId, media: SourceMedia) -> None:
+        """Recorded at admission and read by the worker hours later.
+
+        The job record carries only a `media_id`; the container, the stored path
+        and the checksum live here. Without them a worker in a separate process
+        would have to invent a `SourceMedia`, and an invented checksum is worse
+        than none.
+        """
+        ...
+
+    def load_media(self, job_id: JobId) -> SourceMedia: ...
 
     def save_chunk_plan(self, job_id: JobId, plan: ChunkPlan) -> None: ...
 

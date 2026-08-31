@@ -24,14 +24,17 @@ from transcribe.adapters.storage.serialization import (
     decode_chunk_result,
     decode_control,
     decode_job,
+    decode_media,
     decode_transcript,
     encode_artifacts,
     encode_chunk_plan,
     encode_chunk_result,
     encode_control,
     encode_job,
+    encode_media,
     encode_transcript,
 )
+from transcribe.domain.media import SourceMedia
 from transcribe.domain.chunking import ChunkPlan, ChunkResult
 from transcribe.domain.errors import JobAlreadyExists, JobNotFound
 from transcribe.domain.generation import GenerationResult
@@ -42,6 +45,7 @@ from transcribe.domain.transcript import Transcript
 JOBS_DIRNAME = "jobs"
 JOB_RECORD = "job.json"
 CONTROL = "control.json"
+MEDIA = "media.json"
 CHUNK_PLAN = "plan.json"
 AUDIO_TRACK = "audio.flac"
 CHUNKS_DIRNAME = "chunks"
@@ -118,6 +122,15 @@ class FilesystemTranscriptStorage:
             for record in records
             if record.is_file()
         )
+
+    def save_media(self, job_id: JobId, media: SourceMedia) -> None:
+        self._write(self._writable(job_id) / MEDIA, encode_media(media))
+
+    def load_media(self, job_id: JobId) -> SourceMedia:
+        path = self.job_dir(job_id) / MEDIA
+        if not path.is_file():
+            raise JobNotFound(f"no source media recorded for {job_id!r}")
+        return decode_media(path.read_text(encoding="utf-8"))
 
     def save_chunk_plan(self, job_id: JobId, plan: ChunkPlan) -> None:
         self._write(self._writable(job_id) / CHUNK_PLAN, encode_chunk_plan(plan))
