@@ -5,11 +5,30 @@ result back. Every decision worth arguing about — what an admitted job looks l
 which ids it gets — lives in the use case, where it is testable without a client.
 """
 
-from fastapi import APIRouter
+from urllib.parse import unquote
+
+from fastapi import APIRouter, HTTPException, Request, Response
 
 from transcribe.adapters.web.app import WebDependencies
 from transcribe.adapters.web.schemas import AdmitJobRequest, AdmitJobResponse
+from transcribe.domain.errors import JobNotFound, UploadTooLarge
+from transcribe.domain.ids import JobId
 from transcribe.usecases.admit_job import admit_job
+
+# The client's filename travels as metadata, never in the URL — a path parameter
+# would invite treating it as one.
+FILENAME_HEADER = "x-filename"
+
+
+def _client_filename(raw: str) -> str:
+    """Percent-decoded, because HTTP header values are ASCII and the source
+    language is not.
+
+    `predicación del domingo.mp4` is the ordinary case here, not an edge case, and
+    it cannot travel in a header as written. Decoding is a no-op for a plain ASCII
+    name, so a client that sends one unencoded still works.
+    """
+    return unquote(raw)
 
 
 def build_jobs_router(deps: WebDependencies) -> APIRouter:
@@ -38,5 +57,38 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
             new_media_id=deps.new_media_id,
         )
         return AdmitJobResponse(job_id=job.job_id, state=job.state)
+
+    @router.put("/{job_id}/media", status_code=204)
+    async def upload_media(job_id: str, request: Request) -> Response:
+        """Raw body straight to disk. No multipart, no `UploadFile`.
+
+        `request.stream()` hands over chunks as they arrive off the socket, so the
+        writer never holds the file — which is the only way a multi-hour upload
+        works at all. FastAPI's `UploadFile` would spool the whole body first, and
+        a test asserts that neither it nor `File`/`Form` appears anywhere in this
+        adapter.
+
+        The filename arrives percent-encoded in a header and is recorded as
+        metadata. It is never consulted when deciding where anything goes: storage
+        decided that before this handler ran.
+        """
+        try:
+            job = deps.storage.load_job(JobId(job_id))
+        except JobNotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+        writer = deps.media_source_for(deps.storage, job.job_id)
+        try:
+            media = await writer.store(
+                job.media_id,
+                _client_filename(request.headers.get(FILENAME_HEADER, "")),
+                request.stream(),
+                deps.max_upload_bytes,
+            )
+        except UploadTooLarge as error:
+            raise HTTPException(status_code=413, detail=str(error)) from error
+
+        deps.storage.save_media(job.job_id, media)
+        return Response(status_code=204)
 
     return router

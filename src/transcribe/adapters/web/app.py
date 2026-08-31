@@ -13,17 +13,29 @@ from dataclasses import dataclass, field
 
 from fastapi import FastAPI
 
+from transcribe.adapters.storage.media_source import FilesystemMediaSource
 from transcribe.domain.ids import (
     JobId,
     MediaId,
     generate_job_id,
     generate_media_id,
 )
+from transcribe.ports.media_source import MediaSourcePort
 from transcribe.ports.transcript_storage import TranscriptStoragePort
 
 # 16 GiB. Multi-hour video is the normal input here, so this bounds what one
 # upload may consume rather than describing a typical file.
 DEFAULT_MAX_UPLOAD_BYTES = 16 * 1024**3
+
+
+MediaSourceFactory = Callable[[TranscriptStoragePort, JobId], MediaSourcePort]
+
+
+def filesystem_media_source(
+    storage: TranscriptStoragePort, job_id: JobId
+) -> MediaSourcePort:
+    """One writer per upload, aimed where storage says the source belongs."""
+    return FilesystemMediaSource(storage.source_path(job_id))
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +45,7 @@ class WebDependencies:
     now: Callable[[], float] = time.time
     new_job_id: Callable[[], JobId] = field(default=generate_job_id)
     new_media_id: Callable[[], MediaId] = field(default=generate_media_id)
+    media_source_for: MediaSourceFactory = field(default=filesystem_media_source)
 
 
 def create_app(deps: WebDependencies) -> FastAPI:
