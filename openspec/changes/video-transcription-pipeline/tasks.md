@@ -78,6 +78,7 @@ margin — they are directly comparable to slice 1's well-measured domain/use-ca
 | Slice 4a actual (DONE) | 1,642 lines across **six** units, all under budget. Estimated ~340 — 4.8x, the worst ratio so far. Test share 68% against the 56% assumed. Revised unit: an adapter that also owns its persistence format ≈ 1,600 lines |
 | Slices 4b+4c+4d actual (DONE) | 2,425 lines across **nine** units, all under budget. Estimated ~680 — 3.6x. Test share 70%. **The 56% test share in the rev-3 calibration is now disproved by three consecutive measurements (68%, 70%, 70%); every remaining estimate built on it is low by roughly a third on the test axis alone** |
 | Slice 5a actual (DONE) | 1,017 lines across **four** units, all under budget. Estimated ~260 — 3.9x. Test share 61%, the lowest since 4a: a route handler is mostly delegation and Pydantic does its own validating. **Running overrun across every measured slice is now 3.2x–4.8x with no slice under 3.2x** |
+| Slice 5b actual (DONE) | 1,018 lines across **four** units, all under budget. Estimated ~270 — 3.8x. Test share **81%**, the highest of the change: a threat matrix is mostly cases, and the code answering them is short (190 lines of `src` for eleven closed threat rows) |
 | Per-unit 400-line budget risk | **Low** — every one of the 21 remaining work units is individually estimated at 145–350 lines, with margin, not at the ceiling |
 | Aggregate 400-line budget risk | **High** by construction — this is why the change stays split into 23 work units total |
 | Chained PRs recommended | Yes |
@@ -665,26 +666,68 @@ A second, structural test parses every module in the web adapter and asserts `Up
 - [x] 5.4 GREEN: `adapters/web/routers/jobs.py` — `async for part in request.stream()` writer;
       `adapters/storage/media_source.py` (real, replacing the fake for this path).
 
-## Slice 5b: Upload Security Threat-Matrix (~270 lines)
+## Slice 5b: Upload Security Threat-Matrix — DONE (split into 5b-i … 5b-iv)
 
-Closes: threat-matrix rows **Uploaded-file classification**, **HTTP routing/path params**, **Resource exhaustion
-at ingest**; `media-ingest` Upload Size Limit. Every applicable adversarial row from the design's threat matrix
-lands in this one slice — kept separate from 5a's happy path so a security-guard revert never removes the upload
-feature itself.
+**Actual: 1,018 lines vs ~270 estimated — 3.8x.** Suite 465 passed, 0 skipped, `mypy src tests` clean
+over 98 files. Test share **81%** (828 test / 190 src) — the highest of the change, and expected: a
+threat matrix is mostly cases, and the code that answers them is short.
 
-- [ ] 5.5 RED: oversized-upload test — `Content-Length` precheck rejects before any bytes read; a lying
+| Unit | Commit | Lines |
+| --- | --- | --- |
+| 5b-i | `feat(adapters): two size checks, because one of them can be lied to` | 332 |
+| 5b-ii | `feat(adapters): decide what an upload is by looking inside it` | 343 |
+| 5b-iii | `test(integration): prove ffprobe rejects what we assume it rejects` | 130 |
+| 5b-iv | `feat(adapters): validate the job id at the door, not only in storage` | 217 |
+
+Closes: threat-matrix rows **Uploaded-file classification**, **HTTP routing/path params**, **Resource
+exhaustion at ingest**; `media-ingest` Upload Size Limit.
+
+### A defect the size tests found that was not about size
+
+Writing to the destination directly truncates it before the first byte arrives, so **a failed retry was
+already destroying the upload that had succeeded**. The upload now commits by rename — sibling `.part`,
+fsync, `os.replace` — the same commit the storage adapter uses for JSON, and for the same reason.
+Cleanup runs on any failure, not only the size limit, because a dropped connection leaves exactly the
+same truncated file. A truncated sermon is the dangerous leftover: a partial `.mp4` frequently still
+probes as valid media, so anything surviving an aborted upload would be transcribed as if it were the
+whole service.
+
+`.part` rather than `.tmp` on purpose — it can be gigabytes and can outlive a crash, so an operator
+clearing disk space should be able to tell an abandoned upload from an interrupted metadata write.
+
+### The first version of the traversal test proved nothing
+
+Against a permissive storage, `..` and `../..` **never reach the handler at all** — the client and the
+router normalise them away — so a test using those passes whether or not the route validates anything.
+The forms that survive routing are **`%2e%2e`**, which arrives decoded as `..` in the path parameter,
+and a plain `not-a-ulid`. Both reached the writer before 5b-iv.
+
+This also exposed why route-level validation was needed at all: the previous safety was an artifact of
+statement order, since a hostile id happened to die at `load_job` first. A handler that built the writer
+before loading the job would have handed it a path outside the data directory.
+
+### Tasks 5.7/5.8 were already closed by slice 5a
+
+The hostile-filename rule landed with the writer: the filename is recorded and never consulted, and the
+destination is chosen before the request is read. **The container allowlist named in 5.8 does not exist
+and should not** — 5a made the stored path extensionless, so there is no path extension to derive. What
+replaced it is 5.9/5.10: the *probed* container is what gets recorded, and `unverified` stops being the
+value at exactly that point.
+
+- [x] 5.5 RED: oversized-upload test — `Content-Length` precheck rejects before any bytes read; a lying
       header caught by a running byte counter aborts and deletes the partial file.
-- [ ] 5.6 GREEN: implement both checks against `TRANSCRIBE_MAX_UPLOAD_BYTES`.
-- [ ] 5.7 RED: hostile-filename test — `../../etc/passwd`-style filename never becomes a path component;
-      stored path stays inside the job dir.
-- [ ] 5.8 GREEN: filename treated as metadata only; storage path is `jobs/{ulid}/source{ext}` from a
-      container allowlist.
-- [ ] 5.9 RED: non-media-content-with-media-extension test — `ffprobe`-based validation rejects it, not
-      the extension.
-- [ ] 5.10 GREEN: `probe()` call (slice 3a) in the ingest path raises `UnsupportedContainer`.
-- [ ] 5.11 RED: `job_id` path-traversal test per route (`..`, `/`, URL-encoded separators) rejected
-      before filesystem access.
-- [ ] 5.12 GREEN: route-level regex validation reusing `domain/ids.py`.
+- [x] 5.6 GREEN: implement both checks against the injected upload limit.
+- [x] 5.7 RED: hostile-filename test — `../../etc/passwd`-style filename never becomes a path component;
+      stored path stays inside the job dir. *(Landed in 5a.)*
+- [x] 5.8 GREEN: filename treated as metadata only. **Deviation**: no container allowlist and no path
+      extension — the stored path is `jobs/{ulid}/source`, and content type comes from `ffprobe`.
+- [x] 5.9 RED: non-media-content-with-media-extension test — `ffprobe`-based validation rejects it, not
+      the extension. Includes an `integration`-marked test against the real binary.
+- [x] 5.10 GREEN: `probe()` call (slice 3a) in the ingest path raises `UnsupportedContainer`; a container
+      with no audio stream is refused too, and the refused file is discarded.
+- [x] 5.11 RED: `job_id` path-traversal test per route (`%2e%2e`, backslashes, null byte, wrong lengths,
+      excluded Crockford letters) rejected before the writer is reached.
+- [x] 5.12 GREEN: route-level validation reusing `domain/ids.py`.
 
 ## Slice 5c: Status Route + App Wiring + E2E (~250 lines)
 

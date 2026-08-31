@@ -152,7 +152,7 @@ This repo runs **Spec-Driven Development** (`openspec/`) with **strict TDD** (`s
 
 ### Current state
 
-Slices 1 through 5a are complete and green: **411 tests, 0 skipped, mypy clean over 93 files**. On disk
+Slices 1 through 5b are complete and green: **465 tests, 0 skipped, mypy clean over 98 files**. On disk
 today are `domain/`, `ports/`, the use cases (`ingest_media`, `admit_job`, `plan_chunks`,
 `stitch_transcript`, `transcribe_job`, `resume_job`, plus the uncalled `purge_job_artifacts` seam),
 `adapters/ffmpeg/`, `adapters/storage/`, `adapters/web/`, `runtime/` (`engine_resolver`, `worker`), and
@@ -163,18 +163,23 @@ A job runs end to end today with fake engines:
 ("nothing usable to run") because no real engine is wired yet.
 
 Two HTTP routes exist: `POST /api/jobs` (admit) and `PUT /api/jobs/{id}/media` (raw-body streaming
-upload). The filename travels percent-encoded in an `X-Filename` header — HTTP headers are ASCII and
-Spanish filenames are the normal case. The upload path deliberately imports no `UploadFile`/`File`/`Form`,
-and a structural test enforces that.
+upload). Four things about that path are load-bearing and easy to undo by accident:
+
+- The filename travels **percent-encoded** in an `X-Filename` header. HTTP header values are ASCII and
+  Spanish filenames are the normal case here, not an edge case.
+- No `UploadFile`/`File`/`Form` is imported anywhere in `adapters/web` — a structural test enforces it,
+  because an absence cannot be proven by a request.
+- The upload commits by **rename** from a sibling `.part`. Writing to the destination directly truncates
+  it before the first byte arrives, so a failed retry would destroy the upload that had succeeded.
+- The stored source is **extensionless** (`jobs/{ulid}/source`). Content type comes from `ffprobe`, and
+  the media record's `container` reads `"unverified"` only until that probe runs.
 
 ffmpeg 9.0.1 is installed (winget, `Gyan.FFmpeg`), so the `integration`-marked tests run rather than
 skip — the flag set in `adapters/ffmpeg/argv.py` is verified against the real binaries, not just argued.
 
-Next up is **Slice 5b**: the upload security threat matrix — `Content-Length` precheck, deleting the
-partial file when a lying header is caught, `ffprobe` validation of the *probed* container, and
-route-level id validation. Note 5a's deviation: the stored source is extensionless (`jobs/{ulid}/source`,
-not `source{ext}`), because content type is decided by ffprobe and a suffix would only be one more thing
-a client could influence — so 5b owes container validation, not a path-extension allowlist.
+Next up is **Slice 5c**: the job status route, app wiring and an end-to-end test — the first place
+`derive_progress` gets a caller, and the first time the web app is built from real settings rather than
+from a test's `WebDependencies`.
 
 The proposal is at **rev 4**: rendering vertical clips is now in scope, which adds slices 11-13 after
 10b and modifies `transcript-artifacts` (word-level timing) and `MediaProbe` (frame dimensions). Those
