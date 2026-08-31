@@ -33,6 +33,22 @@ class DiarizationUnsupported(DomainError):
     """Raised when a speaker-mode request reaches a non-diarizing adapter."""
 
 
+class JobNotFound(DomainError):
+    """Raised when no job is stored under the requested id.
+
+    Also raised for an id that is not a well-formed ULID: a malformed id refers to
+    no job either, and answering it differently would tell a caller which ids exist.
+    """
+
+
+class JobAlreadyExists(DomainError):
+    """Raised when creating a job whose id is already stored.
+
+    `create_job` and `update_job` are separate methods on the port; if create also
+    overwrote, a reused id would silently discard a running job's state.
+    """
+
+
 class CorruptedRecord(DomainError):
     """Raised when persisted state cannot be read back as the entity it claims to be.
 
