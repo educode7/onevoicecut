@@ -86,6 +86,7 @@ class FlakyFakeTranscriptionPort:
         self._remaining = dict(failures or {})
         self._error = error
         self.attempts: list[int] = []
+        self.requests: list[TranscriptionRequest] = []
 
     def capabilities(self) -> TranscriptionCapabilities:
         return TranscriptionCapabilities(
@@ -100,6 +101,7 @@ class FlakyFakeTranscriptionPort:
         self, chunk: AudioChunk, request: TranscriptionRequest
     ) -> tuple[TranscriptSegment, ...]:
         self.attempts.append(chunk.index)
+        self.requests.append(request)
         remaining = self._remaining.get(chunk.index, 0)
         if remaining > 0:
             self._remaining[chunk.index] = remaining - 1

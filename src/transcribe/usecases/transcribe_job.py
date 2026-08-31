@@ -21,7 +21,7 @@ from collections.abc import Callable
 from dataclasses import replace
 
 from transcribe.domain.chunking import AudioChunk, ChunkPlan, ChunkResult, ChunkState
-from transcribe.domain.errors import TranscriptionFailed
+from transcribe.domain.errors import ChunkTimeout, TranscriptionFailed
 from transcribe.domain.ids import JobId
 from transcribe.domain.jobs import JobRecord, JobState, SpeakerMode
 from transcribe.domain.media import AudioTrack, SourceMedia
@@ -41,6 +41,10 @@ DEFAULT_CHUNK_TIMEOUT_S = 30 * 60.0
 # An error listing 87 chunk indices is no more useful than one listing six.
 MAX_REPORTED_FAILURES = 6
 
+# Enough to ride out a transient provider error, few enough that a chunk the
+# engine will never accept does not stall a job that already runs for hours.
+DEFAULT_MAX_ATTEMPTS = 3
+
 Clock = Callable[[], float]
 
 
@@ -54,6 +58,7 @@ def transcribe_job(
     now: Clock = time.time,
     target_chunk_s: float = DEFAULT_TARGET_CHUNK_S,
     chunk_timeout_s: float | None = DEFAULT_CHUNK_TIMEOUT_S,
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
 ) -> JobRecord:
     """Returns the job as it ended, not the transcript.
 
@@ -93,7 +98,7 @@ def transcribe_job(
             track, planned, storage.chunk_path(job_id, planned.index)
         )
         result = _transcribe_chunk(
-            chunk, request, transcriber=transcriber, now=now
+            chunk, request, transcriber=transcriber, now=now, max_attempts=max_attempts
         )
         # Committed here, inside the loop, not accumulated for a final batch.
         storage.save_chunk_result(result)
@@ -118,39 +123,70 @@ def _transcribe_chunk(
     *,
     transcriber: TranscriptionPort,
     now: Clock,
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
 ) -> ChunkResult:
     """One chunk's outcome, never the job's.
 
-    `TranscriptionFailed` is contained: chunk 84 of 87 failing must not discard
-    the first 83, so it becomes a recorded `FAILED` result and the loop continues.
+    `TranscriptionFailed` is contained and retried: a cloud engine dropping one
+    request in eighty-seven is ordinary, and failing the chunk on the first
+    refusal would cost an hour of a job over a network blip. Chunk 84 of 87
+    failing for good must still not discard the first 83, so an exhausted chunk
+    becomes a recorded `FAILED` result and the loop continues.
 
-    `DiarizationUnsupported` is deliberately *not* contained. It is a capability
-    gap, not a chunk defect — every remaining chunk would raise it identically, so
-    grinding through 87 of them discovers the same fact 87 times and then blames
-    the last chunk for the job's configuration.
+    `ChunkTimeout` is contained but **not** retried. It is the one failure where
+    another attempt mostly spends the budget again — three tries at thirty minutes
+    is ninety minutes to learn the same thing.
+
+    `DiarizationUnsupported` is deliberately not contained at all. It is a
+    capability gap, not a chunk defect: every remaining chunk would raise it
+    identically, so grinding through 87 of them discovers the same fact 87 times
+    and then blames the last chunk for the job's configuration.
     """
-    try:
-        segments = transcriber.transcribe(chunk, request)
-    except TranscriptionFailed as error:
+    engine_id = transcriber.capabilities().engine_id
+    last_error = ""
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            segments = transcriber.transcribe(chunk, request)
+        except ChunkTimeout as error:
+            # Before the TranscriptionFailed clause on purpose: ChunkTimeout is a
+            # subclass, and the broader handler would otherwise retry it.
+            return _failed_chunk(chunk, engine_id, attempt, str(error), now)
+        except TranscriptionFailed as error:
+            last_error = str(error)
+            continue
+
         return ChunkResult(
             job_id=chunk.job_id,
             index=chunk.index,
-            state=ChunkState.FAILED,
-            segments=(),
-            engine_id=transcriber.capabilities().engine_id,
-            attempts=1,
-            error=str(error),
+            state=ChunkState.DONE,
+            segments=segments,
+            engine_id=engine_id,
+            attempts=attempt,
+            error=None,
             finished_at=now(),
         )
 
+    return _failed_chunk(chunk, engine_id, max_attempts, last_error, now)
+
+
+def _failed_chunk(
+    chunk: AudioChunk,
+    engine_id: str,
+    attempts: int,
+    error: str,
+    now: Clock,
+) -> ChunkResult:
+    """`attempts` is evidence about the engine, not bookkeeping: a chunk that
+    needed three tries and one that never ran are different facts."""
     return ChunkResult(
         job_id=chunk.job_id,
         index=chunk.index,
-        state=ChunkState.DONE,
-        segments=segments,
-        engine_id=transcriber.capabilities().engine_id,
-        attempts=1,
-        error=None,
+        state=ChunkState.FAILED,
+        segments=(),
+        engine_id=engine_id,
+        attempts=attempts,
+        error=error,
         finished_at=now(),
     )
 

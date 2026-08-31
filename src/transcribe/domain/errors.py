@@ -25,6 +25,17 @@ class TranscriptionFailed(DomainError):
     pass
 
 
+class ChunkTimeout(TranscriptionFailed):
+    """A chunk did not return within its per-chunk budget.
+
+    A kind of `TranscriptionFailed`, so an adapter that raises it satisfies every
+    caller already handling transcription failure. Distinct because it is the one
+    failure worth *not* retrying: a retry mostly spends the timeout again, and
+    three attempts at a 30-minute budget is an hour and a half spent to learn the
+    same thing.
+    """
+
+
 class ChunkTooLarge(DomainError):
     pass
 
