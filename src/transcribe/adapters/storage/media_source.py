@@ -101,3 +101,13 @@ class FilesystemMediaSource:
             container=UNVERIFIED_CONTAINER,
             checksum=digest.hexdigest(),
         )
+
+    def discard(self, media: SourceMedia) -> None:
+        """For an upload that arrived intact and turned out not to be media.
+
+        Distinct from the cleanup inside `store`: that one removes something that
+        was never finished, this one removes something finished and rejected. The
+        retention rule that forbids deleting the operator's video does not cover a
+        file that was refused — it was never their sermon.
+        """
+        media.stored_path.unlink(missing_ok=True)

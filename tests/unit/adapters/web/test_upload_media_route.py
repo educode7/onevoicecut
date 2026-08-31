@@ -22,6 +22,7 @@ from transcribe.adapters.web.app import WebDependencies, create_app
 from transcribe.domain.ids import JobId, make_job_id
 from transcribe.domain.jobs import JobState
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
+from tests.unit.adapters.web.conftest import accepting_extractor
 
 FORBIDDEN_HELPERS = {"UploadFile", "File", "Form"}
 
@@ -33,7 +34,15 @@ def storage(tmp_path: Path) -> FakeTranscriptStoragePort:
 
 @pytest.fixture
 async def client(storage: FakeTranscriptStoragePort) -> AsyncIterator[AsyncClient]:
-    app = create_app(WebDependencies(storage=storage, max_upload_bytes=4096))
+    app = create_app(
+        WebDependencies(
+            storage=storage,
+            max_upload_bytes=4096,
+            # The route probes what it stored. Whether ffprobe agrees is a
+            # separate claim, proven in the integration tests.
+            extractor_for=accepting_extractor,
+        )
+    )
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as http:

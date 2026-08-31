@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from fastapi import FastAPI
 
+from transcribe.adapters.ffmpeg.extractor import FfmpegAudioExtractor
 from transcribe.adapters.storage.media_source import FilesystemMediaSource
 from transcribe.domain.ids import (
     JobId,
@@ -20,6 +21,7 @@ from transcribe.domain.ids import (
     generate_job_id,
     generate_media_id,
 )
+from transcribe.ports.audio_extractor import AudioExtractorPort
 from transcribe.ports.media_source import MediaSourcePort
 from transcribe.ports.transcript_storage import TranscriptStoragePort
 
@@ -29,6 +31,7 @@ DEFAULT_MAX_UPLOAD_BYTES = 16 * 1024**3
 
 
 MediaSourceFactory = Callable[[TranscriptStoragePort, JobId], MediaSourcePort]
+ExtractorFactory = Callable[[TranscriptStoragePort, JobId], AudioExtractorPort]
 
 
 def filesystem_media_source(
@@ -36,6 +39,17 @@ def filesystem_media_source(
 ) -> MediaSourcePort:
     """One writer per upload, aimed where storage says the source belongs."""
     return FilesystemMediaSource(storage.source_path(job_id))
+
+
+def ffmpeg_extractor(
+    storage: TranscriptStoragePort, job_id: JobId
+) -> AudioExtractorPort:
+    """The web process only ever calls `probe` on this.
+
+    Extraction and slicing are the worker's, and they happen in a different
+    process hours later. Sharing the adapter is not sharing the work.
+    """
+    return FfmpegAudioExtractor(storage.job_dir(job_id), job_id=job_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +60,7 @@ class WebDependencies:
     new_job_id: Callable[[], JobId] = field(default=generate_job_id)
     new_media_id: Callable[[], MediaId] = field(default=generate_media_id)
     media_source_for: MediaSourceFactory = field(default=filesystem_media_source)
+    extractor_for: ExtractorFactory = field(default=ffmpeg_extractor)
 
 
 def create_app(deps: WebDependencies) -> FastAPI:

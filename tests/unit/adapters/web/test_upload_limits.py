@@ -20,6 +20,7 @@ from transcribe.domain.ids import JobId, make_job_id
 from transcribe.ports.media_source import MediaSourcePort
 from transcribe.ports.transcript_storage import TranscriptStoragePort
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
+from tests.unit.adapters.web.conftest import accepting_extractor
 
 LIMIT = 4096
 
@@ -48,7 +49,13 @@ def storage(tmp_path: Path) -> FakeTranscriptStoragePort:
 
 @pytest.fixture
 async def client(storage: FakeTranscriptStoragePort) -> AsyncIterator[AsyncClient]:
-    app = create_app(WebDependencies(storage=storage, max_upload_bytes=LIMIT))
+    app = create_app(
+        WebDependencies(
+            storage=storage,
+            max_upload_bytes=LIMIT,
+            extractor_for=accepting_extractor,
+        )
+    )
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as http:
@@ -64,7 +71,10 @@ async def guarded_client(
 
     app = create_app(
         WebDependencies(
-            storage=storage, max_upload_bytes=LIMIT, media_source_for=refuse
+            storage=storage,
+            max_upload_bytes=LIMIT,
+            media_source_for=refuse,
+            extractor_for=accepting_extractor,
         )
     )
     async with AsyncClient(

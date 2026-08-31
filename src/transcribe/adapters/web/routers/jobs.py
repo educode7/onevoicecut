@@ -5,14 +5,22 @@ result back. Every decision worth arguing about — what an admitted job looks l
 which ids it gets — lives in the use case, where it is testable without a client.
 """
 
+from dataclasses import replace
 from urllib.parse import unquote
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from transcribe.adapters.web.app import WebDependencies
 from transcribe.adapters.web.schemas import AdmitJobRequest, AdmitJobResponse
-from transcribe.domain.errors import JobNotFound, UploadTooLarge
+from transcribe.domain.errors import (
+    JobNotFound,
+    UnsupportedContainer,
+    UploadTooLarge,
+)
 from transcribe.domain.ids import JobId
+from transcribe.domain.media import SourceMedia
+from transcribe.ports.audio_extractor import AudioExtractorPort
+from transcribe.ports.media_source import MediaSourcePort
 from transcribe.usecases.admit_job import admit_job
 
 # The client's filename travels as metadata, never in the URL — a path parameter
@@ -45,6 +53,44 @@ def _refuse_if_declared_too_large(request: Request, max_bytes: int) -> None:
             status_code=413,
             detail=f"declared {length} bytes, limit is {max_bytes}",
         )
+
+
+def _verified_media(
+    media: SourceMedia,
+    *,
+    extractor: AudioExtractorPort,
+    writer: MediaSourcePort,
+) -> SourceMedia:
+    """Decide what the file is by looking inside it, and record the answer.
+
+    An extension is a claim by whoever named the file, and it is wrong in both
+    directions: it does not stop a text file called `sermon.mp4`, and it would
+    reject a real recording someone named `sermon`. So the bytes are probed and
+    the probe is believed.
+
+    The rejection worth naming is the second one. A container with no audio
+    stream looks entirely fine — it extracts cleanly to a silent track and
+    transcribes to an empty sermon, and nothing in the output says why. Catching
+    it here means the operator hears about it while they are still standing at
+    the upload form.
+
+    A refused file is discarded rather than kept. The retention rule protects the
+    operator's uploaded video; this was never accepted as one.
+    """
+    try:
+        probe = extractor.probe(media)
+    except UnsupportedContainer as error:
+        writer.discard(media)
+        raise HTTPException(status_code=415, detail=str(error)) from error
+
+    if not probe.has_audio:
+        writer.discard(media)
+        raise HTTPException(
+            status_code=415,
+            detail=f"{probe.container} has no audio stream to transcribe",
+        )
+
+    return replace(media, container=probe.container)
 
 
 def _client_filename(raw: str) -> str:
@@ -117,7 +163,10 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         except UploadTooLarge as error:
             raise HTTPException(status_code=413, detail=str(error)) from error
 
-        deps.storage.save_media(job.job_id, media)
+        verified = _verified_media(
+            media, extractor=deps.extractor_for(deps.storage, job.job_id), writer=writer
+        )
+        deps.storage.save_media(job.job_id, verified)
         return Response(status_code=204)
 
     return router

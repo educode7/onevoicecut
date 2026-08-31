@@ -16,11 +16,27 @@ FAKE_DURATION_S = 10.0
 
 
 class FakeAudioExtractorPort:
-    def __init__(self, job_id: JobId) -> None:
+    def __init__(
+        self,
+        job_id: JobId,
+        *,
+        probe_result: MediaProbe | None = None,
+        probe_error: Exception | None = None,
+    ) -> None:
         self._job_id = job_id
+        # Configurable because the ingest path now decides whether a file is media
+        # at all, and both answers have to be reachable without ffmpeg installed.
+        self._probe_result = probe_result
+        self._probe_error = probe_error
 
     def probe(self, media: SourceMedia) -> MediaProbe:
-        return MediaProbe(duration_s=FAKE_DURATION_S, container=media.container, has_audio=True)
+        if self._probe_error is not None:
+            raise self._probe_error
+        if self._probe_result is not None:
+            return self._probe_result
+        return MediaProbe(
+            duration_s=FAKE_DURATION_S, container="mov,mp4,m4a", has_audio=True
+        )
 
     def extract(self, media: SourceMedia, dest: Path) -> AudioTrack:
         return AudioTrack(

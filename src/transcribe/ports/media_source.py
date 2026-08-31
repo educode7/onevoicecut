@@ -16,3 +16,12 @@ class MediaSourcePort(Protocol):
     ) -> SourceMedia:
         """Raises UploadTooLarge, UnsupportedContainer."""
         ...
+
+    def discard(self, media: SourceMedia) -> None:
+        """Remove a stored upload that turned out to be unusable.
+
+        On the port because whatever owns writing the file owns removing it. A
+        caller that unlinked the path itself would be a second place that knows
+        how uploads live on disk.
+        """
+        ...
