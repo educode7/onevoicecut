@@ -121,6 +121,7 @@ async def test_a_hostile_id_never_reaches_the_writer(tmp_path: Path) -> None:
                 updated_at=1.0,
                 worker_pid=None,
                 error=None,
+                owner=None,
             )
 
     def spy(_: TranscriptStoragePort, job_id: JobId) -> MediaSourcePort:
@@ -167,6 +168,7 @@ async def test_a_non_ulid_that_survives_routing_never_reaches_the_writer(
                 updated_at=1.0,
                 worker_pid=None,
                 error=None,
+                owner=None,
             )
 
     def spy(_: TranscriptStoragePort, job_id: JobId) -> MediaSourcePort:

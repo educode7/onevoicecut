@@ -42,6 +42,7 @@ def a_job(state: JobState = JobState.TRANSCRIBING) -> JobRecord:
         updated_at=CREATED_AT,
         worker_pid=4812,
         error=None,
+        owner=None,
     )
 
 

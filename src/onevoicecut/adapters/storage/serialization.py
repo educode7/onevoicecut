@@ -28,8 +28,10 @@ from onevoicecut.domain.ids import (
     InvalidIdError,
     JobId,
     MediaId,
+    OperatorId,
     make_job_id,
     make_media_id,
+    make_operator_id,
 )
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.domain.media import SourceMedia
@@ -134,6 +136,27 @@ def _media_id(record: Record) -> MediaId:
         raise CorruptedRecord(str(error)) from error
 
 
+def _optional_operator(record: Record) -> OperatorId | None:
+    """The codec's one key-tolerant read.
+
+    Every other field is required at decode because an older build could not
+    legitimately omit it; `owner` is the exception, because records written
+    before this change genuinely lack the key. Absent or null → no owner.
+    A present value is validated like any identity: anything else fails
+    closed as corruption, never coerced to `None` and never invented —
+    a silent owner is a security decision the codec has no business making.
+    """
+    value = record.get("owner")
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise CorruptedRecord("field 'owner' is not a string")
+    try:
+        return make_operator_id(value)
+    except InvalidIdError as error:
+        raise CorruptedRecord(str(error)) from error
+
+
 def _segment(record: Record) -> TranscriptSegment:
     # `kind` is read explicitly rather than left to the entity default. The entity
     # defaults to `UNCERTAIN` so a non-classifying adapter cannot assert speech;
@@ -180,6 +203,7 @@ def decode_job(payload: str) -> JobRecord:
         updated_at=_number(record, "updated_at"),
         worker_pid=_optional_whole(record, "worker_pid"),
         error=_optional_text(record, "error"),
+        owner=_optional_operator(record),
     )
 
 

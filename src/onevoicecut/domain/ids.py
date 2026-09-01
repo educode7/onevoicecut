@@ -1,7 +1,7 @@
-"""Server-generated ULID identity types.
+"""Identity types: server-generated ULIDs and validated operator names.
 
-Never a client-supplied filename, never a sequence number. Validated before
-the value ever touches a filesystem path.
+Job and media ids are never a client-supplied filename, never a sequence
+number. Validated before the value ever touches a filesystem path.
 
 Generated here rather than pulled from a library. The encoding is forty lines,
 the dependency would be permanent, and the property the rest of the system
@@ -29,9 +29,18 @@ _MAX_TIMESTAMP_MS = 2**48 - 1
 JobId = NewType("JobId", str)
 MediaId = NewType("MediaId", str)
 
+# Operator names come from configuration — the token map — not from a minting
+# function: lowercase letters, digits, `-` and `_`, one to sixty-four
+# characters. `:` and `;` delimit the token map, so a name containing either
+# would parse as structure instead of identity, and the grammar forbids them
+# outright. Paired with `fullmatch` below, never `match` + `$`.
+_OPERATOR_NAME_PATTERN = re.compile(r"[a-z0-9_-]{1,64}")
+
+OperatorId = NewType("OperatorId", str)
+
 
 class InvalidIdError(ValueError):
-    """Raised when a candidate string does not match the ULID pattern."""
+    """Raised when a candidate string does not match an identity pattern."""
 
 
 def _validate_ulid(value: str) -> str:
@@ -46,6 +55,14 @@ def make_job_id(value: str) -> JobId:
 
 def make_media_id(value: str) -> MediaId:
     return MediaId(_validate_ulid(value))
+
+
+def make_operator_id(value: str) -> OperatorId:
+    # `fullmatch`, not `match` with `$`: a `$` anchor accepts a trailing
+    # newline, and "maria\n" must not be the identity "maria".
+    if not _OPERATOR_NAME_PATTERN.fullmatch(value):
+        raise InvalidIdError(f"{value!r} is not a valid operator id")
+    return OperatorId(value)
 
 
 def _encode(value: int, chars: int) -> str:

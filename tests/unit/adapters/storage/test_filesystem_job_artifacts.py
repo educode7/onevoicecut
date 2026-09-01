@@ -39,6 +39,7 @@ def a_job(job_id: JobId) -> JobRecord:
         updated_at=1723501234.5,
         worker_pid=None,
         error=None,
+        owner=None,
     )
 
 

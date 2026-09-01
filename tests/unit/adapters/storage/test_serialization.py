@@ -7,6 +7,7 @@ domain error rather than leaking `json`'s.
 """
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -29,12 +30,13 @@ from onevoicecut.domain.media import SourceMedia
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
 from onevoicecut.domain.errors import CorruptedRecord
 from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
-from onevoicecut.domain.ids import make_job_id, make_media_id
+from onevoicecut.domain.ids import make_job_id, make_media_id, make_operator_id
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.domain.transcript import SegmentKind, Transcript, TranscriptSegment
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
 MEDIA_ID = make_media_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFE")
+OPERATOR = make_operator_id("maria")
 
 
 def a_job() -> JobRecord:
@@ -48,7 +50,13 @@ def a_job() -> JobRecord:
         updated_at=1723501999.25,
         worker_pid=4812,
         error=None,
+        owner=OPERATOR,
     )
+
+
+def an_ownerless_job() -> JobRecord:
+    """The pre-change shape: every field identical, no owner."""
+    return replace(a_job(), owner=None)
 
 
 def a_plan() -> ChunkPlan:
@@ -174,12 +182,14 @@ def test_a_job_record_keeps_its_nullable_fields_distinct_from_defaults() -> None
         updated_at=2.0,
         worker_pid=None,
         error="ffmpeg exited 1",
+        owner=None,
     )
 
     restored = decode_job(encode_job(failed))
 
     assert restored.worker_pid is None
     assert restored.error == "ffmpeg exited 1"
+    assert restored.owner is None
 
 
 def test_a_chunk_plan_round_trips_with_its_chunks_as_a_tuple() -> None:
@@ -359,3 +369,86 @@ def test_a_missing_segment_field_raises_a_domain_error() -> None:
 
     with pytest.raises(CorruptedRecord):
         decode_transcript(json.dumps(payload))
+
+
+class TestJobOwnerCodec:
+    """The owner is the codec's one key-tolerant read (D1/D10).
+
+    Every field an older build could not legitimately omit stays required;
+    only `owner` reads tolerantly, because pre-change records genuinely lack
+    it. The asymmetry is the compatibility contract, so each arm is pinned.
+    """
+
+    def _payload_without_owner(self) -> dict[str, object]:
+        payload: dict[str, object] = json.loads(encode_job(a_job()))
+        del payload["owner"]
+        return payload
+
+    def test_a_pre_change_record_without_the_key_decodes_ownerless(self) -> None:
+        """LEG-01: absence is the legacy shape, not corruption."""
+        restored = decode_job(json.dumps(self._payload_without_owner()))
+
+        assert restored.owner is None
+        assert restored.job_id == a_job().job_id
+
+    def test_an_explicit_null_owner_decodes_as_none(self) -> None:
+        """LEG-02: a re-saved legacy record carries the key as null."""
+        payload = self._payload_without_owner()
+        payload["owner"] = None
+
+        restored = decode_job(json.dumps(payload))
+
+        assert restored.owner is None
+
+    def test_a_present_owner_decodes_to_the_validated_identity(self) -> None:
+        """LEG-03: the string is validated, not merely passed through."""
+        payload = self._payload_without_owner()
+        payload["owner"] = "maria"
+
+        restored = decode_job(json.dumps(payload))
+
+        assert restored.owner == make_operator_id("maria")
+
+    @pytest.mark.parametrize(
+        "bad_owner",
+        [
+            "Maria",  # uppercase fails the grammar
+            "a:b",  # the token-map separator
+            "a;b",  # the pair separator
+            "",  # empty
+            "a" * 65,  # over the length bound
+            42,  # non-string
+            ["maria"],  # non-string
+            {"name": "maria"},  # non-string
+            True,  # bool: the classic int-adjacent trap
+        ],
+    )
+    def test_an_invalid_owner_fails_closed(self, bad_owner: object) -> None:
+        """LEG-04: never coerced to None, never an invented identity."""
+        payload = self._payload_without_owner()
+        payload["owner"] = bad_owner
+
+        with pytest.raises(CorruptedRecord):
+            decode_job(json.dumps(payload))
+
+    def test_encode_always_writes_the_owner_key(self) -> None:
+        payload = json.loads(encode_job(a_job()))
+        assert payload["owner"] == "maria"
+
+    def test_encode_writes_the_owner_key_as_null_when_ownerless(self) -> None:
+        payload = json.loads(encode_job(an_ownerless_job()))
+        assert "owner" in payload
+        assert payload["owner"] is None
+
+    def test_an_owned_record_round_trips_with_owner_intact(self) -> None:
+        """LEG-08 encode half: what the new build writes, it reads back."""
+        restored = decode_job(encode_job(a_job()))
+
+        assert restored == a_job()
+        assert restored.owner == OPERATOR
+
+    def test_an_ownerless_record_round_trips_with_owner_none(self) -> None:
+        restored = decode_job(encode_job(an_ownerless_job()))
+
+        assert restored == an_ownerless_job()
+        assert restored.owner is None

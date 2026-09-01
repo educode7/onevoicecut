@@ -56,6 +56,7 @@ def a_job(job_id: JobId = JOB_ID) -> JobRecord:
         updated_at=1.0,
         worker_pid=None,
         error=None,
+        owner=None,
     )
 
 

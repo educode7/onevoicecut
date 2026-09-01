@@ -74,6 +74,9 @@ def admit_job(
         updated_at=now(),
         worker_pid=None,
         error=None,
+        # Ownerless until the authentication slice wires the caller's identity
+        # in; behavior-neutral here, and the key is still persisted from now on.
+        owner=None,
     )
     storage.create_job(job)
     return job

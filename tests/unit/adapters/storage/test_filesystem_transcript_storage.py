@@ -38,6 +38,7 @@ def a_job(job_id: JobId = JOB_ID, state: JobState = JobState.PENDING) -> JobReco
         updated_at=1723501234.5,
         worker_pid=None,
         error=None,
+        owner=None,
     )
 
 

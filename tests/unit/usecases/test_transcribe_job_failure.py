@@ -53,6 +53,7 @@ def a_job(speaker_mode: SpeakerMode = SpeakerMode.SINGLE) -> JobRecord:
         updated_at=1.0,
         worker_pid=None,
         error=None,
+        owner=None,
     )
 
 

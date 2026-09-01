@@ -50,6 +50,7 @@ def a_job(
         updated_at=1.0,
         worker_pid=worker_pid,
         error=None,
+        owner=None,
     )
 
 

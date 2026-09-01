@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState
-from onevoicecut.domain.ids import JobId, MediaId
+from onevoicecut.domain.ids import JobId, MediaId, OperatorId
 
 
 class SpeakerMode(StrEnum):
@@ -43,6 +43,10 @@ class JobRecord:
     updated_at: float
     worker_pid: int | None
     error: str | None
+    # The operator admitted, or `None` for a record written before owners
+    # existed. Required with no default: a construction site must state it
+    # explicitly, so no future path can silently mint an ownerless record.
+    owner: OperatorId | None
 
 
 @dataclass(frozen=True, slots=True)

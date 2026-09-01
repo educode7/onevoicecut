@@ -99,23 +99,23 @@ Rollback boundary: `domain/ids.py`, `domain/jobs.py`, `adapters/storage/serializ
 `usecases/admit_job.py` (owner=None only), `tests/fakes/transcript_storage.py`, `.gitignore`, new tests.
 Runtime harness: N/A — pure codec/domain over fakes and `tmp_path`.
 
-- [ ] 1.1 RED: `tests/unit/domain/test_ids.py` — `make_operator_id` accepts exactly
+- [x] 1.1 RED: `tests/unit/domain/test_ids.py` — `make_operator_id` accepts exactly
       `[a-z0-9_-]{1,64}` (boundary lengths 1 and 64); rejects empty, 65 chars, uppercase, `.`, `:`, `;`,
       whitespace; `OperatorId` is a `NewType` over `str`; failures raise `InvalidIdError`
       (validation used by decode — LEG-03's foundation).
-- [ ] 1.2 GREEN: `domain/ids.py` — `OperatorId` + `make_operator_id` next to the existing ULID discipline.
-- [ ] 1.3 RED: `tests/unit/domain/test_jobs.py` + `tests/unit/adapters/storage/test_serialization.py` —
+- [x] 1.2 GREEN: `domain/ids.py` — `OperatorId` + `make_operator_id` next to the existing ULID discipline.
+- [x] 1.3 RED: `tests/unit/domain/test_jobs.py` + `tests/unit/adapters/storage/test_serialization.py` —
       `JobRecord.owner: OperatorId | None` is a **required** constructor argument (no default: no
       construction site may silently omit it); frozen; `dataclasses.replace` carries it. Codec matrix (D1/D10):
       key **absent** → decode `owner=None`, not corrupt (LEG-01); key `null` → `None` (LEG-02); valid string →
       validated `OperatorId` (LEG-03); invalid string (uppercase, `:`) or non-string → `CorruptedRecord`,
       never coerced (LEG-04); `encode_job` always writes the key (`null` when None, name when set); an encoded
       owned record re-decodes with owner intact (LEG-08 encode half).
-- [ ] 1.4 GREEN: `domain/jobs.py` field; `adapters/storage/serialization.py` — exactly ONE new key-tolerant
+- [x] 1.4 GREEN: `domain/jobs.py` field; `adapters/storage/serialization.py` — exactly ONE new key-tolerant
       read (absent→None / null→None / string→`make_operator_id` else `CorruptedRecord`); every existing
       construction site updated: `decode_job`, `usecases/admit_job.py` (records `owner=None` — behavior-neutral
       until S2), `tests/fakes/transcript_storage.py`, and every test fixture building a `JobRecord`.
-- [ ] 1.5 RED: `tests/unit/adapters/storage/test_legacy_records.py` (new) against the real
+- [x] 1.5 RED: `tests/unit/adapters/storage/test_legacy_records.py` (new) against the real
       `FilesystemTranscriptStorage` on `tmp_path` — a hand-written pre-change `job.json` (no owner key) loads
       and lists with `owner=None` (LEG-01 adapter level); a legacy-only data directory lists completely
       (LEG-05); a mixed legacy+owned directory lists every record with correct attribution (LEG-06 listing
@@ -124,13 +124,13 @@ Runtime harness: N/A — pure codec/domain over fakes and `tmp_path`.
       owner backfill anywhere (LEG-07, LEG-06 reconcile half); a post-change record carrying `owner` decodes
       through a simulated pre-change field-explicit read that ignores the unknown key (LEG-08 decode half —
       the rollback invariant).
-- [ ] 1.6 GREEN: expected green from 1.4's codec work — confirm and record as characterization (existing
+- [x] 1.6 GREEN: expected green from 1.4's codec work — confirm and record as characterization (existing
       `reconcile_interrupted_jobs` never reads `owner`, so owner-blindness holds by construction); any failure
       is a real gap in 1.4 and gets fixed there, not patched here.
-- [ ] 1.7 CONFIG (no behavior to test-drive): add `data/` to `.gitignore` if absent (R6 — the default
+- [x] 1.7 CONFIG (no behavior to test-drive): add `data/` to `.gitignore` if absent (R6 — the default
       `data_dir` puts `job.json`, which will carry operator names from S2, on a committable path). Verify:
       `git check-ignore data/probe` succeeds.
-- [ ] 1.8 DONE-UNIT: both definition-of-done commands green; measure `git diff --stat`. Pre-declared split
+- [x] 1.8 DONE-UNIT: both definition-of-done commands green; measure `git diff --stat`. Pre-declared split
       seam if measurement exceeds 800 (not expected): unit A = tasks 1.1–1.4 (domain + codec), unit B =
       1.5–1.7 (adapter-level legacy proofs + gitignore).
 

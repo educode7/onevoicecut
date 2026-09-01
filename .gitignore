@@ -22,6 +22,9 @@ uploads/
 media/
 output/
 transcripts/
+# data/ is the shared-server data directory: job.json carries operator names,
+# and the job directories carry sermons and transcripts (R6).
+data/
 *.mp4
 *.mov
 *.mkv
