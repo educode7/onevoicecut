@@ -2,7 +2,7 @@
 
 > Phase: `sdd-tasks` (rev 4 — non-speech audio) · Artifact store: hybrid (mirror of Engram `sdd/video-transcription-pipeline/tasks`)
 > Inputs: `proposal.md` rev 3, `design.md`, all seven `specs/*/spec.md`, `openspec/config.yaml`, and **slice 1's actual code on
-> disk** (`src/transcribe/`, `tests/`) as the calibration source for this revision.
+> disk** (`src/onevoicecut/`, `tests/`) as the calibration source for this revision.
 > **Rev 4 delta**: proposal Open Question 8 was answered after slice 1 shipped — source footage routinely contains a singer
 > alongside the speaker, or music under and between spoken passages. Music is normal input, not a defect. This adds slice 1b
 > (`SegmentKind`) ahead of chunk planning, plus classification/containment tasks in 2b, 7a, 8a, 10a and 10b. The stacked chain
@@ -30,7 +30,7 @@ requires, using slice 1's real code as calibration data.
 
 ### Calibration units derived from the actual code (not intuition)
 
-Read from `src/transcribe/{domain,ports,usecases}` and `tests/{unit,fakes,test_architecture.py}` on disk:
+Read from `src/onevoicecut/{domain,ports,usecases}` and `tests/{unit,fakes,test_architecture.py}` on disk:
 
 | Unit | Measured cost | Evidence |
 | --- | --- | --- |
@@ -42,7 +42,7 @@ Read from `src/transcribe/{domain,ports,usecases}` and `tests/{unit,fakes,test_a
 **The decisive finding**: every domain dataclass the design specifies (`SourceMedia`, `AudioTrack`, `MediaProbe`,
 `JobRecord`, `ChunkPlan`, `PlannedChunk`, `AudioChunk`, `ChunkResult`, `TranscriptSegment`, `Transcript`,
 `ClipCandidate`, `ScriptVariant`, `GenerationResult`) **and all five ports already exist on disk**, built in slice 1.
-Confirmed by reading `src/transcribe/domain/generation.py` and `src/transcribe/domain/transcript.py` directly —
+Confirmed by reading `src/onevoicecut/domain/generation.py` and `src/onevoicecut/domain/transcript.py` directly —
 `ClipCandidate`/`ScriptVariant`/`GenerationResult` (needed by slice 10a/10b) and `Transcript`/`TranscriptSegment`
 (needed by slices 7–9) are already there. **This means slices 2–10b do not pay slice 1's dominant cost driver** (12
 dataclass test pairs + 5 port/fake pairs ≈ 700+ of slice 1's 1,273 lines). A flat 3.35x multiplier would double-charge
@@ -81,8 +81,8 @@ margin — they are directly comparable to slice 1's well-measured domain/use-ca
 | Slice 5b actual (DONE) | 1,018 lines across **four** units, all under budget. Estimated ~270 — 3.8x. Test share **81%**, the highest of the change: a threat matrix is mostly cases, and the code answering them is short (190 lines of `src` for eleven closed threat rows) |
 | Slice 5c actual (DONE) | 1,274 lines across **five** units, all under budget. Estimated ~250 — **5.1x, the worst ratio of the change**. The estimate priced a status route and a wiring file; what it did not price is that the first end-to-end assembly is where the gaps between seven slices of adapters become visible |
 | **Estimate reliability after nine measured slices** | Range 3.2x–5.1x, **mean ≈ 4.0x, no slice under 3.2x**. This is no longer estimation noise — it is a fixed multiplier. Treat every remaining number in this document as `estimate × 4`, and note that the two categories that ran worst (first-of-its-kind adapter, first end-to-end assembly) both still lie ahead for the render work in slices 11-13 |
-| Per-unit 400-line budget risk | **Low** — every one of the 21 remaining work units is individually estimated at 145–350 lines, with margin, not at the ceiling |
-| Aggregate 400-line budget risk | **High** by construction — this is why the change stays split into 23 work units total |
+| Per-unit 800-line budget risk | **Low** — every one of the 21 remaining work units is individually estimated at 145–350 lines, with margin, not at the ceiling |
+| Aggregate 800-line budget risk | **High** by construction — this is why the change stays split into 23 work units total |
 | Chained PRs recommended | Yes |
 | Suggested split | **23 work units**, PR 1 (slice 1, done) → PR 23 |
 | Delivery strategy | auto-chain |
@@ -92,7 +92,7 @@ margin — they are directly comparable to slice 1's well-measured domain/use-ca
 Decision needed before apply: No
 Chained PRs recommended: Yes
 Chain strategy: stacked-to-main
-400-line budget risk: Low
+800-line budget risk: Low
 ```
 
 **Is this one change or should it split?** Twenty-three stacked PRs across ten domains is large but each unit is
@@ -108,7 +108,7 @@ summarization). That split is offered, not assumed.
 
 | Unit | Goal | PR | Focused test command | Runtime harness | Rollback boundary |
 |------|------|----|-----------------------|------------------|--------------------|
-| 1 (DONE) | Bootstrap + walking skeleton | PR 1 | `pytest tests/unit tests/test_architecture.py -m "not paid and not localmodel"` | N/A — fake-only skeleton | `src/transcribe/{domain,ports,usecases/ingest_media.py}`, `tests/`, config files |
+| 1 (DONE) | Bootstrap + walking skeleton | PR 1 | `pytest tests/unit tests/test_architecture.py -m "not paid and not localmodel"` | N/A — fake-only skeleton | `src/onevoicecut/{domain,ports,usecases/ingest_media.py}`, `tests/`, config files |
 | 1b-i (DONE) | `SegmentKind` + `ClassificationSupport`: domain field and capability declaration | PR 2 | `pytest tests/unit/domain/test_transcript.py tests/unit/ports/test_capabilities.py -m "not paid and not localmodel"` | N/A — pure domain/port types | `domain/transcript.py`, `ports/capabilities.py` (+ minimal fake field) |
 | 1b-ii (DONE) | Classification test doubles + speech-only message export | PR 3 | `pytest tests/unit/ports/test_transcription_classification.py tests/unit/usecases/test_ingest_media_walking_skeleton.py -m "not paid and not localmodel"` | N/A — fakes only | `tests/fakes/`, `usecases/ingest_media.py` export filter |
 | 2a | Chunk planning: stride/overlap/byte-cap/tail-merge | PR 4 | `pytest tests/unit/usecases/test_plan_chunks.py -m "not paid and not localmodel"` | N/A — pure functions | `usecases/plan_chunks.py` |
@@ -118,7 +118,7 @@ summarization). That split is offered, not assumed.
 | 4a | Real filesystem `TranscriptStoragePort` adapter (CRUD + atomic write + single-writer) | PR 8 | `pytest tests/unit/adapters/storage/test_filesystem_transcript_storage.py -m "not paid and not localmodel"` | `pytest -m integration` — crash-simulated atomic write | `adapters/storage/filesystem_transcript_storage.py` |
 | 4b | `transcribe_job` core loop: happy path/failure isolation/retry/timeout/propagation | PR 9 | `pytest tests/unit/usecases/test_transcribe_job.py -m "not paid and not localmodel"` | N/A — fakes only, no real subprocess yet | `usecases/transcribe_job.py` |
 | 4c | Resume + derived progress | PR 10 | `pytest tests/unit/usecases/test_{resume_job,progress}.py -m "not paid and not localmodel"` | N/A — fakes only | `usecases/{resume_job,progress}.py` |
-| 4d | Worker entrypoint + purge seam + chunk-loop refactor | PR 11 | `pytest tests/unit -m "not paid and not localmodel"` | `python -m transcribe.runtime.worker --job-id <fake-job>` against fakes | `runtime/worker.py`, `usecases/purge_job_artifacts.py` |
+| 4d | Worker entrypoint + purge seam + chunk-loop refactor | PR 11 | `pytest tests/unit -m "not paid and not localmodel"` | `python -m onevoicecut.runtime.worker --job-id <fake-job>` against fakes | `runtime/worker.py`, `usecases/purge_job_artifacts.py` |
 | 5a | Job creation + streaming upload (real `MediaSourcePort`) | PR 12 | `pytest tests/unit/adapters/web/test_admit_job_route.py tests/unit/adapters/web/test_upload_stream.py -m "not paid and not localmodel"` | Real HTTP client, constant-memory streaming assertion | `adapters/web/routers/jobs.py` (POST/PUT), `adapters/storage/media_source.py` |
 | 5b | Upload security threat-matrix (size limit, hostile filename, non-media content, traversal) | PR 13 | `pytest tests/unit/adapters/web/test_upload_security.py -m "not paid and not localmodel"` | Real HTTP client with hostile fixtures | Guard clauses inside `adapters/web/routers/jobs.py` and `adapters/storage/media_source.py` — revertible without touching PR 10's happy path |
 | 5c | Status route + app/lifespan wiring + E2E | PR 14 | `pytest tests/unit/adapters/web/test_status_route.py -m "not paid and not localmodel"` | Real HTTP client E2E: upload → poll → `.txt`, fake engines | `runtime/app.py`, `adapters/web/routers/jobs.py` (GET) |
@@ -597,7 +597,7 @@ port the moment it grew — before any caller existed.
 - [x] 4.13 RED: job-record propagation test — engine choice resolves to the matching fake adapter, and
       `speaker_mode=multi` produces a diarized request and a labelled transcript.
 - [x] 4.14 GREEN: `runtime/engine_resolver.py` (fakes only this slice) + propagation wiring.
-- [x] 4.19 RED+GREEN: headless entrypoint `python -m transcribe.runtime.worker --job-id <id>` proven by
+- [x] 4.19 RED+GREEN: headless entrypoint `python -m onevoicecut.runtime.worker --job-id <id>` proven by
       an E2E-style test — real filesystem, fake engines.
 - [x] 4.20 REFACTOR: **not applicable** — no shared state machine exists to extract (see above).
 - [x] 4.21 GREEN: add an unused `usecases/purge_job_artifacts.py` seam (`PurgeJobArtifacts(job_id, keep)`),
@@ -941,7 +941,7 @@ the local adapter's diarization support.
 
 Closes: `script-generation` Map-Reduce Summarization. **No new domain dataclasses** — `GenerationResult`,
 `ClipCandidate`, `ScriptVariant`, and `TextGenerationPort` all already exist from slice 1 (confirmed by reading
-`src/transcribe/domain/generation.py` and `src/transcribe/ports/text_generation.py`). This is the cheapest
+`src/onevoicecut/domain/generation.py` and `src/onevoicecut/ports/text_generation.py`). This is the cheapest
 remaining category of work: pure use-case logic over an already-built port. A modest +10% margin (not +15%)
 applies only for the yet-to-be-built fake `TextGenerationPort` test double.
 
@@ -990,3 +990,523 @@ No Rendering. Same no-new-dataclass calibration as 10a; builds directly on its M
 - [ ] 10.18 GREEN: assert `GenerationResult` shape excludes any media artifact.
 - [ ] 10.19 REFACTOR: extract the prompt-template construction shared by MAP/REDUCE/variant calls; full
       default suite green end to end.
+
+---
+
+## Rev-4 Review Workload Forecast — Slices 11–13 (appended)
+
+> Phase: `sdd-tasks` (rev 4 delta) · Inputs: `design.md` rev-4 section, `specs/subject-tracking/spec.md`
+> (13 requirements), `specs/clip-rendering/spec.md` (10 requirements), the appended `transcript-artifacts`
+> requirements (Word-Level Timing, Word-Level Timing Is Consistent With Overlap Stitching), the appended
+> `audio-extraction` requirement (Media Probe Reports Frame Dimensions). **Nothing above this line is
+> re-opened** — slices 1 through 10b stay exactly as checked/unchecked above; this section only appends.
+
+`sdd-design` estimated slice 11 ~1,600 lines, slice 12 ~1,600–2,000, slice 13 ~2,800–3,500 — already
+calibrated against the measured 4.0x multiplier, not nominal pre-overrun figures — and recommended a
+seven-way split (11a/11b, 12a/12b, 13a/13b/13c). At an 800-line budget, seven units over 7,000–9,000 lines
+averages ~1,000–1,285 each: over budget by construction. Every design-level unit is split further here so
+that **no work unit exceeds 800 lines**, using the same two measured facts that drove every split since
+slice 1b: overrun is 3.2x–5.1x with no slice under 3.2x, and the excess is test code every time (61–81%
+measured, never the 56% originally assumed).
+
+| Field | Value |
+|-------|-------|
+| Slices 1–10b (existing) | 23 work units, PR 1 → PR 23 (unchanged by this appendix) |
+| Slices 11–13 (new) | **18 work units**, PR 24 → PR 41 |
+| Estimated changed lines, slices 11–13 | ~9,000 (slice 11 ~2,025 · slice 12 ~2,075 · slice 13 ~4,900) |
+| Per-unit 800-line budget risk | **Low** — every one of the 18 new work units is individually estimated at 300–650 lines, with margin |
+| Aggregate 800-line budget risk | **High** by construction — this is why the appendix stays split into 18 work units |
+| Chained PRs recommended | Yes |
+| Suggested split | **18 work units**, PR 24 (slice 11a) → PR 41 (slice 13c-ii) |
+| Delivery strategy | auto-chain |
+| Chain strategy | stacked-to-main |
+
+```text
+Decision needed before apply: No
+Chained PRs recommended: Yes
+Chain strategy: stacked-to-main
+800-line budget risk: Low
+```
+
+**Grand total across the whole change**: 41 work units, PR 1 → PR 41. Per-file forecasts and Suggested
+Work Units tables for each of the three new slices live in `slice-11-tasks.md`, `slice-12-tasks.md`, and
+`slice-13-tasks.md`, matching the shape `slice-6-tasks.md` established. The master table below is the
+single row-per-unit index across all 18 new units; full RED/GREEN task detail follows in the per-slice
+sections after it.
+
+### Suggested Work Units (Slices 11–13, master index)
+
+| Unit | Goal | PR | Focused test command | Runtime harness | Rollback boundary |
+|------|------|----|-----------------------|------------------|--------------------|
+| 11a | `MediaProbe.frame`: `FrameSize` + two ffprobe guards + `FrameGeometryUnavailable` | PR 24 | `pytest tests/unit/domain/test_media.py tests/unit/adapters/ffmpeg/test_probe_frame.py -m "not paid and not localmodel"` | `pytest -m integration` — real ffmpeg fixture | `domain/media.py`, `adapters/ffmpeg/extractor.py` (`probe()` frame parsing) |
+| 11b-i | `WordTiming` domain + capability + fake + contract invariant + `AdmitJob` warning | PR 25 | `pytest tests/unit/domain/test_transcript.py tests/unit/ports/test_capabilities.py tests/unit/usecases/test_admit_job.py tests/contract -m "not paid and not localmodel"` | N/A — fakes only | `domain/transcript.py`, `ports/capabilities.py`, `tests/fakes/transcription.py`, `usecases/admit_job.py` |
+| 11b-ii | Stitcher word-timing lockstep | PR 26 | `pytest tests/unit/usecases/test_stitch_transcript.py -m "not paid and not localmodel"` | N/A — pure functions | `usecases/stitch_transcript.py` |
+| 11b-iii | Storage codec backward-compatible decode | PR 27 | `pytest tests/unit/adapters/storage/test_filesystem_transcript_storage.py -m "not paid and not localmodel"` | `pytest -m integration` | `adapters/storage/serialization.py` |
+| 12a-i | `domain/framing.py` entities + `__post_init__` invariant + `crop_size_for` | PR 28 | `pytest tests/unit/domain/test_framing.py -m "not paid and not localmodel"` | N/A — pure domain types | `domain/framing.py` |
+| 12a-ii | `SubjectTrackerPort` + `DetectionSupport` + fake detector | PR 29 | `pytest tests/unit/ports/test_capabilities.py tests/unit/ports/test_subject_tracker.py -m "not paid and not localmodel"` | N/A — fake detector only | `ports/subject_tracker.py`, `ports/capabilities.py`, `tests/fakes/subject_tracker.py` |
+| 12b-i | Trajectory stages 2–4: centres, smoothing, dead-zone | PR 30 | `pytest tests/unit/usecases/test_plan_trajectory.py -m "not paid and not localmodel"` | N/A — pure functions | `usecases/plan_trajectory.py` |
+| 12b-ii | Trajectory stages 5–6 + confidence: clamp, fill, provenance, `LOW_CONFIDENCE` | PR 31 | `pytest tests/unit/usecases/test_plan_trajectory.py -m "not paid and not localmodel"` | N/A — pure functions | `usecases/plan_trajectory.py` |
+| 13a-i | `VideoRenderPort` + `domain/rendering.py` + `ClipId` + `quality_of` + structural test | PR 32 | `pytest tests/unit/domain/test_ids.py tests/unit/domain/test_rendering.py tests/unit/ports/test_video_render.py tests/unit/domain/test_framing.py -m "not paid and not localmodel"` | N/A — pure types + arithmetic | `domain/rendering.py`, `domain/ids.py`, `ports/video_render.py`, `domain/framing.py` |
+| 13a-ii | ASS subtitle escaping + cue building | PR 33 | `pytest tests/unit/adapters/ffmpeg/test_subtitles.py tests/unit/usecases/test_build_subtitle_cues.py -m "not paid and not localmodel"` | N/A — pure, no ffmpeg | `adapters/ffmpeg/subtitles.py`, `usecases/build_subtitle_cues.py` |
+| 13a-iii | Filter-graph composition + `sendcmd` densification | PR 34 | `pytest tests/unit/adapters/ffmpeg/test_argv_composition.py tests/unit/adapters/ffmpeg/test_sendcmd.py -m "not paid and not localmodel"` | N/A — pure composition | `adapters/ffmpeg/argv.py`, `adapters/ffmpeg/sendcmd.py` |
+| 13b-i | Real `VideoRenderPort` adapter + `render_clip` pre-spawn guards | PR 35 | `pytest tests/unit/adapters/ffmpeg/test_video_render.py tests/unit/usecases/test_render_clip.py -m "not paid and not localmodel"` | N/A — injected fake runner | `adapters/ffmpeg/video_render.py`, `usecases/render_clip.py` |
+| 13b-ii | `ClipExport` storage (two new port methods) | PR 36 | `pytest tests/unit/ports/test_transcript_storage.py tests/unit/adapters/storage/test_filesystem_transcript_storage.py -m "not paid and not localmodel"` | `pytest -m integration` | `ports/transcript_storage.py`, `adapters/storage/filesystem_transcript_storage.py`, `tests/fakes/transcript_storage.py` |
+| 13b-iii | `render_worker` entrypoint + refusal branches + low-confidence propagation | PR 37 | `pytest tests/unit/runtime/test_render_worker.py -m "not paid and not localmodel"` | `python -m onevoicecut.runtime.render_worker --job-id <fake-job> --clip-id <fake-clip>` against fakes | `runtime/render_worker.py` |
+| 13b-iv | HTTP clip routes | PR 38 | `pytest tests/unit/adapters/web/test_clip_routes.py -m "not paid and not localmodel"` | Real HTTP client, fake render worker spawn | `adapters/web/routers/jobs.py`, `adapters/web/schemas.py` |
+| 13b-v | Real ffmpeg render integration | PR 39 | `pytest tests/unit -m "not paid and not localmodel"` | `pytest -m integration` — real ffmpeg render of a tiny fixture | `tests/integration/test_render_clip.py` |
+| 13c-i | Real vision-backed `SubjectTrackerPort` adapter | PR 40 | `pytest tests/unit -m "not paid and not localmodel"` | `pytest -m localmodel` — real weights | `adapters/vision/*_tracker_adapter.py` |
+| 13c-ii | Real adapter contract test | PR 41 | `pytest tests/unit -m "not paid and not localmodel"` | `pytest -m localmodel` | `tests/contract/test_subject_tracker_contract.py` |
+
+### Ordering (extends the rev-4 design table with sub-unit dependencies)
+
+`11a` and `11b-i/ii/iii` are mutually independent tracks. Within 11b, `11b-i` gates `11b-ii` and `11b-iii`
+(both need the `words` field and `WordTimingSupport`), which are then independent of each other.
+`12a-i`/`12a-ii` are independent of each other; `12a-i` needs slice 11a's `FrameSize`. Both gate `12b-i`,
+which gates `12b-ii`. `13a-i`/`13a-ii`/`13a-iii` are independent of each other and gate `13b-i`. `13b-ii`
+is independent of every other 13a/13b unit. `13b-iii` needs `13a-i`, `13a-ii`, `13b-i`, and `13b-ii`.
+`13b-iv` needs `13b-ii` and `13b-iii`. `13b-v` needs `13b-i` and `13b-iii`. `13c-i`/`13c-ii` depend only on
+`12a-ii`'s port and may run in parallel with the entire 13b track.
+
+---
+
+## Slice 11a: `MediaProbe.frame` — Frame Dimensions (~525 lines)
+
+Closes: `audio-extraction` Media Probe Reports Frame Dimensions (all 3 scenarios). Small and independent —
+no storage change, no codec change, no migration, because the renderer re-probes rather than persisting
+`MediaProbe`. Unblocks slice 12a-i.
+
+- [ ] 11a.1 RED: `tests/unit/domain/test_media.py` — `FrameSize(width, height)` frozen; `MediaProbe.frame`
+      defaults to `None`; construction with a `FrameSize` round-trips.
+- [ ] 11a.2 GREEN: `domain/media.py` — add `FrameSize`; `MediaProbe.frame: FrameSize | None = None`.
+- [ ] 11a.3 RED: `tests/unit/domain/test_errors.py` — `FrameGeometryUnavailable` derives from `DomainError`.
+- [ ] 11a.4 GREEN: `domain/errors.py` — add `FrameGeometryUnavailable`.
+- [ ] 11a.5 RED: `tests/unit/adapters/ffmpeg/test_probe_frame.py` — an ffprobe JSON fixture with a normal
+      video stream decodes `MediaProbe.frame` matching width/height.
+- [ ] 11a.6 GREEN: `adapters/ffmpeg/extractor.py` — extend `probe()` to read the selected video stream's
+      `width`/`height`.
+- [ ] 11a.7 RED: attached-cover-art fixture (`disposition.attached_pic == 1`) — probe returns `frame=None`,
+      not the artwork's square dimensions.
+- [ ] 11a.8 GREEN: skip streams with `disposition.attached_pic == 1` before selecting the video stream.
+- [ ] 11a.9 RED: rotation fixture — a stream with `side_data_list` rotation of ±90° reports `FrameSize`
+      with width/height swapped (display geometry, not coded geometry).
+- [ ] 11a.10 GREEN: read rotation from `side_data_list`; swap width/height when it is ±90°.
+- [ ] 11a.11 RED: no-video-stream fixture (audio-only source) — `MediaProbe.frame is None`.
+- [ ] 11a.12 GREEN: confirm the guard chain falls through to `None` when no eligible video stream survives.
+- [ ] 11a.13 RED: `integration`-marked test against a real ffmpeg-synthesized fixture (`-f lavfi`,
+      matching the 3a precedent) — confirms both guards against the real binary's JSON shape, not only a
+      hand-written fixture; skips when ffmpeg is absent.
+- [ ] 11a.14 GREEN: fix any gap 11a.13 exposes between the hand-written fixtures and real ffprobe output.
+- [ ] 11a.15 REFACTOR: suite green, `mypy src tests` clean.
+
+---
+
+## Slice 11b-i: `WordTiming` Domain + Capability + `AdmitJob` Warning (~625 lines)
+
+Closes: `transcript-artifacts` Word-Level Timing (adapter-carries-timing, non-supporting-never-fabricates
+scenarios); `speech-transcription` Capability Declaration (word-timing axis). First of three 11b units —
+gates 11b-ii and 11b-iii.
+
+- [ ] 11b.1 RED: `tests/unit/domain/test_transcript.py` — `WordTiming(start_s, end_s, text)` frozen;
+      `TranscriptSegment.words` defaults to `()`; all 15 existing construction sites still compile
+      unchanged.
+- [ ] 11b.2 GREEN: `domain/transcript.py` — add `WordTiming`; `TranscriptSegment.words: tuple[WordTiming,
+      ...] = ()`.
+- [ ] 11b.3 RED: `tests/unit/ports/test_capabilities.py` — `WordTimingSupport` has exactly
+      `{unsupported, available}`; `TranscriptionCapabilities.word_timing` is required, no default.
+- [ ] 11b.4 GREEN: `ports/capabilities.py` — add `WordTimingSupport(StrEnum)` + the capability field;
+      update every existing capability construction site (fakes + tests) to supply it.
+- [ ] 11b.5 RED: non-supporting-fake test — a fake `TranscriptionPort` declaring `word_timing=UNSUPPORTED`
+      always returns `words=()`, never a fabricated entry.
+- [ ] 11b.6 GREEN: `tests/fakes/transcription.py` — word-timing-aware fake, mirroring the 1b
+      classification-fake shape; script-driven word fixtures for the supporting fake.
+- [ ] 11b.7 RED: supporting-fake test — a fake declaring `word_timing=AVAILABLE` returns one `WordTiming`
+      per word, each with its own `start_s`/`end_s`, satisfying `"".join(w.text) == segment.text`.
+- [ ] 11b.8 GREEN: implement the supporting fake path.
+- [ ] 11b.9 RED: `tests/contract/` — add the word-timing invariant assertion, parametrized over every
+      registered adapter (fakes now; real adapters inherit it once they ship word timing).
+- [ ] 11b.10 GREEN: wire the assertion into the shared contract body.
+- [ ] 11b.11 RED: `tests/unit/usecases/test_admit_job.py` — admitting a job against an engine whose
+      capabilities declare `word_timing=UNSUPPORTED` produces a warning (not a rejection) naming the
+      missing capability.
+- [ ] 11b.12 GREEN: `usecases/admit_job.py` — surface the warning alongside the existing diarization
+      compatibility check, without blocking admission.
+- [ ] 11b.13 REFACTOR: suite green, `mypy src tests` clean.
+
+---
+
+## Slice 11b-ii: Stitcher Word-Timing Lockstep (~475 lines)
+
+Closes: `transcript-artifacts` Word-Level Timing Is Consistent With Overlap Stitching. Depends on 11b-i.
+
+- [ ] 11b.14 RED: `tests/unit/usecases/test_stitch_transcript.py` — a boundary word carrying word-level
+      timing on both sides of the cut appears exactly once in the stitched output, with its original
+      timing.
+- [ ] 11b.15 GREEN: `usecases/stitch_transcript.py` — `_shift` carries `words` through the existing
+      time-shift; `_split_words` partitions by word start, deriving segment `start_s`/`end_s`/`text` from
+      surviving words.
+- [ ] 11b.16 RED: orphaned-entry test — no `WordTiming` entry survives for a word whose text was dropped
+      as a duplicate.
+- [ ] 11b.17 GREEN: wire `_split_words` into `_clip_before`/`_clip_after`, gated on `segment.words` being
+      non-empty.
+- [ ] 11b.18 RED: empty-survivor-set test — a straddling segment whose every word lands on the discarded
+      side drops the segment entirely.
+- [ ] 11b.19 GREEN: confirm the existing drop-when-empty branch now fires for a genuinely empty result.
+- [ ] 11b.20 RED: regression test — a word-less transcript (`words=()` throughout) stitches
+      byte-identically to the pre-retrofit shipped behavior.
+- [ ] 11b.21 GREEN: confirm the empty-words branch is a no-op change from today's time-truncation path.
+- [ ] 11b.22 REFACTOR: suite green, `mypy src tests` clean.
+
+---
+
+## Slice 11b-iii: Storage Codec Backward-Compatible Decode (~400 lines)
+
+Closes: `transcript-artifacts` Word-Level Timing (storage round-trip scenario). Depends on 11b-i.
+
+- [ ] 11b.23 RED: `tests/unit/adapters/storage/test_filesystem_transcript_storage.py` — a pre-slice-11
+      fixture payload with no `"words"` key decodes with `segment.words == ()`.
+- [ ] 11b.24 GREEN: `adapters/storage/serialization.py` — `_word_timings()` helper; absent key → `()`.
+- [ ] 11b.25 RED: malformed-payload tests — `"words": "hello"` and `"words": [{"start_s": true, ...}]`
+      both raise `CorruptedRecord`.
+- [ ] 11b.26 GREEN: `_objects`/`_number`/`_text` validation applied to each word entry.
+- [ ] 11b.27 RED: round-trip test — a segment persisted with a non-empty `words` tuple is retrieved with
+      the same tuple; a segment persisted with `()` is retrieved with `()`.
+- [ ] 11b.28 GREEN: confirm the encoder needs no change (`asdict` already recurses); wire `_word_timings()`
+      into `_segment()`.
+- [ ] 11b.29 REFACTOR: suite green, `mypy src tests` clean; confirm no shipped `results/*.json` fixture in
+      the test suite regresses.
+
+---
+
+## Slice 12a-i: `domain/framing.py` Entities + Trajectory Invariant (~450 lines)
+
+Closes: `subject-tracking` CropTrajectory Domain Object. Depends on slice 11a's `FrameSize`. Independent
+of 12a-ii; both gate 12b-i.
+
+- [ ] 12a.1 RED: `tests/unit/domain/test_framing.py` — construct `TimeSpan`, `CropRect`, `CropKeyframe`
+      (timestamp + rect + `KeyframeOrigin`), `CropTrajectory`, `TrackingConfidence`, `TrajectoryPolicy`;
+      all frozen, `FrozenInstanceError` on mutation.
+- [ ] 12a.2 GREEN: `domain/framing.py` — the six entity types + `KeyframeOrigin(StrEnum)` (`TRACKED`,
+      `INTERPOLATED`, `FALLBACK_CENTER`).
+- [ ] 12a.3 RED: `CropTrajectory.__post_init__` invariant test — a trajectory whose keyframes carry
+      mismatched rect `width`/`height` raises `ValueError`.
+- [ ] 12a.4 GREEN: implement the invariant check in `__post_init__` — the domain's first `__post_init__`
+      invariant.
+- [ ] 12a.5 RED: keyframe-inspection test — a keyframe exposes its timestamp, rect, and exactly one origin.
+- [ ] 12a.6 GREEN: confirm the constructed type already satisfies this.
+- [ ] 12a.7 GREEN: `domain/framing.py` — `crop_size_for(frame, policy)` module function (pipeline stage 1).
+- [ ] 12a.8 RED: `crop_size_for` pinned test — a 4K frame produces an even 9:16 crop width/height; a source
+      narrower than 9:16 swaps the derivation axis.
+- [ ] 12a.9 REFACTOR: suite green, `mypy src tests` clean.
+
+---
+
+## Slice 12a-ii: `SubjectTrackerPort` + Fake Detector (~525 lines)
+
+Closes: `subject-tracking` SubjectTrackerPort Contract, Capability Declaration, A Miss Is Reported Never
+Guessed. Independent of 12a-i; both gate 12b-i.
+
+- [ ] 12a.10 RED: `tests/unit/ports/test_capabilities.py` — `DetectionSupport` has exactly `{unsupported,
+      requires_setup, available}`; `TrackerCapabilities(tracker_id, detection)`.
+- [ ] 12a.11 GREEN: `ports/capabilities.py` — add `DetectionSupport(StrEnum)`, `TrackerCapabilities`.
+- [ ] 12a.12 RED: `tests/unit/ports/test_subject_tracker.py` — `BoundingBox`, `SubjectDetection(at_s, box,
+      confidence)` construct; `box=None` is an explicit miss, distinguishable from a low-confidence hit
+      (`box` set, low `confidence`).
+- [ ] 12a.13 GREEN: `ports/subject_tracker.py` — the two dataclasses + `SubjectTrackerPort(Protocol)` with
+      `capabilities()`/`detect()`.
+- [ ] 12a.14 RED: fake-detector test — the fake returns a detection or explicit miss for every sampled
+      point in a requested span, and none outside it.
+- [ ] 12a.15 GREEN: `tests/fakes/subject_tracker.py` — script-driven fake, mirroring
+      `FakeTranscriptionPort`'s shape.
+- [ ] 12a.16 RED: `domain/errors.py` — `TrackingUnavailable`/`DetectionFailed` derive from `DomainError`.
+- [ ] 12a.17 GREEN: add both errors.
+- [ ] 12a.18 REFACTOR: suite green, `mypy src tests` clean; confirm `tests/test_architecture.py` still
+      passes with the two new port/domain modules.
+
+---
+
+## Slice 12b-i: Trajectory Pipeline — Centres, Smoothing, Dead-Zone (~525 lines)
+
+Closes: `subject-tracking` Smoothing, Dead-Zone (both scenarios). Depends on 12a-i and 12a-ii; gates 12b-ii.
+
+- [ ] 12b.1 RED: `tests/unit/usecases/test_plan_trajectory.py` — a hit's `box` maps to a desired centre; a
+      miss contributes no centre.
+- [ ] 12b.2 GREEN: `usecases/plan_trajectory.py` — stage 2 (centres) over the fake detector's output.
+- [ ] 12b.3 RED: jitter test — a small frame-to-frame oscillation around a stable position does not
+      reproduce in the smoothed output.
+- [ ] 12b.4 GREEN: stage 3 — centred moving average over `smoothing_window_s`, computed over the tracked
+      subsequence only (misses excluded, not zero-filled).
+- [ ] 12b.5 RED: sub-threshold-movement test — displacement within `dead_zone_fraction * frame.width` does
+      not move the committed crop.
+- [ ] 12b.6 GREEN: stage 4 — forward-hysteresis dead-zone.
+- [ ] 12b.7 RED: supra-threshold-movement test — displacement beyond the dead-zone shifts the crop to
+      follow the subject.
+- [ ] 12b.8 GREEN: confirm the commit branch of stage 4.
+- [ ] 12b.9 RED: stage-ordering regression test — smoothing then dead-zone (not the reverse) does not
+      twitch at the threshold on synthetic jitter data.
+- [ ] 12b.10 REFACTOR: suite green, `mypy src tests` clean.
+
+---
+
+## Slice 12b-ii: Trajectory Pipeline — Clamp, Fill, Confidence (~575 lines)
+
+Closes: `subject-tracking` Clamping to Frame Edges, Interpolation Across Detection Gaps, Fallback to
+Center (both scenarios), Keyframe Provenance Is Marked, Mostly-Fallback Trajectory Reported (both
+scenarios), Trajectory Arithmetic Is Testable With No Model Weights. Depends on 12b-i; gates slice 13a.
+
+- [ ] 12b.11 RED: edge-clamp test — a detection near the frame edge produces a crop rect clamped fully
+      inside the frame.
+- [ ] 12b.12 GREEN: stage 5 — `x = min(max(x, 0), frame.width - crop_w)`, same for `y`; applied last among
+      position stages.
+- [ ] 12b.13 RED: bounded-short-gap test — a no-detection run bounded by `TRACKED` keyframes on both sides,
+      `<= max_gap_s`, fills with `INTERPOLATED` keyframes moving continuously between the bounding rects.
+- [ ] 12b.14 GREEN: stage 6a — linear interpolation over a bounded gap.
+- [ ] 12b.15 RED: leading-gap and over-long-gap tests — a leading run and a run exceeding `max_gap_s` both
+      fill with `FALLBACK_CENTER`, never `INTERPOLATED`.
+- [ ] 12b.16 GREEN: stage 6b — centred-rect fallback for every run not eligible for interpolation.
+- [ ] 12b.17 RED: provenance-query test — every keyframe in a full-clip trajectory reports exactly one of
+      the three origins, matching what actually produced it.
+- [ ] 12b.18 GREEN: confirm origin tagging across all three producing paths.
+- [ ] 12b.19 RED: confidence test — a predominantly-`FALLBACK_CENTER` trajectory is `LOW_CONFIDENCE`; a
+      predominantly-`TRACKED`-or-`INTERPOLATED` trajectory is not.
+- [ ] 12b.20 GREEN: compute `fallback_ratio` once on the finished trajectory; threshold against
+      `policy.max_fallback_ratio`.
+- [ ] 12b.21 RED: no-vision-weights marker check — the full `test_plan_trajectory.py` module runs under
+      the default suite's marker filter with zero `localmodel` imports.
+- [ ] 12b.22 GREEN: confirm (structural — no production change expected).
+- [ ] 12b.23 REFACTOR: extract the shared "run of misses" segmentation helper used by stage 6a/6b; suite
+      green.
+
+---
+
+## Slice 13a-i: `VideoRenderPort` + Rendering Domain Types + Quality Arithmetic (~525 lines)
+
+Closes: `clip-rendering` VideoRenderPort Contract (type-level), Rendered Content Originates Only From the
+Source, Output Quality Declaration. Independent of 13a-ii/13a-iii; all three gate 13b-i.
+
+- [ ] 13a.1 RED: `tests/unit/domain/test_ids.py` — `ClipId`/`make_clip_id` generate and validate against
+      the same ULID regex as `JobId`.
+- [ ] 13a.2 GREEN: `domain/ids.py` — `ClipId` `NewType` + `make_clip_id`.
+- [ ] 13a.3 RED: `tests/unit/domain/test_rendering.py` — `OutputSpec`, `OutputQuality`, `OutputQualityKind`,
+      `SubtitleCue`, `SubtitleTimingSource`, `RenderedClip`, `ClipExport`, `ClipState` construct and stay
+      frozen.
+- [ ] 13a.4 GREEN: `domain/rendering.py` — the eight new types.
+- [ ] 13a.5 RED: `tests/unit/ports/test_video_render.py` — `RenderRequest`, `RenderedFile` construct;
+      `RenderCapabilities`/`RenderSupport` mirror the `DiarizationSupport` shape.
+- [ ] 13a.6 GREEN: `ports/video_render.py` — the two dataclasses + `VideoRenderPort(Protocol)`;
+      `ports/capabilities.py` — `RenderSupport(StrEnum)`, `RenderCapabilities`.
+- [ ] 13a.7 RED: `domain/errors.py` — `RenderFailed`, `ClipRangeInvalid` derive from `DomainError`.
+- [ ] 13a.8 GREEN: add both errors.
+- [ ] 13a.9 RED: structural test — `ast`-parse `ports/video_render.py`/`domain/rendering.py` and assert no
+      field type can carry an external file handle, URL, or binary payload (mirrors the shipped "no
+      `UploadFile` import" test).
+- [ ] 13a.10 GREEN: confirm by construction (no production change expected).
+- [ ] 13a.11 RED: `tests/unit/domain/test_framing.py` — `quality_of(crop, target)` pinned: a 4K-derived
+      crop (2160×1214) vs a 1080-wide target → `NATIVE`, factor `0.89`; a 1080p-derived crop (1080×608) vs
+      the same target → `UPSCALED`, factor `1.78`.
+- [ ] 13a.12 GREEN: `domain/framing.py` — `quality_of(crop, target)` module function.
+- [ ] 13a.13 REFACTOR: suite green, `mypy src tests` clean.
+
+---
+
+## Slice 13a-ii: ASS Subtitles + Cue Building (~525 lines)
+
+Closes: `clip-rendering` Subtitle Burn-In From Structured Transcript (both scenarios), Missing Word Timing
+Is Declared Not Silently Degraded (both scenarios); threat-matrix row **ASS subtitle content injection**.
+Independent of 13a-i/13a-iii; gates 13b-i and 13b-iii.
+
+- [ ] 13a.14 RED: `tests/unit/adapters/ffmpeg/test_subtitles.py` — hostile strings (`{\an8}`, a lone `}`, a
+      lone `\`, `\r\n`, a 5,000-char run) each emit a single dialogue line with no override block, `\`
+      escaped, CR/LF stripped, intended breaks only as `\N`.
+- [ ] 13a.15 GREEN: `adapters/ffmpeg/subtitles.py` — the escaping function + `.ass` file generation from
+      `tuple[SubtitleCue, ...]`.
+- [ ] 13a.16 RED: `tests/unit/usecases/test_build_subtitle_cues.py` — a multi-second `SPEECH` segment with
+      `words` splits into cues at word boundaries, none exceeding `max_cue_chars`.
+- [ ] 13a.17 GREEN: `usecases/build_subtitle_cues.py` — word-boundary cue splitting over segments
+      overlapping the requested span.
+- [ ] 13a.18 RED: word-less-segment test — a segment with `words=()` yields one cue at segment times, never
+      an evenly-distributed guess.
+- [ ] 13a.19 GREEN: implement the segment-level fallback branch.
+- [ ] 13a.20 RED: timing-source declaration test — a clip whose every overlapping speech segment carries
+      `words` returns `SubtitleTimingSource.WORD_LEVEL`; any segment lacking `words` degrades the whole
+      clip to `SEGMENT_LEVEL`.
+- [ ] 13a.21 GREEN: compute the declaration from the actual segments in range, not from
+      `capabilities().word_timing`.
+- [ ] 13a.22 REFACTOR: suite green, `mypy src tests` clean.
+
+---
+
+## Slice 13a-iii: Filter-Graph Composition + `sendcmd` Densification (~575 lines)
+
+Closes: `clip-rendering` Single Native ffmpeg Pass, Crop Trajectory Applied As Given; threat-matrix row
+**ffmpeg filter-graph composition**. Independent of 13a-i/13a-ii; gates 13b-i.
+
+- [ ] 13a.23 RED: `tests/unit/adapters/ffmpeg/test_argv_composition.py` — the render argv contains one
+      `-filter_complex` chaining `sendcmd`→`crop`→`scale`→`subtitles`, `-ss` before `-i`, absolute
+      source/dest paths, and exactly one ffmpeg invocation per render.
+- [ ] 13a.24 GREEN: `adapters/ffmpeg/argv.py` — `build_render_argv()` extending the shipped
+      prefix/containment helpers.
+- [ ] 13a.25 RED: bare-relative-filename test — the composed graph references `<clip_id>.cmds`/`.ass` by
+      bare filename, never an absolute path, regardless of a job-directory path containing `:`, `'`, `,`,
+      or `\`.
+- [ ] 13a.26 GREEN: confirm the graph composer never interpolates the job-directory path into the filter
+      string.
+- [ ] 13a.27 RED: non-ULID-`clip_id` test — a `clip_id` failing the ULID regex is refused before the graph
+      is composed.
+- [ ] 13a.28 GREEN: validate `clip_id` against `domain/ids.py`'s regex before composition.
+- [ ] 13a.29 RED: `tests/unit/adapters/ffmpeg/test_sendcmd.py` — a `CropTrajectory` sampled at
+      `sample_hz=4` densifies to `command_hz=25` commands via linear interpolation, introducing no new
+      `INTERPOLATED`/`FALLBACK_CENTER` origin (the densifier is origin-blind).
+- [ ] 13a.30 GREEN: `adapters/ffmpeg/sendcmd.py` — the densifying command-file writer.
+- [ ] 13a.31 RED: no-recompute test — densified rects never leave the frame (proven by convexity), and no
+      smoothing/dead-zone/clamp parameter is referenced by the densifier module.
+- [ ] 13a.32 GREEN: confirm by construction (`ast`-parse `sendcmd.py`, assert no import of
+      `plan_trajectory`'s policy type).
+- [ ] 13a.33 REFACTOR: suite green, `mypy src tests` clean.
+
+---
+
+## Slice 13b-i: Real `VideoRenderPort` Adapter + Render Guards (~575 lines)
+
+Closes: `clip-rendering` VideoRenderPort Contract (adapter half), Clip Cut From Source Time Range Only;
+threat-matrix row **render resource exhaustion** (guard half). Depends on 13a-i/ii/iii.
+
+- [ ] 13b.1 RED: `tests/unit/adapters/ffmpeg/test_video_render.py` — the adapter spawns exactly one
+      process via an injected `RenderProcessRunner` with `cwd` set to the job directory; argv matches
+      `build_render_argv()`'s output.
+- [ ] 13b.2 GREEN: `adapters/ffmpeg/video_render.py` — implements `VideoRenderPort`; declares its own
+      `RenderProcessRunner` protocol.
+- [ ] 13b.3 RED: `tests/unit/usecases/test_render_clip.py` — `0 <= start_s < end_s <= probe.duration_s`
+      and `end_s - start_s <= max_clip_seconds` violations each raise `ClipRangeInvalid` before any spawn.
+- [ ] 13b.4 GREEN: `usecases/render_clip.py` — the pre-spawn guard clauses.
+- [ ] 13b.5 RED: timeout test — a render exceeding `max(60.0, 20 * clip_duration_s)` surfaces as
+      `RenderFailed`, never a raw `TimeoutExpired`.
+- [ ] 13b.6 GREEN: implement the timeout translation in the adapter.
+- [ ] 13b.7 RED: `FfmpegUnavailable` test — the adapter reuses the shipped PATH check before spawning.
+- [ ] 13b.8 GREEN: wire the shared PATH-check helper (from `adapters/ffmpeg/extractor.py`) into the render
+      adapter.
+- [ ] 13b.9 REFACTOR: extract the subprocess-invocation helper shared with `extractor.py`, now three call
+      sites; suite green.
+
+---
+
+## Slice 13b-ii: `ClipExport` Storage (~400 lines)
+
+Closes: `clip-rendering` Clip Export to Job Directory (both scenarios). Independent of every other
+13a/13b unit.
+
+- [ ] 13b.10 RED: `tests/unit/ports/test_transcript_storage.py` — `TranscriptStoragePort` declares
+      `save_clip_export`/`load_clip_exports`.
+- [ ] 13b.11 GREEN: `ports/transcript_storage.py` — add the two methods.
+- [ ] 13b.12 RED: `tests/unit/adapters/storage/test_filesystem_transcript_storage.py` —
+      `save_clip_export`/`load_clip_exports` round-trip a `ClipExport` through `render/{clip_id}.json`;
+      `ClipState` transitions persist.
+- [ ] 13b.13 GREEN: `adapters/storage/filesystem_transcript_storage.py` — implement both methods, reusing
+      the shipped atomic-write helper.
+- [ ] 13b.14 RED: no-external-service test — the export path makes no network call (structural — no
+      `httpx`/socket import in the storage module).
+- [ ] 13b.15 GREEN: confirm by construction.
+- [ ] 13b.16 GREEN: `tests/fakes/transcript_storage.py` — add the fake implementation for both methods.
+- [ ] 13b.17 REFACTOR: suite green, `mypy src tests` clean.
+
+---
+
+## Slice 13b-iii: `render_worker` Entrypoint (~575 lines)
+
+Closes: `clip-rendering` Crop Trajectory Applied As Given (orchestration half), Low-Confidence Trajectory
+Is Not Delivered as an Ordinary Success; `subject-tracking` Detection is scoped to the clip (orchestration
+half). Depends on 13a-i, 13a-ii, 13b-i, 13b-ii.
+
+- [ ] 13b.18 RED: `tests/unit/runtime/test_render_worker.py` — the happy path calls `probe`→`detect`→
+      `build_trajectory`→`load_transcript`→`build_subtitle_cues`→`render`→`quality_of` in order, against
+      fakes, and writes a `RENDERED` `ClipExport`.
+- [ ] 13b.19 GREEN: `runtime/render_worker.py` — headless entrypoint `python -m
+      onevoicecut.runtime.render_worker --job-id <id> --clip-id <id>`.
+- [ ] 13b.20 RED: frame-geometry-refusal test — when `probe.frame is None`, the worker writes a `FAILED`
+      `ClipExport` naming `FrameGeometryUnavailable` and never calls the tracker.
+- [ ] 13b.21 GREEN: implement the first `alt` branch from the design's sequence diagram.
+- [ ] 13b.22 RED: tracking-unavailable-refusal test — when `capabilities().detection != AVAILABLE`, the
+      worker writes `FAILED(TrackingUnavailable)` naming remediation, and never calls `detect()`.
+- [ ] 13b.23 GREEN: implement the second `alt` branch.
+- [ ] 13b.24 RED: low-confidence-propagation test — a `LOW_CONFIDENCE` trajectory produces a
+      `RenderedClip.tracking` that is not silently reported as ordinary success.
+- [ ] 13b.25 GREEN: propagate `TrackingConfidence` from `build_trajectory`'s output onto the assembled
+      `RenderedClip`.
+- [ ] 13b.26 REFACTOR: suite green, `mypy src tests` clean.
+
+---
+
+## Slice 13b-iv: HTTP Clip Routes (~525 lines)
+
+Closes: `clip-rendering` Clip Export to Job Directory (HTTP surface). Depends on 13b-ii, 13b-iii.
+
+- [ ] 13b.27 RED: `tests/unit/adapters/web/test_clip_routes.py` — `POST /api/jobs/{id}/clips
+      {candidate_index, variant}` against a job not `COMPLETED` returns `409`; against a `COMPLETED` job
+      returns `202 {clip_id}` and writes a `PENDING` `ClipExport` before responding.
+- [ ] 13b.28 GREEN: `adapters/web/routers/jobs.py` — the `POST .../clips` route + `adapters/web/schemas.py`
+      request/response models.
+- [ ] 13b.29 RED: spawn test — admitting a clip request spawns `render_worker` with the same mechanism
+      used for the transcription worker, and the HTTP response returns before the render completes.
+- [ ] 13b.30 GREEN: wire the spawn call, mirroring the shipped upload-triggers-worker pattern.
+- [ ] 13b.31 RED: `GET /api/jobs/{id}/clips/{clip_id}` — returns `{state, quality, subtitle_timing,
+      tracking}` read-only; a test enforces it writes nothing.
+- [ ] 13b.32 GREEN: the status-read route over `load_clip_exports`.
+- [ ] 13b.33 REFACTOR: suite green, `mypy src tests` clean.
+
+---
+
+## Slice 13b-v: Real ffmpeg Render Integration (~425 lines)
+
+Closes: `clip-rendering` VideoRenderPort Contract (integration proof), Single Native ffmpeg Pass
+(integration proof); threat-matrix row **render resource exhaustion** (timeout half). Depends on 13b-i,
+13b-iii.
+
+- [ ] 13b.34 RED: `integration`-marked test — a real ffmpeg render of a tiny synthesized fixture (`-f
+      lavfi`, matching the 3a precedent) produces a 9:16 file whose commanded crop matches the trajectory
+      and whose frame carries visible burned-in text; skips when ffmpeg is absent.
+- [ ] 13b.35 GREEN: fix any real-argv/filter-graph gap the integration test exposes.
+- [ ] 13b.36 RED: `integration`-marked test — graph composition under a real job-directory path containing
+      `:` (Windows drive letter) succeeds because aux files are referenced by bare filename.
+- [ ] 13b.37 GREEN: confirm/fix.
+- [ ] 13b.38 RED: `integration`-marked timeout test — a deliberately hung ffmpeg process is killed at the
+      computed timeout and surfaces as `RenderFailed`.
+- [ ] 13b.39 GREEN: confirm/fix the real timeout wiring.
+- [ ] 13b.40 REFACTOR: suite green (`integration` included where ffmpeg is present), `mypy src tests`
+      clean; update `README.md` if a render dependency needs stating.
+
+---
+
+## Slice 13c-i: Real Vision-Backed `SubjectTrackerPort` Adapter (~475 lines)
+
+Closes: `subject-tracking` Detection is scoped to the clip (real-adapter half); threat-matrix row
+**vision adapter decode**. Depends only on 12a-ii's port; independent of the entire 13b track.
+
+- [ ] 13c.1 RED: `localmodel`-marked test — the real adapter decodes only the requested clip span,
+      in-process, with no subprocess pipe of raw frames.
+- [ ] 13c.2 GREEN: `adapters/vision/*_tracker_adapter.py` — sequential in-process decode over the span,
+      downscaled to ≤640px, evaluating every Nth frame.
+- [ ] 13c.3 RED: `localmodel`-marked test — a span longer than `max_clip_seconds` is refused before any
+      decode.
+- [ ] 13c.4 GREEN: the pre-decode span guard.
+- [ ] 13c.5 RED: `localmodel`-marked test — `capabilities().detection` reports `REQUIRES_SETUP` when the
+      vision weights/`requirements-vision.txt` extra is absent, `AVAILABLE` once installed.
+- [ ] 13c.6 GREEN: implement the capability probe.
+- [ ] 13c.7 REFACTOR: register the adapter in a tracker-resolver mirroring
+      `runtime/engine_resolver.py`'s shape; suite green.
+
+---
+
+## Slice 13c-ii: Real Adapter Contract Test (~300 lines)
+
+Closes: `subject-tracking` Real Detection Adapter Is Isolated Behind the `localmodel` Marker, A Miss Is
+Reported Never Guessed (real-adapter half). Depends on 13c-i.
+
+- [ ] 13c.8 RED: `tests/contract/test_subject_tracker_contract.py`, `localmodel`-marked — the real adapter
+      satisfies the shared contract body (return shape, clip-local `at_s`, miss distinguishable from
+      low-confidence hit) alongside the fake.
+- [ ] 13c.9 GREEN: register the real adapter in the contract-test parametrization.
+- [ ] 13c.10 RED: never-synthesized-centre test — on a fixture clip with a genuinely absent subject, the
+      real adapter's misses carry `box=None`, never a centered guess.
+- [ ] 13c.11 GREEN: confirm/fix if the adapter's own occlusion handling produces a low-confidence box
+      instead of an explicit miss.
+- [ ] 13c.12 REFACTOR: full default suite green; confirm zero `localmodel`-marked test executes outside
+      `pytest -m localmodel`.
