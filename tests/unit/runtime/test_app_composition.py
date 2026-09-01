@@ -6,6 +6,7 @@ testing here are the ones that exist nowhere else — what the worker is launche
 with, and what happens to a job whose worker died.
 """
 
+import importlib.util
 from dataclasses import replace
 from pathlib import Path
 
@@ -110,6 +111,18 @@ def test_the_worker_is_launched_as_its_own_process(tmp_path: Path) -> None:
     assert argv[1:3] == ["-m", WORKER_MODULE]
     assert argv[argv.index("--job-id") + 1] == JOB_ID
     assert argv[argv.index("--data-dir") + 1] == str(tmp_path)
+
+
+def test_the_worker_module_names_a_module_that_exists() -> None:
+    """`WORKER_MODULE` is spawned as `python -m <name>` in a separate process, so a
+    stale name fails only at runtime — in the worker, after the upload already
+    succeeded, with the web process reporting a job that never starts.
+
+    Asserting argv against the constant proves the two agree; it cannot fail on a
+    name that resolves to nothing, because it compares the constant to itself. This
+    resolves the name instead.
+    """
+    assert importlib.util.find_spec(WORKER_MODULE) is not None
 
 
 def test_the_worker_argv_is_a_list_never_a_command_line(tmp_path: Path) -> None:

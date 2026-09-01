@@ -1,6 +1,6 @@
 """Headless entrypoint: one supervised process per job.
 
-    python -m transcribe.runtime.worker --job-id <ulid>
+    python -m onevoicecut.runtime.worker --job-id <ulid>
 
 Not a thread and not a queue. A process is what can be killed when a three-hour
 job goes wrong, and what the operating system cleans up when it does. It is also

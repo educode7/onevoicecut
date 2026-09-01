@@ -1,6 +1,6 @@
 """Composition root for the web process.
 
-    PYTHONPATH=src uvicorn transcribe.runtime.app:get_app --factory
+    PYTHONPATH=src uvicorn onevoicecut.runtime.app:get_app --factory
 
 This is where configuration is read, real adapters are constructed, and the two
 processes meet. Everything below it takes what it needs as an argument, which is
@@ -27,7 +27,7 @@ from onevoicecut.domain.jobs import JobState
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.runtime.settings import Settings
 
-WORKER_MODULE = "transcribe.runtime.worker"
+WORKER_MODULE = "onevoicecut.runtime.worker"
 
 LivenessProbe = Callable[[int], bool]
 
@@ -148,7 +148,7 @@ def build_app(deps: WebDependencies) -> FastAPI:
 def get_app() -> FastAPI:
     """Built on call, not at import.
 
-    `uvicorn transcribe.runtime.app:get_app --factory` reads the environment when
+    `uvicorn onevoicecut.runtime.app:get_app --factory` reads the environment when
     it starts the server; a module-level app would read it whenever anything
     imported this module, including a test collecting it.
     """
