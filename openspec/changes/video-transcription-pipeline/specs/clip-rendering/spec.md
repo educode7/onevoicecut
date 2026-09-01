@@ -99,6 +99,60 @@ clip's sole channel in that state.
 - AND a single cue MUST NOT span the segment's full multi-second duration if that exceeds what the
   frame can hold at a readable size
 
+### Requirement: Cue Eligibility Is Decided by `SegmentKind`, and Coverage Is Declared
+
+Which transcript segments become subtitle cues MUST be decided by `SegmentKind`, using the same
+message-facing selector every other consumer uses: `MUSIC` segments MUST NOT become cues, while `SPEECH`
+and `UNCERTAIN` segments MUST. A `MUSIC` segment MUST keep its timestamps and remain addressable as clip
+material — it is excluded from captioning, never filtered out of the transcript.
+
+`UNCERTAIN` segments MUST be included rather than excluded, because an adapter that cannot classify marks
+every segment `UNCERTAIN`, and excluding them would leave a muted vertical clip with a silently blank
+caption channel. Their uncertainty MUST NOT be rendered as an in-frame marker; it MUST be declared as
+structured metadata on the render result instead.
+
+The render result MUST therefore declare its caption coverage, and that declaration MUST be computed from
+**one basis only: the eligible segments overlapping the clip's span.** It declares that every eligible
+segment was confirmed speech, that at least one was unverified audio, or that the span carried no eligible
+segment at all.
+
+Cue construction SHOULD be total over that same eligible set. Where an eligible segment yields no cue, the clip MUST still declare its coverage honestly rather than report captions it does not carry.
+one cue. Totality is what makes the declaration describe the delivered captions: zero cues and no eligible
+segment are then the same condition, so a clip with zero cues MUST be reachable only because the span
+contained no eligible segment, and MUST be declared as such rather than delivered as an ordinarily
+captioned clip. Conversely, a clip declared as confirmed-speech or unverified coverage MUST carry at least
+one cue.
+
+#### Scenario: Music segments are excluded from cues but keep their timestamps
+
+- GIVEN a clip span containing both `SPEECH` and `MUSIC` segments
+- WHEN subtitle cues are built
+- THEN no cue MUST be produced from a `MUSIC` segment
+- AND the `MUSIC` segment MUST remain present in the transcript with its timestamps intact
+
+#### Scenario: Unclassified audio is captioned and declared, not dropped
+
+- GIVEN a clip span whose segments are all `UNCERTAIN`, as produced by an adapter that cannot classify
+- WHEN subtitle cues are built
+- THEN cues MUST be produced from those segments rather than yielding an empty caption set
+- AND no uncertainty marker MUST appear in the burned-in caption text
+- AND the render result MUST declare that its captions include unverified audio
+
+#### Scenario: Confirmed-speech coverage is declared as such
+
+- GIVEN a clip span whose eligible segments are all `SPEECH`
+- WHEN the clip is rendered
+- THEN the render result MUST declare that every eligible segment was confirmed speech
+- AND the declared coverage MUST match the cues the clip actually carries
+
+#### Scenario: A clip with no eligible segment declares zero coverage
+
+- GIVEN a clip span containing only `MUSIC` segments
+- WHEN the clip is rendered
+- THEN the subtitle cue set MUST be empty
+- AND the render result MUST declare that the clip carries no captions, rather than presenting it as an
+  ordinarily captioned clip
+
 ### Requirement: Missing Word Timing Is Declared, Not Silently Degraded
 
 Where the source segments for a clip's subtitle range lack word-level timing (an adapter declared no
@@ -124,8 +178,12 @@ segment-level timing.
 
 The renderer MUST report whether the delivered clip's resolution is native or upscaled relative to the
 source crop, and by what factor, rather than silently producing a soft clip. This is the fourth
-no-silent-degradation axis: a 1080p source upscaled 1.78x from a 608-pixel-wide crop looks unremarkable
+no-silent-degradation axis: a 1080p source upscaled 1.78x from a 606-pixel-wide crop looks unremarkable
 in a file listing and soft only once published full-screen on a phone.
+
+Crop dimensions MUST be even, and MUST be produced by rounding **down** to the nearest even integer, so
+that the crop is never wider than the frame it is taken from. The reference derivations are `1214×2160`
+from a 3840×2160 source and `606×1080` from a 1920×1080 source.
 
 #### Scenario: 4K source declared native
 

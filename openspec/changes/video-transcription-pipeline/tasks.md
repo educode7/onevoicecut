@@ -1186,13 +1186,39 @@ PR 24–41, once slices 7a–10b were re-split into 25 work units instead of 8).
 
 ### Ordering (extends the rev-4 design table with sub-unit dependencies)
 
-`11a` and `11b-i/ii/iii` are mutually independent tracks. Within 11b, `11b-i` gates `11b-ii` and `11b-iii`
-(both need the `words` field and `WordTimingSupport`), which are then independent of each other.
-`12a-i`/`12a-ii` are independent of each other; `12a-i` needs slice 11a's `FrameSize`. Both gate `12b-i`,
-which gates `12b-ii`. `13a-i`/`13a-ii`/`13a-iii` are independent of each other and gate `13b-i`. `13b-ii`
-is independent of every other 13a/13b unit. `13b-iii` needs `13a-i`, `13a-ii`, `13b-i`, and `13b-ii`.
-`13b-iv` needs `13b-ii` and `13b-iii`. `13b-v` needs `13b-i` and `13b-iii`. `13c-i`/`13c-ii` depend only on
-`12a-ii`'s port and may run in parallel with the entire 13b track.
+Every edge below is a **compile-time** dependency: the later unit names a type, function or setting the
+earlier one creates. Independence is claimed only where no such name is shared. Every edge points backwards
+in PR number, so the contiguous PR 41 → PR 58 sequence is unchanged.
+
+| Unit | PR | Requires | Independent of |
+| --- | --- | --- | --- |
+| `11a` | 41 | — | the whole 11b track (zero shared files) |
+| `11b-i` | 42 | — | `11a` |
+| `11b-ii` | 43 | `11b-i` (`words`, `WordTimingSupport`) | `11a`, `11b-iii` |
+| `11b-iii` | 44 | `11b-i` (`words`, `WordTimingSupport`) | `11a`, `11b-ii` |
+| `12a-i` | 45 | `11a` (`FrameSize`) | the 11b track |
+| `12a-ii` | 46 | `12a-i` (**`TimeSpan`**, which appears in `SubjectTrackerPort.detect`'s signature) | the 11b track |
+| `12b-i` | 47 | `12a-i`, `12a-ii` | — |
+| `12b-ii` | 48 | `12b-i` | — |
+| `13a-i` | 49 | `12a-i` (`CropRect` for `quality_of`, `TrackingConfidence` on `RenderedClip`) | `11b` track |
+| `13a-ii` | 50 | `13a-i` (`SubtitleCue`, `SubtitleTimingSource`, `CaptionCoverage`), **`11b-i`** (`TranscriptSegment.words`) | `13a-iii` |
+| `13a-iii` | 51 | `13a-i` (`ClipId`, `OutputSpec`), `12a-i` (`CropTrajectory`) | `13a-ii` |
+| `13b-i` | 52 | `13a-i`, `13a-ii`, `13a-iii` | — |
+| `13b-ii` | 53 | **`13a-i`** (`ClipExport`, `ClipState` are the values it round-trips) | `13a-ii`, `13a-iii`, `13b-i` |
+| `13b-iii` | 54 | `11a` (`probe.frame`, `FrameGeometryUnavailable` — `13b.20`), `12a-ii` (`SubjectTrackerPort.detect`, `DetectionSupport.AVAILABLE`, `TrackingUnavailable` — `13b.18`, `13b.22`), **`12b-i`** (`build_trajectory` itself — `13b.18`'s happy path calls it), **`12b-ii`** (`TrackingConfidence.LOW_CONFIDENCE`, which only exists once stage 6 assigns origins — `13b.24`, `13b.25`), `13a-i`, `13a-ii`, `13b-i`, `13b-ii` | — |
+| `13b-iv` | 55 | `13b-ii`, `13b-iii` | — |
+| `13b-v` | 56 | `13b-i`, `13b-iii` | — |
+| `13c-i` | 57 | `12a-ii` (the port), **`13b-i`** (`max_clip_seconds`, introduced with `render_clip`'s guards and used by `13c.3`'s span refusal) | `13b-ii` … `13b-v` |
+| `13c-ii` | 58 | `13c-i` | `13b-ii` … `13b-v` — it inherits 13c-i's edge to `13b-i`, so it is *not* independent of the whole 13b track |
+
+Three independences the earlier revision declared are **false and have been corrected above**: `12a-ii` is
+not independent of `12a-i`, `13b-ii` is not independent of `13a-i`, and `13c-i` is not independent of the
+whole 13b track. Two prerequisites were missing entirely. `13a-ii` needs `11b-i`, which is what
+`design.md`'s Rev-4 Slice Ordering table already said when it recorded 11b as blocking *"the subtitle half
+of 13a"*. And `13b-iii` needs **the whole 12b track plus `11a` and `12a-ii`** — a revision of this table
+named no 12b unit as a prerequisite of anything, which made the trajectory pipeline, the entire point of
+slice 12, read as a dead end in a table that declares itself exhaustive. `13b-iii` is the single consumer
+of `build_trajectory`; every other unit consumes only the `CropTrajectory` *type*, which is `12a-i`.
 
 ---
 
@@ -1306,8 +1332,8 @@ Closes: `transcript-artifacts` Word-Level Timing (storage round-trip scenario). 
 
 ## Slice 12a-i: `domain/framing.py` Entities + Trajectory Invariant (~450 lines)
 
-Closes: `subject-tracking` CropTrajectory Domain Object. Depends on slice 11a's `FrameSize`. Independent
-of 12a-ii; both gate 12b-i.
+Closes: `subject-tracking` CropTrajectory Domain Object. Depends on slice 11a's `FrameSize`. Gates 12a-ii
+(which needs `TimeSpan`) and, with it, 12b-i.
 
 - [ ] 12a.1 RED: `tests/unit/domain/test_framing.py` — construct `TimeSpan`, `CropRect`, `CropKeyframe`
       (timestamp + rect + `KeyframeOrigin`), `CropTrajectory`, `TrackingConfidence`, `TrajectoryPolicy`;
@@ -1320,9 +1346,16 @@ of 12a-ii; both gate 12b-i.
       invariant.
 - [ ] 12a.5 RED: keyframe-inspection test — a keyframe exposes its timestamp, rect, and exactly one origin.
 - [ ] 12a.6 GREEN: confirm the constructed type already satisfies this.
-- [ ] 12a.7 GREEN: `domain/framing.py` — `crop_size_for(frame, policy)` module function (pipeline stage 1).
-- [ ] 12a.8 RED: `crop_size_for` pinned test — a 4K frame produces an even 9:16 crop width/height; a source
-      narrower than 9:16 swaps the derivation axis.
+- [ ] 12a.8 RED: `crop_size_for` pinned test — 3840×2160 → `(1214, 2160)` and 1920×1080 → `(606, 1080)`,
+      the two authoritative numbers; a source narrower than 9:16 swaps the derivation axis; and the
+      postcondition `crop_w <= frame.width and crop_h <= frame.height`, both even and **non-negative**,
+      holds over odd frame widths and heights too — the property stage 5's clamp depends on. The property
+      asserts non-negativity, **not** positivity: `even(v) == 0` for `v < 2`, so `FrameSize(1920, 1)`
+      yields `(0, 0)`, which is correct output for a degenerate frame and is refused at the render-worker
+      boundary by `13b.20`, never repaired here.
+- [ ] 12a.7 GREEN: `domain/framing.py` — `even(value) = 2 * floor(value / 2)` (round **down**, no tie case)
+      and `crop_size_for(frame, policy)` module function (pipeline stage 1), with no clamping and no
+      re-evening step.
 - [ ] 12a.9 REFACTOR: suite green, `mypy src tests` clean.
 
 ---
@@ -1330,7 +1363,7 @@ of 12a-ii; both gate 12b-i.
 ## Slice 12a-ii: `SubjectTrackerPort` + Fake Detector (~525 lines)
 
 Closes: `subject-tracking` SubjectTrackerPort Contract, Capability Declaration, A Miss Is Reported Never
-Guessed. Independent of 12a-i; both gate 12b-i.
+Guessed. Depends on 12a-i for `TimeSpan`, which appears in `detect`'s signature; both gate 12b-i.
 
 - [ ] 12a.10 RED: `tests/unit/ports/test_capabilities.py` — `DetectionSupport` has exactly `{unsupported,
       requires_setup, available}`; `TrackerCapabilities(tracker_id, detection)`.
@@ -1378,7 +1411,8 @@ Closes: `subject-tracking` Smoothing, Dead-Zone (both scenarios). Depends on 12a
 
 Closes: `subject-tracking` Clamping to Frame Edges, Interpolation Across Detection Gaps, Fallback to
 Center (both scenarios), Keyframe Provenance Is Marked, Mostly-Fallback Trajectory Reported (both
-scenarios), Trajectory Arithmetic Is Testable With No Model Weights. Depends on 12b-i; gates slice 13a.
+scenarios), Trajectory Arithmetic Is Testable With No Model Weights. Depends on 12b-i; gates 13b-iii, the
+only consumer of `build_trajectory`'s output.
 
 - [ ] 12b.11 RED: edge-clamp test — a detection near the frame edge produces a crop rect clamped fully
       inside the frame.
@@ -1408,15 +1442,17 @@ scenarios), Trajectory Arithmetic Is Testable With No Model Weights. Depends on 
 ## Slice 13a-i: `VideoRenderPort` + Rendering Domain Types + Quality Arithmetic (~525 lines)
 
 Closes: `clip-rendering` VideoRenderPort Contract (type-level), Rendered Content Originates Only From the
-Source, Output Quality Declaration. Independent of 13a-ii/13a-iii; all three gate 13b-i.
+Source, Output Quality Declaration. Depends on 12a-i (`CropRect`, `TrackingConfidence`). Gates 13a-ii and
+13a-iii, which name the types it creates; all three gate 13b-i.
 
 - [ ] 13a.1 RED: `tests/unit/domain/test_ids.py` — `ClipId`/`make_clip_id` generate and validate against
       the same ULID regex as `JobId`.
 - [ ] 13a.2 GREEN: `domain/ids.py` — `ClipId` `NewType` + `make_clip_id`.
 - [ ] 13a.3 RED: `tests/unit/domain/test_rendering.py` — `OutputSpec`, `OutputQuality`, `OutputQualityKind`,
-      `SubtitleCue`, `SubtitleTimingSource`, `RenderedClip`, `ClipExport`, `ClipState` construct and stay
-      frozen.
-- [ ] 13a.4 GREEN: `domain/rendering.py` — the eight new types.
+      `SubtitleCue`, `SubtitleTimingSource`, `CaptionCoverage` (exactly `{confirmed_speech,
+      includes_unverified, none}`), `RenderedClip` (carrying all four declarations), `ClipExport`,
+      `ClipState` construct and stay frozen.
+- [ ] 13a.4 GREEN: `domain/rendering.py` — the nine new types.
 - [ ] 13a.5 RED: `tests/unit/ports/test_video_render.py` — `RenderRequest`, `RenderedFile` construct;
       `RenderCapabilities`/`RenderSupport` mirror the `DiarizationSupport` shape.
 - [ ] 13a.6 GREEN: `ports/video_render.py` — the two dataclasses + `VideoRenderPort(Protocol)`;
@@ -1428,8 +1464,8 @@ Source, Output Quality Declaration. Independent of 13a-ii/13a-iii; all three gat
       `UploadFile` import" test).
 - [ ] 13a.10 GREEN: confirm by construction (no production change expected).
 - [ ] 13a.11 RED: `tests/unit/domain/test_framing.py` — `quality_of(crop, target)` pinned: a 4K-derived
-      crop (2160×1214) vs a 1080-wide target → `NATIVE`, factor `0.89`; a 1080p-derived crop (1080×608) vs
-      the same target → `UPSCALED`, factor `1.78`.
+      crop (1214×2160, width×height, from `12a.8`) vs a 1080-wide target → `NATIVE`, factor `0.89`; a
+      1080p-derived crop (606×1080) vs the same target → `UPSCALED`, factor `1.78`.
 - [ ] 13a.12 GREEN: `domain/framing.py` — `quality_of(crop, target)` module function.
 - [ ] 13a.13 REFACTOR: suite green, `mypy src tests` clean.
 
@@ -1437,9 +1473,11 @@ Source, Output Quality Declaration. Independent of 13a-ii/13a-iii; all three gat
 
 ## Slice 13a-ii: ASS Subtitles + Cue Building (~525 lines)
 
-Closes: `clip-rendering` Subtitle Burn-In From Structured Transcript (both scenarios), Missing Word Timing
-Is Declared Not Silently Degraded (both scenarios); threat-matrix row **ASS subtitle content injection**.
-Independent of 13a-i/13a-iii; gates 13b-i and 13b-iii.
+Closes: `clip-rendering` Subtitle Burn-In From Structured Transcript (both scenarios), Cue Eligibility Is
+Decided by `SegmentKind` and Coverage Is Declared (all 4 scenarios), Missing Word Timing Is Declared Not
+Silently Degraded (both scenarios); threat-matrix row **ASS subtitle content injection**.
+Depends on 13a-i (`SubtitleCue`, `SubtitleTimingSource`, `CaptionCoverage`) and on **11b-i**
+(`TranscriptSegment.words`). Independent of 13a-iii; gates 13b-i and 13b-iii.
 
 - [ ] 13a.14 RED: `tests/unit/adapters/ffmpeg/test_subtitles.py` — hostile strings (`{\an8}`, a lone `}`, a
       lone `\`, `\r\n`, a 5,000-char run) each emit a single dialogue line with no override block, `\`
@@ -1447,17 +1485,26 @@ Independent of 13a-i/13a-iii; gates 13b-i and 13b-iii.
 - [ ] 13a.15 GREEN: `adapters/ffmpeg/subtitles.py` — the escaping function + `.ass` file generation from
       `tuple[SubtitleCue, ...]`.
 - [ ] 13a.16 RED: `tests/unit/usecases/test_build_subtitle_cues.py` — a multi-second `SPEECH` segment with
-      `words` splits into cues at word boundaries, none exceeding `max_cue_chars`.
-- [ ] 13a.17 GREEN: `usecases/build_subtitle_cues.py` — word-boundary cue splitting over segments
-      overlapping the requested span.
+      `words` splits into cues at word boundaries, none exceeding `max_cue_chars`; plus the eligibility
+      rule: a `MUSIC` segment in the span produces no cue while keeping its timestamps in the transcript,
+      and an `UNCERTAIN` segment does produce cues, carrying no `UNCERTAIN_MARKER` in the cue text.
+- [ ] 13a.17 GREEN: `usecases/build_subtitle_cues.py` — eligibility via `without_music(...)` over the
+      segments overlapping the requested span, minus any segment whose text is empty once stripped, then
+      word-boundary cue splitting; one selector, reused by both declarations.
 - [ ] 13a.18 RED: word-less-segment test — a segment with `words=()` yields one cue at segment times, never
       an evenly-distributed guess.
 - [ ] 13a.19 GREEN: implement the segment-level fallback branch.
-- [ ] 13a.20 RED: timing-source declaration test — a clip whose every overlapping speech segment carries
-      `words` returns `SubtitleTimingSource.WORD_LEVEL`; any segment lacking `words` degrades the whole
-      clip to `SEGMENT_LEVEL`.
-- [ ] 13a.21 GREEN: compute the declaration from the actual segments in range, not from
-      `capabilities().word_timing`.
+- [ ] 13a.20 RED: declaration tests — (a) timing source: a clip whose every **eligible** segment carries
+      `words` returns `SubtitleTimingSource.WORD_LEVEL`, any eligible segment lacking `words` degrades the
+      whole clip to `SEGMENT_LEVEL`, and a span with zero eligible segments returns `SEGMENT_LEVEL` rather
+      than a vacuous `WORD_LEVEL`; (b) caption coverage: all-`SPEECH` → `CONFIRMED_SPEECH`, any
+      `UNCERTAIN` → `INCLUDES_UNVERIFIED`, all-`MUSIC` span → zero cues and `NONE`; (c) totality — a
+      whitespace-only segment is not eligible, every eligible segment yields at least one cue, and
+      therefore `NONE` is declared whenever the cue set is empty (no `CONFIRMED_SPEECH` or
+      `INCLUDES_UNVERIFIED` clip carries zero cues).
+- [ ] 13a.21 GREEN: `build_subtitle_cues` returns `(cues, timing_source, coverage)`, both declarations
+      computed from **one basis** — the actual eligible segments in range, never the cues and never
+      `capabilities().word_timing` — with cue construction total over that same set.
 - [ ] 13a.22 REFACTOR: suite green, `mypy src tests` clean.
 
 ---
@@ -1465,7 +1512,8 @@ Independent of 13a-i/13a-iii; gates 13b-i and 13b-iii.
 ## Slice 13a-iii: Filter-Graph Composition + `sendcmd` Densification (~575 lines)
 
 Closes: `clip-rendering` Single Native ffmpeg Pass, Crop Trajectory Applied As Given; threat-matrix row
-**ffmpeg filter-graph composition**. Independent of 13a-i/13a-ii; gates 13b-i.
+**ffmpeg filter-graph composition**. Depends on 13a-i (`ClipId`, `OutputSpec`) and 12a-i
+(`CropTrajectory`). Independent of 13a-ii; gates 13b-i.
 
 - [ ] 13a.23 RED: `tests/unit/adapters/ffmpeg/test_argv_composition.py` — the render argv contains one
       `-filter_complex` chaining `sendcmd`→`crop`→`scale`→`subtitles`, `-ss` before `-i`, absolute
@@ -1473,10 +1521,11 @@ Closes: `clip-rendering` Single Native ffmpeg Pass, Crop Trajectory Applied As G
 - [ ] 13a.24 GREEN: `adapters/ffmpeg/argv.py` — `build_render_argv()` extending the shipped
       prefix/containment helpers.
 - [ ] 13a.25 RED: bare-relative-filename test — the composed graph references `<clip_id>.cmds`/`.ass` by
-      bare filename, never an absolute path, regardless of a job-directory path containing `:`, `'`, `,`,
-      or `\`.
-- [ ] 13a.26 GREEN: confirm the graph composer never interpolates the job-directory path into the filter
-      string.
+      bare filename with **no directory prefix and no path separator**, never an absolute path, regardless
+      of a job-directory path containing `:`, `'`, `,`, or `\`; the composer reports the job's `render/`
+      subdirectory as the `cwd` the graph resolves against.
+- [ ] 13a.26 GREEN: confirm the graph composer never interpolates the job-directory path, nor a `render/`
+      prefix, into the filter string.
 - [ ] 13a.27 RED: non-ULID-`clip_id` test — a `clip_id` failing the ULID regex is refused before the graph
       is composed.
 - [ ] 13a.28 GREEN: validate `clip_id` against `domain/ids.py`'s regex before composition.
@@ -1498,8 +1547,9 @@ Closes: `clip-rendering` VideoRenderPort Contract (adapter half), Clip Cut From 
 threat-matrix row **render resource exhaustion** (guard half). Depends on 13a-i/ii/iii.
 
 - [ ] 13b.1 RED: `tests/unit/adapters/ffmpeg/test_video_render.py` — the adapter spawns exactly one
-      process via an injected `RenderProcessRunner` with `cwd` set to the job directory; argv matches
-      `build_render_argv()`'s output.
+      process via an injected `RenderProcessRunner` with `cwd` set to the job's `render/` subdirectory
+      (`resolve_inside`-checked against the job directory), which is the directory it wrote `.cmds` and
+      `.ass` into, so the graph's bare filenames resolve; argv matches `build_render_argv()`'s output.
 - [ ] 13b.2 GREEN: `adapters/ffmpeg/video_render.py` — implements `VideoRenderPort`; declares its own
       `RenderProcessRunner` protocol.
 - [ ] 13b.3 RED: `tests/unit/usecases/test_render_clip.py` — `0 <= start_s < end_s <= probe.duration_s`
@@ -1518,8 +1568,8 @@ threat-matrix row **render resource exhaustion** (guard half). Depends on 13a-i/
 
 ## Slice 13b-ii: `ClipExport` Storage (~400 lines)
 
-Closes: `clip-rendering` Clip Export to Job Directory (both scenarios). Independent of every other
-13a/13b unit.
+Closes: `clip-rendering` Clip Export to Job Directory (both scenarios). Depends on 13a-i — `ClipExport`
+and `ClipState` are the values it round-trips. Independent of 13a-ii, 13a-iii and 13b-i.
 
 - [ ] 13b.10 RED: `tests/unit/ports/test_transcript_storage.py` — `TranscriptStoragePort` declares
       `save_clip_export`/`load_clip_exports`.
@@ -1541,23 +1591,28 @@ Closes: `clip-rendering` Clip Export to Job Directory (both scenarios). Independ
 
 Closes: `clip-rendering` Crop Trajectory Applied As Given (orchestration half), Low-Confidence Trajectory
 Is Not Delivered as an Ordinary Success; `subject-tracking` Detection is scoped to the clip (orchestration
-half). Depends on 13a-i, 13a-ii, 13b-i, 13b-ii.
+half). Depends on 11a (`probe.frame`, `FrameGeometryUnavailable`), 12a-ii (`SubjectTrackerPort`,
+`TrackingUnavailable`), 12b-i (`build_trajectory`), 12b-ii (`LOW_CONFIDENCE`), 13a-i, 13a-ii, 13b-i,
+13b-ii. It is the only unit that calls the trajectory pipeline rather than merely naming its types.
 
 - [ ] 13b.18 RED: `tests/unit/runtime/test_render_worker.py` — the happy path calls `probe`→`detect`→
       `build_trajectory`→`load_transcript`→`build_subtitle_cues`→`render`→`quality_of` in order, against
       fakes, and writes a `RENDERED` `ClipExport`.
 - [ ] 13b.19 GREEN: `runtime/render_worker.py` — headless entrypoint `python -m
       onevoicecut.runtime.render_worker --job-id <id> --clip-id <id>`.
-- [ ] 13b.20 RED: frame-geometry-refusal test — when `probe.frame is None`, the worker writes a `FAILED`
-      `ClipExport` naming `FrameGeometryUnavailable` and never calls the tracker.
+- [ ] 13b.20 RED: frame-geometry-refusal test — two cases, both writing a `FAILED` `ClipExport` naming
+      `FrameGeometryUnavailable` and never calling the tracker: (a) `probe.frame is None`; (b) a degenerate
+      frame such as `FrameSize(1920, 1)`, for which `crop_size_for` returns a non-positive dimension
+      (`12a.8`'s property) — refused here so `quality_of` never divides by a zero crop width.
 - [ ] 13b.21 GREEN: implement the first `alt` branch from the design's sequence diagram.
 - [ ] 13b.22 RED: tracking-unavailable-refusal test — when `capabilities().detection != AVAILABLE`, the
       worker writes `FAILED(TrackingUnavailable)` naming remediation, and never calls `detect()`.
 - [ ] 13b.23 GREEN: implement the second `alt` branch.
 - [ ] 13b.24 RED: low-confidence-propagation test — a `LOW_CONFIDENCE` trajectory produces a
       `RenderedClip.tracking` that is not silently reported as ordinary success.
-- [ ] 13b.25 GREEN: propagate `TrackingConfidence` from `build_trajectory`'s output onto the assembled
-      `RenderedClip`.
+- [ ] 13b.25 GREEN: propagate `TrackingConfidence` from `build_trajectory`'s output, and
+      `SubtitleTimingSource`/`CaptionCoverage` from `build_subtitle_cues`'s output, onto the assembled
+      `RenderedClip` — all four declarations computed above the port.
 - [ ] 13b.26 REFACTOR: suite green, `mypy src tests` clean.
 
 ---
@@ -1575,7 +1630,7 @@ Closes: `clip-rendering` Clip Export to Job Directory (HTTP surface). Depends on
       used for the transcription worker, and the HTTP response returns before the render completes.
 - [ ] 13b.30 GREEN: wire the spawn call, mirroring the shipped upload-triggers-worker pattern.
 - [ ] 13b.31 RED: `GET /api/jobs/{id}/clips/{clip_id}` — returns `{state, quality, subtitle_timing,
-      tracking}` read-only; a test enforces it writes nothing.
+      captions, tracking}` read-only; a test enforces it writes nothing.
 - [ ] 13b.32 GREEN: the status-read route over `load_clip_exports`.
 - [ ] 13b.33 REFACTOR: suite green, `mypy src tests` clean.
 
@@ -1605,7 +1660,8 @@ Closes: `clip-rendering` VideoRenderPort Contract (integration proof), Single Na
 ## Slice 13c-i: Real Vision-Backed `SubjectTrackerPort` Adapter (~475 lines)
 
 Closes: `subject-tracking` Detection is scoped to the clip (real-adapter half); threat-matrix row
-**vision adapter decode**. Depends only on 12a-ii's port; independent of the entire 13b track.
+**vision adapter decode**. Depends on 12a-ii's port and on 13b-i for `max_clip_seconds`, which `13c.3`'s
+span refusal reads. Independent of 13b-ii through 13b-v.
 
 - [ ] 13c.1 RED: `localmodel`-marked test — the real adapter decodes only the requested clip span,
       in-process, with no subprocess pipe of raw frames.

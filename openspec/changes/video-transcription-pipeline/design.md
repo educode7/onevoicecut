@@ -654,7 +654,7 @@ with no real engine. Two refinements, stated plainly rather than diverged from q
    tests the derivation against a fake declaring `max_chunk_bytes=25_000_000`; slice 8 contributes only
    the real value and the `ChunkTooLarge` split-and-retry recovery.
 
-Neither refinement changes slice count or the 400-line forecast materially; both move work earlier.
+Neither refinement changes slice count or the 800-line forecast materially; both move work earlier.
 
 ## Migration / Rollout
 
@@ -717,10 +717,11 @@ and it is the reason `CropTrajectory` is a domain object rather than a private v
 everything easy to get wrong — jitter, a crop leaving the frame, a gap in detections, "did we actually
 track anything" — is arithmetic over a list of keyframes, and arithmetic runs in the default suite.
 
-Four rev-4 decisions exist only to keep a *fourth, fifth, sixth and seventh* silent-degradation axis from
-opening. Rev 1–3 established three (diarization, `SegmentKind`, and the `UNCERTAIN` default). Rev 4 adds:
-word timing that is empty rather than fabricated, keyframe provenance, subtitle-timing provenance, and the
-native-vs-upscaled quality declaration. All four share one shape: *the artifact looks fine*.
+Five rev-4 decisions exist only to keep a *fourth, fifth, sixth, seventh and eighth* silent-degradation
+axis from opening. Rev 1–3 established three (diarization, `SegmentKind`, and the `UNCERTAIN` default).
+Rev 4 adds: word timing that is empty rather than fabricated, keyframe provenance, subtitle-timing
+provenance, caption coverage, and the native-vs-upscaled quality declaration. All five share one shape:
+*the artifact looks fine*.
 
 ## Decision: `WordTiming` is an additive, defaulted, never-nullable field
 
@@ -1122,12 +1123,65 @@ def build_trajectory(
 
 | # | Stage | What it does | Why it is here and not elsewhere |
 | --- | --- | --- | --- |
-| 1 | **Crop size** | Computed **once** for the whole clip: `crop_h = frame.height`, `crop_w = even(frame.height * 9 / 16)`, both clamped to the frame and re-evened. If the source is already narrower than 9:16, `crop_w = frame.width` and `crop_h = even(frame.width * 16 / 9)`. | Even dimensions because H.264 requires them. Constant because a per-keyframe crop size would make "native vs upscaled" vary *within one clip* and therefore undeclarable as one fact. |
+| 1 | **Crop size** | Computed **once** for the whole clip, by the definition and derivation immediately below this table. No clamping and no re-evening step: the derivation's postcondition already puts both dimensions inside the frame. | Even dimensions because H.264 requires them. Constant because a per-keyframe crop size would make "native vs upscaled" vary *within one clip* and therefore undeclarable as one fact. |
 | 2 | **Centres** | Each hit's `box` → desired crop centre (box centre, horizontally; vertically the crop is full-height so `y` is fixed). | Pure geometry over the detector's output. Misses carry no desired centre and are simply absent from stages 3–5. |
 | 3 | **Smooth** | Centred moving average of `smoothing_window_s` over the **tracked subsequence only**. | Averaging across misses would drag the centre toward whatever the miss was replaced with — which is how a "smoothed" trajectory silently walks off the subject. |
 | 4 | **Dead-zone** | Forward hysteresis: hold the last committed `x` until `abs(desired - held) > dead_zone_fraction * frame.width`, then commit. | **After** smoothing, never before. Raw jitter trips a dead-zone repeatedly; smoothed drift trips it once. Reversing stages 3 and 4 produces a crop that twitches at exactly the threshold. |
 | 5 | **Clamp** | `x = min(max(x, 0), frame.width - crop_w)`, same for `y`. | **Last** among the position stages, so nothing after it can push the rect out of frame. |
 | 6 | **Fill** | A run of misses bounded by `TRACKED` on **both** sides and lasting `<= max_gap_s` → linear interpolation between the two bounding committed rects, origin `INTERPOLATED`. Every other run — leading, trailing, or longer than `max_gap_s` — → centred rect, origin `FALLBACK_CENTER`. | Both fill methods preserve the clamp invariant without re-clamping: the frame is convex, both endpoints are inside it, so every point on the segment between them is inside it, and a centred rect is inside by construction. |
+
+#### `even()` is defined, and its direction is the reason the clamp is safe
+
+`even()` is the load-bearing rounding operator of this whole subsystem, so it is defined once, here, and
+nowhere restated informally:
+
+```python
+def even(value: float) -> int:
+    """Round DOWN to the nearest even integer. Total, and no tie case exists."""
+    return 2 * math.floor(value / 2)
+
+
+def crop_size_for(frame: FrameSize, policy: TrajectoryPolicy) -> tuple[int, int]:
+    if frame.width * policy.aspect_h >= frame.height * policy.aspect_w:   # frame is 9:16 or wider
+        crop_h = even(frame.height)
+        crop_w = even(crop_h * policy.aspect_w / policy.aspect_h)
+    else:                                                                 # frame is narrower than 9:16
+        crop_w = even(frame.width)
+        crop_h = even(crop_w * policy.aspect_h / policy.aspect_w)
+    return crop_w, crop_h
+```
+
+**Direction is down, always; there is no tie behaviour to specify** because `floor` is total. Rounding *up*
+was the alternative and it is unsafe: on an odd frame width `even()` would return `frame.width + 1`, making
+`frame.width - crop_w` **negative** and inverting stage 5's clamp — `min(max(x, 0), -1)` yields `-1`, a
+crop rect starting outside the frame, which is exactly what *Clamping to Frame Edges* exists to prevent.
+The removed "re-evened after clamping" step had the same defect from the other side: re-evening upward can
+push a clamped `crop_w` back above `frame.width`. Neither step is needed.
+
+**Postcondition, which stages 5 and 6 depend on**: `crop_w <= frame.width` and `crop_h <= frame.height`,
+both even and **non-negative**. Proof: `even(v) <= v`, `even` is monotone, and `even(v) >= 0` for
+`v >= 0`. In the first branch `crop_h <= frame.height` directly, and
+`crop_w <= crop_h * 9/16 <= frame.height * 9/16 <= frame.width` by the branch condition; the second branch
+is the same argument with the axes swapped. So `frame.width - crop_w >= 0` and
+`frame.height - crop_h >= 0`, and stage 5's clamp is well-formed. `12a.8` pins this postcondition as a
+property, not only the two worked examples.
+
+**Positivity is NOT part of the postcondition, and pretending it was is what an earlier revision got
+wrong.** `even(v) = 0` for every `v` in `[0, 2)`, so a degenerate frame produces a degenerate crop:
+`FrameSize(1920, 1)` takes the first branch and yields `crop_h = even(1) = 0`, hence `crop_w = 0`. The
+proof above still holds — `0 <= 1` — but `OutputQuality.factor = target_width / crop_width` is then a
+`ZeroDivisionError`, not a declaration. No amount of rounding fixes this: a 1-pixel-tall frame has no
+9:16 crop.
+
+**So it is refused, at the boundary, not repaired in the arithmetic.** `crop_size_for` stays total and
+keeps returning what the geometry actually gives; the render worker treats a non-positive `crop_w` or
+`crop_h` exactly as it treats absent dimensions, failing the clip with `FrameGeometryUnavailable` before
+the tracker is called (the first `alt` branch of the sequence diagram below, which covers both cases).
+Deriving a minimum frame size instead would need a different threshold per branch — the first branch
+needs `frame.height >= 4`, the second `frame.width >= 2` — and a caller comparing against the wrong one
+is precisely the arithmetic error being guarded. Testing the computed result is total and needs no
+threshold. `quality_of` is therefore **undefined only where the refusal has already fired**: every crop
+reaching it has positive dimensions by construction.
 
 Confidence is computed once, on the finished trajectory: `fallback_ratio = count(FALLBACK_CENTER) / total`,
 and `TrackingConfidence.LOW_CONFIDENCE` when it exceeds `max_fallback_ratio` (0.5 = "predominantly", per
@@ -1195,13 +1249,18 @@ tokens*. A filter graph is parsed, with its own escaping rules for `:`, `,`, `'`
 Windows every absolute path contains a drive colon, so `subtitles=C:\...\x.ass` is malformed before any
 hostile input is involved. Documented escaping for this is three layers deep and famously fragile.
 
-**Design response — containment, not escaping.** ffmpeg is spawned with `cwd` set to the job directory
-(itself `resolve_inside`-checked), and the two auxiliary files are referenced in the graph by **bare
-relative filename**: `<CLIP_ID>.cmds` and `<CLIP_ID>.ass`, where `CLIP_ID` is a server-generated ULID
-validated against `^[0-9A-HJKMNP-TV-Z]{26}$` before the graph is composed. A name drawn from that alphabet
-contains no character with meaning in a filter graph, so **the escaping problem is deleted rather than
-solved**. Input and output paths stay absolute in argv, where absoluteness already guarantees no leading
-dash.
+**Design response — containment, not escaping.** ffmpeg is spawned with `cwd` set to **the job's `render/`
+subdirectory** — the directory the two auxiliary files are written to, itself `resolve_inside`-checked
+against the job directory — and they are referenced in the graph by **bare relative filename**:
+`<CLIP_ID>.cmds` and `<CLIP_ID>.ass`, where `CLIP_ID` is a server-generated ULID validated against
+`^[0-9A-HJKMNP-TV-Z]{26}$` before the graph is composed. A name drawn from that alphabet contains no
+character with meaning in a filter graph, so **the escaping problem is deleted rather than solved**.
+
+`cwd` is `render/` and not the job directory precisely so that no `render/` prefix — and therefore no path
+separator — is ever needed inside the graph. A separator would reintroduce the escaping problem the ULID
+alphabet exists to delete, on Windows with a backslash, which the graph parser reads as an escape
+character. Input and output paths stay absolute in argv, where absoluteness already guarantees no leading
+dash and nothing parses the token.
 
 Setting `cwd` needs a runner that accepts it. The shipped `ProcessRunner` protocol is
 `__call__(argv, timeout_s)`, and widening it would force every existing extractor fake to grow a parameter
@@ -1223,7 +1282,7 @@ terminates the dialogue line — so a hallucinated brace silently changes the st
 clip, or truncates a caption. Response: neutralise `{`/`}`, escape `\`, strip CR/LF, and emit intentional
 line breaks only as `\N`. One RED test per hostile string, in the default suite, with no ffmpeg.
 
-## Decision: the three declarations are computed above the port, not reported by the adapter
+## Decision: the four declarations are computed above the port, not reported by the adapter
 
 `VideoRenderPort.render` returns a thin `RenderedFile`. The use case `usecases/render_clip.py` assembles
 the operator-facing `RenderedClip`:
@@ -1238,10 +1297,20 @@ class OutputQualityKind(StrEnum):
 class OutputQuality:
     kind: OutputQualityKind
     factor: float          # target_width / crop_width; <= 1.0 is NATIVE
+                           # defined only for crop_width > 0 — a degenerate crop is
+                           # refused as FrameGeometryUnavailable before quality_of runs
 
 class SubtitleTimingSource(StrEnum):
     WORD_LEVEL    = "word_level"
     SEGMENT_LEVEL = "segment_level"
+
+class CaptionCoverage(StrEnum):
+    # ONE basis for all three members: the ELIGIBLE SEGMENTS in the span, never the cues.
+    # Cue construction is total over that set (see "the eligibility rule, stated once"),
+    # so "no eligible segment" and "zero cues" are the same condition, not two.
+    CONFIRMED_SPEECH    = "confirmed_speech"     # every eligible segment in the span was SPEECH
+    INCLUDES_UNVERIFIED = "includes_unverified"  # at least one eligible segment was UNCERTAIN
+    NONE                = "none"                 # the span carried no eligible segment
 
 @dataclass(frozen=True, slots=True)
 class RenderedClip:
@@ -1252,37 +1321,88 @@ class RenderedClip:
     source_end_s: float
     quality: OutputQuality
     subtitle_timing: SubtitleTimingSource
+    captions: CaptionCoverage
     tracking: TrackingConfidence
 ```
 
-**Rationale**: none of the three declarations is an observation of ffmpeg's output. All three are known
+**Rationale**: none of the four declarations is an observation of ffmpeg's output. All four are known
 *before the spawn* — quality from `FrameSize` and `OutputSpec`, subtitle timing from whether the clip's
-segments carried words, tracking confidence from the trajectory. Letting the adapter report them would put
-pure arithmetic behind an `integration` marker, which is precisely the trade the hexagon exists to refuse
-(the proposal's own phrasing, applied to a new axis). It would also make the adapter capable of lying about
-a value it did not compute.
+segments carried words, caption coverage from those segments' `SegmentKind`, tracking confidence from the
+trajectory. Letting the adapter report them would put pure arithmetic behind an `integration` marker, which
+is precisely the trade the hexagon exists to refuse (the proposal's own phrasing, applied to a new axis).
+It would also make the adapter capable of lying about a value it did not compute.
 
 The arithmetic, in `domain/framing.py` as module functions beside `crop_size_for`, mirroring how
 `render_message_text` lives beside its entities:
 
 ```
-4K   3840x2160 → crop_w = even(2160 * 9/16) = 1214 → factor 1080/1214 = 0.89 → NATIVE
-1080p 1920x1080 → crop_w = even(1080 * 9/16) =  606 → factor 1080/606  = 1.78 → UPSCALED x1.78
+4K   3840x2160 → crop_h = even(2160) = 2160, crop_w = even(2160 * 9/16) = even(1215.0) = 1214
+                 → 1214x2160, factor 1080/1214 = 0.89 → NATIVE
+1080p 1920x1080 → crop_h = even(1080) = 1080, crop_w = even(1080 * 9/16) = even(607.5)  =  606
+                 →  606x1080, factor 1080/606  = 1.78 → UPSCALED x1.78
 ```
 
-Those are the proposal's own numbers, now derived rather than asserted, in a function a unit test pins.
+**These are the authoritative numbers**: `1214x2160` and `606x1080`. Both are derived from the single
+`even()` definition above rather than asserted, in a function `13a.11` pins. Rev 4's proposal originally
+carried `1215x2160` and `608x1080` — the first is not even at all and the second rounds the wrong way; both
+have been corrected in `proposal.md`, `specs/clip-rendering/spec.md` and `tasks.md` so one number appears
+everywhere. The declarations they feed are unchanged: `0.89` NATIVE on 4K, `1.78` UPSCALED on 1080p.
+
+### Which segments become cues: the eligibility rule, stated once
+
+An earlier revision left this implicit and contradicted itself three ways in six lines. It is a
+`SegmentKind` policy decision, and this project takes those explicitly.
+
+**Rule: the eligible set is `without_music(segments overlapping the span)`, minus any segment whose text is
+empty once stripped.** One selector, used by the quantifier, by cue construction, and by both declarations
+— there is no second set anywhere.
+
+**And cue construction is total over that set**: every eligible segment yields **at least one** cue —
+word-boundary splitting yields one or more, and the word-less fallback yields exactly one at segment times.
+The empty-text exclusion removes the clearest case of an eligible segment that contributes
+nothing. **Totality is not proven.** A segment overlapping the span in a region containing none
+of its words stays eligible and still yields no cue, so `CONFIRMED_SPEECH` on a clip carrying
+zero cues is reachable. Whether eligibility needs a minimum-overlap rule is open, and slice 13a
+is where it is decided — that is the first unit that builds a cue set from a real span.
+
+| Kind | Becomes a cue? | Why |
+| --- | --- | --- |
+| `MUSIC` | **No** | `without_music`'s docstring already fixes this for every message-facing consumer: *"Drop sung and instrumental audio. Never the message."* Burning sung lyrics into the frame would make the clip caption something the preacher did not say. The segment keeps its timestamps and stays addressable as clip material — marked, never filtered, exactly as `SegmentKind` requires. |
+| `UNCERTAIN` | **Yes** | Excluding it yields **zero captions on every engine shipping today**: `ports/capabilities.py` has no classifying adapter yet, so a non-classifying engine marks the whole transcript `UNCERTAIN`. That is the same all-uncertain-renders-as-empty failure `render_message_text` refuses, arriving on the caption channel, where it is worse: a muted vertical clip whose only text channel is silently blank. |
+| `SPEECH` | **Yes** | The ordinary case. |
+
+**`UNCERTAIN_MARKER` is not burned into the frame.** `[?] ` is a reader affordance in a text file an
+operator reads; in a 9:16 caption it is noise a viewer cannot act on, and on a non-classifying engine it
+would prefix *every* line. The uncertainty is declared **once, structurally**, on `RenderedClip.captions`
+instead of per-line in pixels — which is why `CaptionCoverage` exists and why it is the fourth declaration
+rather than a rendering detail. The marking rule stays fixed per kind, never decided per segment, matching
+`render_message_text`'s stated discipline.
+
+**The empty cue set is declared, not silent.** When the span contains no eligible segment — a clip
+candidate over a song, which is a real and permitted case — cue construction yields zero cues and
+`captions = NONE`. By totality the converse holds too: zero cues is reachable *only* that way. The `.ass`
+is still written and the filter graph keeps its fixed shape, because an ASS file with no dialogue lines is
+valid; the operator learns "this clip is deliberately uncaptioned" from structured metadata rather than by
+watching it. `NONE` is never reachable through a *failure* to caption, only through the absence of
+anything eligible to caption.
 
 Subtitle timing is decided where the decision is made — `usecases/build_subtitle_cues.py` returns
-`(cues, timing_source)`. A clip is `WORD_LEVEL` only when **every** speech segment in its range carries
-non-empty `words`; otherwise `SEGMENT_LEVEL`. This is deliberately computed from the actual segments and
-not from `capabilities().word_timing`: a capable adapter still returns `()` for a `MUSIC` segment, so the
-capability answers "could this engine ever", while the clip's own segments answer "did this clip get it".
-Only the second one is true about the artifact.
+`(cues, timing_source, coverage)`. A clip is `WORD_LEVEL` only when **every eligible segment** — the same
+set, not "every speech segment" — carries non-empty `words`; otherwise `SEGMENT_LEVEL`. Quantifier and
+construction set now coincide, which is what makes the declaration true rather than merely plausible. With
+zero eligible segments the declaration is `SEGMENT_LEVEL`: vacuous truth would report `WORD_LEVEL` for a
+clip that has no words at all, and the conservative value is the one that cannot overclaim.
 
-Cue construction: take segments overlapping the span, restrict to the span, and split each into cues of at
-most `max_cue_chars` (default 42, two lines) at **word boundaries using word times**. With no words, one
-cue per segment at segment times — never an even distribution across the segment's duration, which is the
-fabrication the spec names explicitly.
+This is deliberately computed from the actual segments and not from `capabilities().word_timing`: even a
+word-timing-capable adapter can return `()` for some segment, so the capability answers "could this engine
+ever", while the clip's own eligible segments answer "did this clip get it". Only the second is true about
+the artifact. (The `MUSIC` case that motivated the old wording is now excluded by eligibility before the
+quantifier ever sees it, so it no longer has to be explained away.)
+
+Cue construction: take the eligible segments overlapping the span, restrict to the span, and split each
+into cues of at most `max_cue_chars` (default 42, two lines) at **word boundaries using word times**. With
+no words, one cue per segment at segment times — never an even distribution across the segment's duration,
+which is the fabrication the spec names explicitly.
 
 ## Decision: a render is a separate short-lived worker, and render state lives per clip
 
@@ -1326,7 +1446,7 @@ All new entities are `@dataclass(frozen=True, slots=True)`, consistent with ever
 | `domain/media.py` | `FrameSize`; `MediaProbe.frame: FrameSize \| None = None`. |
 | `domain/transcript.py` | `WordTiming`; `TranscriptSegment.words: tuple[WordTiming, ...] = ()`. |
 | `domain/framing.py` **(new)** | `TimeSpan`, `CropRect`, `KeyframeOrigin` (`TRACKED \| INTERPOLATED \| FALLBACK_CENTER`), `CropKeyframe`, `CropTrajectory`, `TrackingConfidence`, `TrajectoryPolicy`; module functions `crop_size_for(frame, policy)` and `quality_of(crop, target)`. |
-| `domain/rendering.py` **(new)** | `SubtitleCue`, `SubtitleTimingSource`, `OutputSpec`, `OutputQuality`, `OutputQualityKind`, `RenderedClip`, `ClipExport`, `ClipState`. |
+| `domain/rendering.py` **(new)** | `SubtitleCue`, `SubtitleTimingSource`, `CaptionCoverage`, `OutputSpec`, `OutputQuality`, `OutputQualityKind`, `RenderedClip`, `ClipExport`, `ClipState`. |
 | `domain/errors.py` | `FrameGeometryUnavailable`, `TrackingUnavailable`, `DetectionFailed`, `RenderFailed`, `ClipRangeInvalid` — all deriving from `DomainError`, all raised across a port boundary. |
 
 `CropTrajectory` carries **the first `__post_init__` invariant in the domain**: every keyframe's rect must
@@ -1352,20 +1472,21 @@ job COMPLETED ──► operator selects a ClipCandidate ──► POST /api/job
                             └──────────────┬──────────────────┘                              │
                                            ▼                                                 ▼
                                     plan_trajectory                                 build_subtitle_cues
-                            (crop size, smooth, dead-zone,                       (word-level or declared
-                             clamp, fill, confidence)                             segment-level fallback)
+                            (crop size, smooth, dead-zone,                    (eligible = without_music;
+                             clamp, fill, confidence)                      word-level or declared segment-
+                                                                         level fallback; caption coverage)
                                            │                                                 │
                                            └────────────────┬────────────────────────────────┘
                                                             ▼
                                                   render/{clip}.cmds + .ass
                                                             │
                                                   VideoRenderPort.render
-                                                  (ONE ffmpeg process, cwd = job dir)
+                                            (ONE ffmpeg process, cwd = job dir/render)
                                                             │
                                                   render/{clip}.mp4
                                                             │
                                           RenderedClip assembled ABOVE the port
-                                        (quality + subtitle timing + tracking)
+                             (quality + subtitle timing + caption coverage + tracking)
                                                             │
                                                   render/{clip}.json  (ClipExport RENDERED)
 ```
@@ -1399,10 +1520,10 @@ sequenceDiagram
     W->>RW: spawn render_worker --job-id --clip-id
 
     RW->>FF: probe(source) → MediaProbe
-    alt probe.frame is None
+    alt probe.frame is None, or crop_size_for returns a non-positive dimension
         RW->>S: save_clip_export(FAILED, FrameGeometryUnavailable)
-        Note over RW,S: refuses cleanly — never crops against invented dimensions
-    else dimensions known
+        Note over RW,S: refuses cleanly — never crops against invented dimensions,<br/>never divides by a degenerate crop width
+    else dimensions known and crop is positive
         RW->>TR: capabilities()
         alt detection != AVAILABLE
             RW->>S: save_clip_export(FAILED, TrackingUnavailable + remediation)
@@ -1413,14 +1534,14 @@ sequenceDiagram
             UC-->>RW: CropTrajectory + TrackingConfidence
             RW->>S: load_transcript
             RW->>UC: build_subtitle_cues(segments, span)
-            UC-->>RW: cues + SubtitleTimingSource
+            UC-->>RW: cues + SubtitleTimingSource + CaptionCoverage
             RW->>FF: render(RenderRequest)
-            Note over FF: writes {clip}.cmds and {clip}.ass, then ONE ffmpeg process<br/>cwd = job dir, aux files referenced by bare ULID filename
+            Note over FF: writes render/{clip}.cmds and render/{clip}.ass, then ONE ffmpeg process<br/>cwd = the job's render/ subdirectory, aux files referenced by bare ULID filename
             FF-->>RW: RenderedFile
             RW->>UC: quality_of(crop, target)
             RW->>S: save_clip_export(RENDERED, RenderedClip)
             B->>W: GET /api/jobs/{id}/clips/{clip_id}
-            W-->>B: {state, quality, subtitle_timing, tracking}
+            W-->>B: {state, quality, subtitle_timing, captions, tracking}
         end
     end
 ```
@@ -1437,7 +1558,7 @@ than writing a second composer. Four new rows:
 
 | Boundary | Adversarial cases | Applicability | Design response | Planned RED tests |
 | --- | --- | --- | --- | --- |
-| **ffmpeg filter-graph composition** | A job-directory path containing `:` (every Windows drive letter), `'`, `,`, `\` or `[`; a clip id that is not a ULID reaching the graph | **Applicable — new in rev 4.** Unlike argv, a filter graph *is* parsed. | `cwd` set to the `resolve_inside`-checked job directory; aux files referenced by **bare relative ULID filename**, whose alphabet contains no graph metacharacter; `clip_id` validated against the ULID regex before composition. Escaping is deleted, not solved. | Graph composition under a job dir path containing `:`/`'`/`,`; a non-ULID `clip_id` refused before spawn; assert the composed graph contains no absolute path |
+| **ffmpeg filter-graph composition** | A job-directory path containing `:` (every Windows drive letter), `'`, `,`, `\` or `[`; a clip id that is not a ULID reaching the graph | **Applicable — new in rev 4.** Unlike argv, a filter graph *is* parsed. | `cwd` set to the job's `render/` subdirectory (`resolve_inside`-checked against the job directory), which is where the aux files are written, so they are referenced by **bare relative ULID filename** with no directory prefix; that alphabet contains no graph metacharacter; `clip_id` validated against the ULID regex before composition. Escaping is deleted, not solved. | Graph composition under a job dir path containing `:`/`'`/`,`; a non-ULID `clip_id` refused before spawn; assert the composed graph contains no absolute path **and no path separator** |
 | **ASS subtitle content injection** | Transcript text containing `{\an8}`, `}`, a lone `\`, `\r\n`, or a 5,000-character hallucinated run | **Applicable — new in rev 4.** Cue text is ASR output, and ASR output is model output. | Neutralise `{`/`}`, escape `\`, strip CR/LF, emit intended breaks only as `\N`; cue length bounded by `max_cue_chars`. Pure function, default suite. | One test per hostile string asserting the emitted dialogue line is a single line with no override block |
 | **Render resource exhaustion** | A clip span of three hours; `end_s` past the source duration; a negative or inverted span; an ffmpeg process that hangs | **Applicable — new in rev 4.** | `0 <= start_s < end_s <= probe.duration_s` and `end_s - start_s <= max_clip_seconds` → `ClipRangeInvalid` before spawn; render timeout `max(60, 20 * duration)`; `-ss` before `-i` so a late clip does not decode the whole source. | Each invalid span rejected before any spawn; timeout surfaces as `RenderFailed`, never `TimeoutExpired` |
 | **Vision adapter decode** | A multi-hour source handed to the tracker; whole-span frame buffering; `ffmpeg \| python` raw-frame pipe | **Applicable — new in rev 4.** | Decode **in-process** (no subprocess pipe of raw frames, per the binding constraint), sequentially over the clip span only, downscaled to ≤640 px, evaluating every Nth frame and releasing each. Cost is bounded by clip length, never source length. | Tracker asked for a span longer than `max_clip_seconds` refuses; `localmodel`-marked test asserts detection covers only the requested span |
@@ -1452,9 +1573,9 @@ Applicable rows carry into `tasks.md` unchanged and are written RED before imple
 | Unit | Stitcher lockstep: a boundary word's timing appears exactly once; no orphaned entry after a cut; a word-less transcript stitches byte-identically to today | Pure functions over fixtures; the last case is the regression guard for the whole retrofit |
 | Contract | The word-timing invariant `"".join(w.text) == segment.text` on both ASR adapter families | Added to the existing shared contract body; `localmodel` / `paid` marked |
 | Unit | Trajectory: jitter is smoothed; sub-threshold movement does not move the crop; supra-threshold does; a rect near an edge is clamped inside; a bounded short gap is `INTERPOLATED`; a leading gap and an over-long gap are `FALLBACK_CENTER`; a predominantly-fallback trajectory is `LOW_CONFIDENCE` and a predominantly-tracked one is not | Fake detector, **no vision weights** — the success criterion rev 4 was most likely to break |
-| Unit | `crop_size_for` / `quality_of`: 4K → NATIVE 0.89; 1080p → UPSCALED 1.78; both dimensions even; a source narrower than 9:16 | Pure arithmetic, the proposal's numbers pinned |
+| Unit | `crop_size_for` / `quality_of`: 3840×2160 → `1214×2160` → NATIVE 0.89; 1920×1080 → `606×1080` → UPSCALED 1.78; both dimensions even; the postcondition `crop_w <= frame.width and crop_h <= frame.height` over odd frame dimensions; a source narrower than 9:16 | Pure arithmetic, the one authoritative pair of numbers pinned |
 | Unit | `MediaProbe.frame`: dimensions read; attached cover art does not become a frame; ±90° rotation swaps to display geometry; absence is `None`; a consumer refuses with `FrameGeometryUnavailable` | ffprobe JSON fixtures — no ffmpeg needed, the parse is already isolated |
-| Unit | Cue building: a multi-second segment splits at word boundaries; a word-less segment yields `SEGMENT_LEVEL` and never an even distribution; `WORD_LEVEL` only when every speech segment has words | Pure, default suite |
+| Unit | Cue building: a multi-second segment splits at word boundaries; a word-less segment yields `SEGMENT_LEVEL` and never an even distribution; `WORD_LEVEL` only when every **eligible** segment has words; `MUSIC` never becomes a cue while keeping its timestamps; an all-`UNCERTAIN` span still produces cues, unmarked in-frame, and declares `INCLUDES_UNVERIFIED`; an all-`MUSIC` span yields zero cues and declares `NONE`; totality — a whitespace-only segment is not eligible, so `NONE` holds if and only if the cue set is empty | Pure, default suite |
 | Unit | ASS escaping and `sendcmd` densification | Pure modules beside `argv.py`, the shipped precedent |
 | Architecture | `domain`/`usecases`/`ports` still import no `adapters`/`runtime` after three new ports and three new use cases | The shipped `ast` walk, unchanged and not weakened |
 | Structural | `RenderRequest` has no field able to carry an external asset | Same shape as the shipped "no `UploadFile` in `adapters/web`" test — an absence cannot be proven by a request |
@@ -1471,10 +1592,10 @@ and the 800-line budget. **Slice 11 must split, and the split also reorders.**
 | **11a** | `FrameSize`, `MediaProbe.frame`, the two ffprobe guards, `FrameGeometryUnavailable`, refusal path | 12a | Small and independent. **No storage change, no codec change, no migration** — because the probe is re-run rather than persisted. |
 | **11b** | `WordTiming`, capability axis, codec tolerance, stitcher lockstep, contract invariant | the subtitle half of 13a | The retrofit. Shares **zero files** with 11a. |
 | **12a** | `domain/framing.py` entities + `__post_init__` invariant, `SubjectTrackerPort`, `TrackerCapabilities`, fake detector | 12b | |
-| **12b** | The six-stage pipeline + confidence | 13a | The one estimate with real grounding — pure logic, like the well-measured 2a/2b. |
+| **12b** | The six-stage pipeline + confidence | 13b-iii | The one estimate with real grounding — pure logic, like the well-measured 2a/2b. |
 | **13a** | `VideoRenderPort`, `RenderRequest`, pure `render_argv`/`sendcmd`/`subtitles` modules, cue building, quality arithmetic | 13b | No ffmpeg executed. All arithmetic, all default suite. |
 | **13b** | The real ffmpeg renderer, `render_worker`, `ClipExport` storage, HTTP clip routes, integration test | — | |
-| **13c** | The real vision tracker adapter | — | `localmodel` only; independent of 13b. |
+| **13c** | The real vision tracker adapter | — | `localmodel` only. Needs 12a's port and 13b-i's `max_clip_seconds` for its span refusal; independent of the rest of 13b. |
 
 **11a and 11b must not ship as one unit.** They share no file, no type and no test; they were bundled in
 the proposal only because both are "domain gaps rendering exposed". Bundled, they land as one ~1,600-line
@@ -1498,6 +1619,13 @@ unblocks slice 12, so bundling delays the whole geometry track behind the riskie
 - [ ] **New — `command_hz` is a guess.** 25 Hz is chosen as "about frame rate" without `MediaProbe`
       carrying frame rate, which the spec did not require. If stepping is visible on 50/60 fps footage, the
       fix is either raising the constant or adding `fps` to `MediaProbe` — a second, separate probe delta.
+- [ ] **New — caption coverage is settled by declaration, with a trigger.** Cue eligibility is
+      `without_music` and `UNCERTAIN` is captioned unmarked, declared once via `RenderedClip.captions`.
+      That is a decision, not an open question — but it was taken while **no classifying engine exists**,
+      so `INCLUDES_UNVERIFIED` is currently the only outcome any real engine can produce. Revisit once
+      slices 7–8 ship a classifying adapter and the value starts discriminating: if `INCLUDES_UNVERIFIED`
+      then becomes rare, a per-cue treatment may be worth the pixels it costs. Unlike the slice-10a
+      `speech_segments` question, this one has a stated default that is safe to ship.
 - [ ] **Open Question 9 sharpens again.** Whether musical ranges are *promoted* as clip candidates is now a
       question about the most shareable artifact the system can produce. Still a ranking-policy decision in
       slice 10b, still changes no type — but rev 4 raised its value.

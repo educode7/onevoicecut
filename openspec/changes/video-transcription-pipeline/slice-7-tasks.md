@@ -24,7 +24,7 @@
 |-------|-------|
 | Estimated changed lines | ~2,150 (7a-i ~450 · 7a-ii ~250 · 7a-iii ~250 · 7a-iv ~250 · 7b-i ~625 · 7b-ii ~375) |
 | Test share expectation | 65–80%, per the measured pattern on every slice since 4a (68–81%, never the original 56%) |
-| 400-line budget risk | Low per-unit — every unit individually estimated 250–625 lines, none at the ceiling; High in aggregate across all six |
+| 800-line budget risk | Low per-unit — every unit individually estimated 250–625 lines, none at the ceiling; High in aggregate across all six |
 | Chained PRs recommended | Yes |
 | Suggested split | 6 work units, PR 16 → PR 21 |
 | Delivery strategy | auto-chain |
@@ -34,7 +34,7 @@
 Decision needed before apply: No
 Chained PRs recommended: Yes
 Chain strategy: stacked-to-main
-400-line budget risk: Low
+800-line budget risk: Low
 ```
 
 ### Suggested Work Units

@@ -270,14 +270,18 @@ close to equivalent:
 
 | Source | 9:16 crop | Against a 1080×1920 target | Pixels in the delivered clip |
 | --- | --- | --- | --- |
-| 4K — 3840×2160 | **1215×2160** | downscale 0.89x — **native, with headroom to punch in** | 2.62 MP |
-| 1080p — 1920×1080 | **608×1080** | **upscale 1.78x** — visibly soft | 0.66 MP |
+| 4K — 3840×2160 | **1214×2160** | downscale 0.89x — **native, with headroom to punch in** | 2.62 MP |
+| 1080p — 1920×1080 | **606×1080** | **upscale 1.78x** — visibly soft | 0.65 MP |
 
-The 4K path delivers **3.2x the pixel area**. That is the difference between a clip that holds up
+Both crop widths are rounded **down to the nearest even integer** — H.264 requires even dimensions, and
+rounding down is what keeps the crop inside the frame. `2160 × 9/16` is exactly `1215`, which is odd;
+`1080 × 9/16` is `607.5`. The rule and its consequences are stated once in `design.md`.
+
+The 4K path delivers **4.0x the pixel area** (2.62 MP against 0.65 MP). That is the difference between a clip that holds up
 full-screen and one that only holds up as a thumbnail.
 
 **Consequence: the renderer must declare its output quality rather than silently upscaling.** A clip
-upscaled 1.78x from a 608-pixel-wide crop looks unremarkable in a file listing and soft only once it is
+upscaled 1.78x from a 606-pixel-wide crop looks unremarkable in a file listing and soft only once it is
 full-screen on a phone — which is to say, once it is published. This is the same failure shape as the
 three silent-degradation axes already in this proposal, arriving on a fourth: *the artifact looks fine*.
 The render reports whether the clip is native or upscaled, and by how much.
@@ -360,9 +364,9 @@ adapters on the single-speaker path; diarization behavior is asserted per declar
 | `tests/` | New | Fast unit suite (fakes) + marked adapter contract tests |
 | `README.md` | New | ffmpeg install step, diarization setup caveats, run instructions; **[rev 4]** vision model setup, and the source-resolution guidance from Open Question 12 |
 
-## Size Forecast (400-line review budget)
+## Size Forecast (800-line review budget)
 
-**400-line budget risk: High. This does NOT fit in one 400-line review, and it grew.**
+**800-line budget risk: High. This does NOT fit in one 800-line review, and it grew.**
 
 Revised estimate: **~2,600–3,100 changed lines across 10 slices**, up from ~1,600–1,900 across 5 in
 rev 1. The growth is not padding — it is the four answers:
@@ -425,7 +429,7 @@ miss:
 | Risk | Likelihood | Mitigation |
 | --- | --- | --- |
 | ~~No git repository exists~~ — **RESOLVED after this proposal was written.** `git init -b main` was run and a `.gitignore` was added. Nothing is committed yet. | Resolved | Remaining prerequisite for slice 1: an initial commit, so per-slice rollback is `git revert`. |
-| Total work far exceeds the 400-line budget, and grew from ~1,800 to ~2,850 lines | High | Ten chained slices above; confirm strategy before apply |
+| Total work far exceeds the 800-line budget, and grew from ~1,800 to ~2,850 lines | High | Ten chained slices above; confirm strategy before apply |
 | **Multi-hour as the normal case makes every long-audio defect a routine defect, not an edge case** | High | Chunking and the chunk-aware job model move to slices 2 and 4, ahead of any real engine |
 | **Local diarization needs an extra component (`pyannote.audio`/`WhisperX`, extra weights, gated license)** — not parity with the cloud flag | High | Stated plainly above; capability declaration on the port; rejection instead of silent single-speaker output |
 | Silent degradation: an adapter returning unlabeled output for a speaker-mode job looks like success | Med | Explicit rejection path is a spec requirement, tested in slice 9 |
@@ -440,7 +444,7 @@ miss:
 | Cloud ASR/LLM per-minute cost leaking into CI or default test runs — worse now, since diarization add-ons bill on top | Med | Marked integration tests excluded from default suite |
 | ~~Scope creep toward actual video generation~~ — **SUPERSEDED in rev 4.** Rendering is now in scope by decision, not by drift. The residual risk is different: creep from *editing real footage* into *generating footage*. | Med | Redrawn non-goal: every frame and word in an output clip comes from the source sermon. No synthesis, no avatars, no dubbing, no B-roll |
 | **Word-level timing is a retrofit through a type that already crosses every layer.** `TranscriptSegment` is in the storage codec, the stitcher, both fakes, and every construction site in the test suite. The rev-3 table flagged exactly this shape for `SegmentKind` and mitigated it by landing it as slice 1b, *before* adapters existed. That option is gone — `adapters/storage` and `adapters/ffmpeg` now exist | **High** | Land it as its own slice (11) before any rendering work, and treat the codec's explicit field-by-field decoding as the thing that makes the migration visible rather than silent |
-| **The 1080p path cannot deliver a native vertical clip.** A 9:16 crop of 1920×1080 yields 608×1080 against a 1080×1920 target — a 1.78x upscale before any punch-in on a distant preacher | **High** on 1080p sources, **absent** on 4K | Not solvable in software; the camera sets the ceiling. Mitigated by *declaring* it: the render reports native vs upscaled rather than quietly producing a soft clip. Prefer the 4K source when the service has one |
+| **The 1080p path cannot deliver a native vertical clip.** A 9:16 crop of 1920×1080 yields 606×1080 against a 1080×1920 target — a 1.78x upscale before any punch-in on a distant preacher | **High** on 1080p sources, **absent** on 4K | Not solvable in software; the camera sets the ceiling. Mitigated by *declaring* it: the render reports native vs upscaled rather than quietly producing a soft clip. Prefer the 4K source when the service has one |
 | **`MediaProbe` carries no frame dimensions**, so neither the crop geometry nor the quality declaration is computable today | **High** (blocks slices 12-13 outright) | Small, well-bounded fix: `ffprobe` already returns width/height in the payload the adapter currently discards. Land it with the word-timing retrofit in slice 11 — both are domain-model gaps that rendering exposed |
 | **A tracker that lost the subject returns a plausible centered crop** — a clip framed on an empty pulpit looks like a successful render | **High** (same shape as the two silent-degradation failures already in this table) | Keyframe provenance (`TRACKED`/`INTERPOLATED`/`FALLBACK_CENTER`); a mostly-fallback trajectory is reported, not delivered as success |
 | Vision weights leaking into the default test run, breaking the "no model weights by default" criterion | Med | Detection behind `SubjectTrackerPort`; all trajectory arithmetic proven against a fake detector; real adapter tests carry the existing `localmodel` marker; `requirements-vision.txt` kept out of the default install |

@@ -22,7 +22,7 @@
 |-------|-------|
 | Estimated changed lines | ~2,025 (11a ~525 · 11b-i ~625 · 11b-ii ~475 · 11b-iii ~400) |
 | Test share expectation | 65–80%, per the measured pattern on every slice since 4a (68–81%, never the original 56%) |
-| 400-line budget risk | Low per-unit — every unit individually estimated 400–650 lines, none at the ceiling; High in aggregate across all four |
+| 800-line budget risk | Low per-unit — every unit individually estimated 400–650 lines, none at the ceiling; High in aggregate across all four |
 | Chained PRs recommended | Yes |
 | Suggested split | 4 work units, PR 41 → PR 44 (shifted from PR 24–27 by the rev-5 re-baseline of slices 7a–10b) |
 | Delivery strategy | auto-chain |
@@ -32,7 +32,7 @@
 Decision needed before apply: No
 Chained PRs recommended: Yes
 Chain strategy: stacked-to-main
-400-line budget risk: Low
+800-line budget risk: Low
 ```
 
 ### Suggested Work Units
@@ -51,3 +51,6 @@ Chain strategy: stacked-to-main
 - **11b-i must land before 11b-ii and 11b-iii** — both need the `WordTiming`/`words` field and the
   `WordTimingSupport` capability to exist. 11b-ii and 11b-iii do not depend on each other and may proceed
   in parallel once 11b-i is merged.
+- **11b-i also gates slice 13a-ii**, the subtitle half of slice 13: cue building reads
+  `TranscriptSegment.words`. No other slice-12 or slice-13 unit depends on the 11b track — slice 12 and
+  13a-i/13a-iii depend on 11a instead.
