@@ -156,7 +156,7 @@ constraint demands: crash isolation and an enforceable per-chunk timeout.
 
 Spawned with `multiprocessing.get_context("spawn")` (required on Windows, safer with native ASR libs).
 Concurrency is **one running job**; further jobs stay `PENDING` in the store. Entrypoint is headless —
-`python -m transcribe.runtime.worker --job-id <id>` — so the job model (slice 4) is complete and
+`python -m onevoicecut.runtime.worker --job-id <id>` — so the job model (slice 4) is complete and
 testable before the web UI (slice 5) attaches the supervisor to a FastAPI lifespan hook.
 
 **What a crash actually costs, stated plainly**: every chunk result is `os.replace`-committed as it
@@ -445,7 +445,7 @@ about it — that is what makes an LLM provider swap an adapter-only change.
 ## Package Layout
 
 ```
-src/transcribe/
+src/onevoicecut/
   domain/      ids.py media.py chunking.py transcript.py jobs.py generation.py errors.py
                # zero third-party imports
   ports/       media_source.py audio_extractor.py transcription.py text_generation.py
@@ -464,8 +464,8 @@ Top-level names name the problem (`chunking`, `jobs`, `transcript`), not the fra
 the composition root: `engine_resolver.resolve(engine: EngineChoice) -> TranscriptionPort` is the only
 code that maps a per-job choice to a concrete adapter, so use cases stay engine-agnostic.
 
-`tests/test_architecture.py` walks `src/transcribe/{domain,usecases,ports}` with `ast` and asserts none
-of them imports `transcribe.adapters` or `transcribe.runtime`. ~15 lines, no new dependency, and it
+`tests/test_architecture.py` walks `src/onevoicecut/{domain,usecases,ports}` with `ast` and asserts none
+of them imports `onevoicecut.adapters` or `onevoicecut.runtime`. ~15 lines, no new dependency, and it
 turns the hexagonal boundary from a convention into a failing test.
 
 ## Data Flow
@@ -677,4 +677,827 @@ inert data, safe to delete. Prerequisite before slice 1 remains an initial commi
       Needs a product decision at slice 9: is per-chunk labelling acceptable for multi-speaker material?
 - [ ] **New — concurrency.** One running job at a time is assumed. If the operator wants two, the
       supervisor's semaphore is the only change, but local ASR will contend for CPU/GPU.
+
+---
+
+# Rev 4 — Vertical Clip Rendering
+
+> Phase: `sdd-design` (rev 4 delta) · Binding inputs: `proposal.md` rev 4, the new `specs/subject-tracking`
+> (13 requirements) and `specs/clip-rendering` (10), the two appended `transcript-artifacts` requirements
+> (`Word-Level Timing`, `Word-Level Timing Is Consistent With Overlap Stitching`), and the appended
+> `audio-extraction` requirement (`Media Probe Reports Frame Dimensions`).
+> **Verified state at writing**: slices 1–6 are shipped and green — 511 tests, 0 skipped, mypy clean over
+> 104 files; `domain/`, `ports/`, seven use cases, `adapters/{ffmpeg,storage,web}`, `runtime/` and
+> `tests/fakes/` all exist. Package is `onevoicecut`, not the `transcribe` used in the rev 1–3 text above.
+> **Nothing above this line is re-opened.** Every rev 1–3 decision is load-bearing on shipped code; this
+> section only *extends* them. Where a rev-4 decision touches a shipped mechanism (the storage codec, the
+> stitcher, `TranscriptionCapabilities`, `argv.py`) the extension is stated as a delta against the exact
+> shipped behaviour, never as a replacement.
+> Deviation note, restated for rev 4: this section exceeds the 800-word design budget for the same reason
+> the rev 1–3 document did. The brief enumerates a retrofit through five layers, three port contracts, a
+> six-stage geometry pipeline, an ffmpeg filter-graph attack surface, and a placement verdict. Compressing
+> that below 800 words would produce gestures instead of decisions.
+
+## Rev-4 Technical Approach
+
+Rendering does not change the shape of the system; it adds a **second, short branch off a completed job**.
+Transcription is a multi-hour pipeline that ends at `COMPLETED`. A render is a minutes-long operation over
+a few minutes of that same source, triggered afterwards by an explicit operator selection (proposal Open
+Question 13). The two share the job directory and nothing else.
+
+The rev-4 shape is the rev-1 shape applied twice more:
+
 ```
+detection (weights, slow, marked)  →  arithmetic (pure, default suite)  →  native pass (ffmpeg, one process)
+     SubjectTrackerPort                    plan_trajectory                        VideoRenderPort
+```
+
+That is the same split that let chunk planning and stitching be proven before either ASR engine existed,
+and it is the reason `CropTrajectory` is a domain object rather than a private variable inside a renderer:
+everything easy to get wrong — jitter, a crop leaving the frame, a gap in detections, "did we actually
+track anything" — is arithmetic over a list of keyframes, and arithmetic runs in the default suite.
+
+Four rev-4 decisions exist only to keep a *fourth, fifth, sixth and seventh* silent-degradation axis from
+opening. Rev 1–3 established three (diarization, `SegmentKind`, and the `UNCERTAIN` default). Rev 4 adds:
+word timing that is empty rather than fabricated, keyframe provenance, subtitle-timing provenance, and the
+native-vs-upscaled quality declaration. All four share one shape: *the artifact looks fine*.
+
+## Decision: `WordTiming` is an additive, defaulted, never-nullable field
+
+This is the highest-risk item in rev 4 and it is decided as five separate sub-decisions, because bundling
+them is how a retrofit goes wrong.
+
+### 1. Optional vs required — required on the type, defaulted to empty
+
+```python
+# domain/transcript.py
+@dataclass(frozen=True, slots=True)
+class WordTiming:
+    start_s: float
+    end_s: float
+    text: str          # VERBATIM as the engine emitted it, leading space and punctuation included
+
+@dataclass(frozen=True, slots=True)
+class TranscriptSegment:
+    start_s: float
+    end_s: float
+    text: str
+    speaker: str | None
+    confidence: float | None
+    kind: SegmentKind = SegmentKind.UNCERTAIN
+    words: tuple[WordTiming, ...] = ()      # rev 4 — additive, defaulted, NEVER None
+```
+
+| Option | Tradeoff | Verdict |
+| --- | --- | --- |
+| `words: tuple[WordTiming, ...] \| None` | `None` and `()` would both mean "no word timing here". Two representations of one fact, and every consumer needs a `None` branch that is indistinguishable in behaviour from the empty branch. | Rejected |
+| `words: tuple[WordTiming, ...]` **required, no default** | Honest, but breaks all 15 `TranscriptSegment(...)` construction sites at once and gives a non-word-timing adapter nothing to write but `()` anyway. | Rejected |
+| **`words: tuple[WordTiming, ...] = ()` (chosen)** | The spec's "explicitly empty" *is* the honest value, so the safe default and the absent value coincide — exactly as `kind` defaults to `UNCERTAIN`. Zero of the 15 shipped construction sites change. | **Chosen** |
+
+**Rationale**: the retrofit's measured blast radius is much smaller than the proposal feared, and this
+decision is why. `TranscriptSegment(...)` is constructed in exactly 15 places across 10 files (1 in `src/`
+— the storage codec — and 14 in tests, most of them factories). A trailing defaulted field is source- and
+behaviour-compatible with every one of them. **What is expensive is not the field. It is the stitcher and
+the codec**, and those are decided below.
+
+`None` is unrepresentable, so "the adapter cannot do word timing" and "this MUSIC segment has no words"
+are the same value `()`. That is correct: the difference between them is a property of the *adapter*, not
+of the segment, and it is carried by the capability declaration.
+
+### 2. What a segment from a non-word-timing engine looks like
+
+`words=()`, always, and the adapter declares `WordTimingSupport.UNSUPPORTED`. Never an evenly-distributed
+estimate. The design response that makes this testable rather than aspirational is a **port invariant**:
+
+> **INVARIANT (word timing)**: when `segment.words` is non-empty,
+> `"".join(w.text for w in segment.words) == segment.text`.
+> The adapter owns both fields and MUST make them consistent. Word times are **chunk-local**, on the same
+> terms as `start_s`/`end_s` — the stitcher is the only place they become track-relative.
+
+This invariant is load-bearing three ways: it makes the stitcher able to rebuild text from surviving words
+without inventing spacing (sub-decision 4); it is a single assertion in the shared contract suite that
+catches an adapter fabricating word boundaries (a fabricated set will not reconstruct the text); and it
+forces cloud adapters that return bare word strings to *choose* — normalise both fields into agreement, or
+declare `UNSUPPORTED`. There is no third option in which they quietly disagree.
+
+**Alternative rejected**: word entries as `(offset, length)` index ranges into `segment.text`. More precise
+on paper, but every consumer would slice strings, and any downstream normalisation of `text` silently
+invalidates every offset. The failure would be off-by-a-few captions with no error — the exact failure
+class this document exists to close.
+
+### 3. Capability declaration — admitted by the *existing* rule, with no further widening
+
+```python
+# ports/capabilities.py
+class WordTimingSupport(StrEnum):
+    UNSUPPORTED = "unsupported"   # engine emits no word boundaries at all
+    AVAILABLE   = "available"
+
+@dataclass(frozen=True, slots=True)
+class TranscriptionCapabilities:
+    engine_id: str
+    diarization: DiarizationSupport
+    non_speech_classification: ClassificationSupport
+    word_timing: WordTimingSupport          # rev 4 — required, no default
+    max_chunk_bytes: int | None
+    max_chunk_duration_s: float | None
+```
+
+The membership rule (widened once, deliberately, in rev 2) reads: *a field belongs here only if a use case
+must read it to (a) **reject or warn about** a job before work starts, or (b) compute a chunk plan.*
+`word_timing` satisfies clause (a) **as already written** — `AdmitJob` warns when the operator selects an
+engine with no word timing, because burned-in captions are now the product outcome and learning after a
+three-hour run that captions will be segment-level is precisely the wasted-run failure that justified the
+rev-2 widening. **The rule is not widened again**, and this is recorded because the rule's whole value is
+that it stays narrow.
+
+Two members, not three: unlike `DiarizationSupport` there is no `REQUIRES_SETUP` state, because
+`faster-whisper`'s `word_timestamps=True` uses cross-attention alignment over weights already loaded — no
+extra download, no gated licence. Mirroring `ClassificationSupport` is the honest shape.
+
+### 4. Stitcher — word dedup happens in the same pass, keyed on the same cut
+
+The spec's new obligation. The shipped stitcher cuts on a **time**, and words carry times, so dedup is
+already expressible in the existing algorithm without a second matching pass. Three changes to
+`usecases/stitch_transcript.py`, all local:
+
+```python
+def _shift(segment: TranscriptSegment, offset: float) -> TranscriptSegment:
+    return replace(
+        segment,
+        start_s=segment.start_s + offset,
+        end_s=segment.end_s + offset,
+        words=tuple(
+            replace(w, start_s=w.start_s + offset, end_s=w.end_s + offset)
+            for w in segment.words
+        ),
+    )
+
+def _split_words(segment: TranscriptSegment, cut: float, *, keep: str) -> TranscriptSegment | None:
+    """Partition a straddling segment's words by WORD START ONLY.
+
+    Total and disjoint: every word lands on exactly one side of the cut, so a word
+    straddling the cut is neither duplicated nor lost. The segment's own times are then
+    DERIVED FROM THE SURVIVING WORDS rather than from the cut, and its text is rebuilt by
+    concatenation, which the word-timing invariant makes lossless.
+    """
+    kept = tuple(w for w in segment.words if (w.start_s < cut if keep == "before" else w.start_s >= cut))
+    if not kept:
+        return None                                   # drop, per the docstring that could not be honoured before
+    return replace(
+        segment,
+        start_s=kept[0].start_s,
+        end_s=kept[-1].end_s,
+        words=kept,
+        text="".join(w.text for w in kept),
+    )
+```
+
+`_clip_before` and `_clip_after` call `_split_words` **only when `segment.words` is non-empty**; when it is
+empty they keep today's exact time-truncation behaviour. That is what makes this change additive: a
+transcript from a non-word-timing engine stitches byte-for-byte as it does today, so the shipped stitcher
+tests stay green unchanged and the new tests are purely additive.
+
+| Consequence | Statement |
+| --- | --- |
+| **Bought** | No orphaned `WordTiming` at a seam, and no lost word timing for a word that survives — both spec scenarios, closed by construction rather than by a post-pass. |
+| **Paid** | The two segments sharing a seam may overlap by less than one word's duration (~0.3 s), because each keeps the whole of any word it owns. **Text is never duplicated**, which is the property the spec binds; the sub-word timestamp overlap is real audio the speaker said once. |
+| **Made true** | `_clip_before`'s existing docstring says "drop it if empty". Today nothing can drop, because text is never truncated. With words, an empty survivor set drops the segment — the comment stops being aspirational. |
+
+**Alternative rejected**: re-align words against the stitched text after the fact, by tokenising both.
+That re-derives what the adapter already knows and must guess whenever the alignment is ambiguous — which
+is fabrication of word boundaries, the exact thing the spec forbids on this axis.
+
+**Alternative rejected**: dedup words by matching word *text* runs independently of the segment cut. Two
+matchers on one seam can disagree, and then text and timing describe different cuts. One cut, one
+partition.
+
+### 5. Storage codec — one tolerated absence, and only one
+
+`adapters/storage/serialization.py` encodes with `asdict`, which already recurses into nested frozen
+dataclasses, so **the encoder needs no change at all**: `words` serialises as a list of objects for free.
+Decoding is the decision.
+
+The shipped `_segment` reads `kind` strictly and rejects an absent key as `CorruptedRecord`, with a stated
+reason: *"a stored segment always carries a kind, so an absent one is a broken file, not an unclassified
+one."* That reason was true because `SegmentKind` landed as slice 1b, **before any file could exist**. It
+is false for `words`: `results/NNNN.json` files written by shipped slices 1–6 exist on disk right now and
+legitimately lack the key.
+
+| Option | Tradeoff | Verdict |
+| --- | --- | --- |
+| Strict, mirroring `kind` | Consistent, but makes every pre-slice-11 chunk result unreadable — resume of an in-flight job would fail as `CorruptedRecord` after the upgrade, which is the one operation the atomic-write contract exists to protect. | Rejected |
+| A `schema_version` field on every record | General, but adds a version to every encoder and every decoder to carry one additive field, in a codec that has no versioning today. Machinery ahead of need. | Rejected |
+| **Absent key → `()`; present-but-malformed → `CorruptedRecord` (chosen)** | Strictness stays exactly where it detects corruption. Leniency applies only to an absence that encodes a real historical fact, and resolves to the honest empty value rather than a guess. | **Chosen** |
+
+```python
+def _word_timings(record: Record) -> tuple[WordTiming, ...]:
+    # The ONE tolerated absence in this codec, and it is tolerated for a dated reason:
+    # chunk results written before slice 11 exist on disk and predate the field. Absent
+    # resolves to the honest empty value — the same value a non-word-timing adapter writes —
+    # so tolerating it fabricates nothing. A key that is PRESENT but not a list of objects is
+    # still a broken file.
+    if "words" not in record:
+        return ()
+    return tuple(
+        WordTiming(
+            start_s=_number(item, "start_s"),
+            end_s=_number(item, "end_s"),
+            text=_text(item, "text"),
+        )
+        for item in _objects(record, "words")
+    )
+```
+
+RED tests this implies: a pre-slice-11 fixture payload (no `words` key) decodes with `words == ()`;
+`"words": "hello"` raises `CorruptedRecord`; `"words": [{"start_s": true, ...}]` raises `CorruptedRecord`;
+and the spec's round-trip scenario — a segment persisted with `()` is retrieved with `()`, never a
+fabricated one.
+
+## Decision: `MediaProbe.frame` is one nullable pair, not two nullable ints
+
+```python
+# domain/media.py
+@dataclass(frozen=True, slots=True)
+class FrameSize:
+    width: int
+    height: int
+
+@dataclass(frozen=True, slots=True)
+class MediaProbe:
+    duration_s: float
+    container: str
+    has_audio: bool
+    frame: FrameSize | None = None      # rev 4 — None means DECLARED ABSENT, never "unknown, assume 1080p"
+```
+
+| Option | Tradeoff | Verdict |
+| --- | --- | --- |
+| `width: int \| None` + `height: int \| None` | Four states for a two-state fact. `width=1920, height=None` is representable and meaningless, and every consumer must handle it. | Rejected |
+| Sentinel `FrameSize(0, 0)` | Absence becomes arithmetic — a division by zero somewhere far from the probe instead of a refusal at the boundary. | Rejected |
+| **`frame: FrameSize \| None` (chosen)** | Absence is one fact, checked once. `mypy` forces every consumer to narrow before touching geometry, which is the spec's "refuse cleanly" made structural. | **Chosen** |
+
+Consumers refuse with a new domain error, `FrameGeometryUnavailable(DomainError)` — not
+`UnsupportedContainer`, because the container is fine; it simply carries no video.
+
+**Two ffprobe parsing guards, both of which fail silently if omitted.** The shipped `probe()` already reads
+`payload["streams"]`; extracting dimensions from it has two traps worth naming:
+
+1. **Attached cover art is a video stream.** An audio file with embedded artwork reports a `video` stream
+   of, say, 500×500. Selecting the first `codec_type == "video"` stream would report a square "frame" for
+   an audio-only source and hand the trajectory planner a fabricated geometry that no consumer could
+   detect. **Guard**: skip streams with `disposition.attached_pic == 1`; if none survives, `frame = None`.
+2. **Rotation metadata makes coded size differ from display size.** A file with a `displaymatrix` side-data
+   rotation of ±90° stores 1920×1080 but *displays* 1080×1920. ffmpeg auto-rotates on decode, so the filter
+   graph sees display geometry — a crop computed against coded geometry would crop the wrong axis and look
+   like a framing bug rather than a metadata bug. **Guard**: read the rotation from `side_data_list` and
+   swap width/height when it is ±90°, so `FrameSize` is **always display geometry**.
+
+Unlikely on a fixed church camera, cheap to add, and silent when wrong — which is the whole reason to add
+it now rather than after the first misframed clip.
+
+**`MediaProbe` is not persisted.** The renderer re-probes. `ffprobe` on a local file is milliseconds and
+idempotent, the source is already in the job directory, and storing a second copy of derived metadata
+creates a staleness question for no gain. This is why the frame-dimension delta needs **no storage change,
+no codec change, and no migration** — it is genuinely small, and that matters for the split recommendation
+below.
+
+### Placement verdict: `sdd-spec` was right — CONFIRMED, not overturned
+
+The frame-dimension requirement stays in `specs/audio-extraction/spec.md`. Three reasons, in order of
+weight:
+
+1. **The contract that changes is `AudioExtractorPort.probe()`.** A capability owns the port whose contract
+   it binds. `media-ingest` owns the HTTP boundary and the two per-job inputs; it does not own container
+   inspection and never has — `Content type is validated by ffprobe, never by extension` already lives on
+   the extraction side.
+2. **The code that changes is `adapters/ffmpeg/extractor.py`.** ffmpeg lives behind `AudioExtractorPort`
+   and nowhere else. Putting the requirement in `media-ingest` would create a spec whose only possible
+   implementation is in another capability's adapter.
+3. **`media-ingest` has an active reason not to grow this.** It is the capability whose scenarios enforce
+   that the web layer stores bytes without interpreting them (extensionless `source`, filename as metadata
+   only). Adding "and reports the video's pixel dimensions" to that capability blurs exactly the boundary
+   its own tests defend.
+
+**Recorded smell, deliberately not fixed**: the capability is named `audio-extraction` and now specifies a
+video-geometry field. `media-extraction` would be the better name. Renaming rewrites a shipped spec file,
+its heading references, and the archive report for zero behavioural gain, and every rename is a chance to
+lose a requirement in transit. The name is imprecise; the placement is correct. Leave it.
+
+## Decision: three new ports, and what each is forbidden to know
+
+```python
+# ports/capabilities.py  (rev 4 additions)
+class DetectionSupport(StrEnum):
+    UNSUPPORTED    = "unsupported"     # this build can never track (no vision adapter compiled in)
+    REQUIRES_SETUP = "requires_setup"  # adapter present, weights or requirements-vision.txt absent
+    AVAILABLE      = "available"
+
+@dataclass(frozen=True, slots=True)
+class TrackerCapabilities:
+    tracker_id: str
+    detection: DetectionSupport
+
+@dataclass(frozen=True, slots=True)
+class RenderCapabilities:
+    renderer_id: str
+    vertical_render: RenderSupport      # UNSUPPORTED | REQUIRES_SETUP | AVAILABLE (ffmpeg absent)
+```
+
+Three members for `DetectionSupport` and not two, because the operator remediation genuinely differs:
+"choose another tracker" versus "`pip install -r requirements-vision.txt` and let the weights download".
+That is the same argument `DiarizationSupport` made, and the same conclusion.
+
+**The duplication between `DiarizationSupport`, `DetectionSupport` and `RenderSupport` is deliberate.** A
+shared `SupportLevel` enum would be shorter and would couple four independent axes to one vocabulary,
+which is the first step toward inferring one from another — the thing every axis in this system explicitly
+forbids. Four small enums cost twelve lines and make "never infer one axis from the other" a type-level
+fact.
+
+```python
+# ports/subject_tracker.py — answers "where is the person", nothing more
+@dataclass(frozen=True, slots=True)
+class BoundingBox:
+    x: int
+    y: int
+    width: int
+    height: int
+
+@dataclass(frozen=True, slots=True)
+class SubjectDetection:
+    at_s: float                 # CLIP-LOCAL, mirroring TranscriptionPort's chunk-local invariant
+    box: BoundingBox | None     # None is an EXPLICIT MISS, never a centered guess
+    confidence: float | None    # set on a hit; a low-confidence HIT still carries a box
+
+class SubjectTrackerPort(Protocol):
+    def capabilities(self) -> TrackerCapabilities: ...
+    def detect(
+        self, media: SourceMedia, span: TimeSpan, *, sample_hz: float
+    ) -> tuple[SubjectDetection, ...]:
+        """INVARIANT: `at_s` is CLIP-LOCAL and every sample lies within `span`.
+
+        Raises TrackingUnavailable, DetectionFailed.
+        """
+        ...
+```
+
+`box=None` versus a low-confidence hit is the spec's "the no-detection result MUST be distinguishable from
+a low-confidence true detection", made structural: a miss has no box to inspect, a weak hit has one.
+Whether a weak hit is *good enough* is a policy question, and policy lives in the use case, never in the
+detector.
+
+**Coordinates are clip-local, and the reason is mechanical, not aesthetic.** The port takes a
+source-absolute `span` (it must seek in the source file) and returns clip-local times — exactly the pairing
+already shipped between `AudioExtractorPort.slice` (plan-absolute in) and `TranscriptionPort.transcribe`
+(chunk-local out). It is also the coordinate the render pass needs: `-ss` placed before `-i` resets output
+timestamps to zero, so every `sendcmd` timestamp and every subtitle cue is clip-local by construction. One
+translation point, in the trajectory use case, and nothing downstream re-offsets.
+
+```python
+# ports/video_render.py — knows nothing about WHY the trajectory says what it says
+@dataclass(frozen=True, slots=True)
+class RenderRequest:
+    media: SourceMedia                       # the only media input that exists
+    span: TimeSpan                           # source-absolute
+    trajectory: CropTrajectory               # clip-local keyframes, already decided
+    cues: tuple[SubtitleCue, ...]            # clip-local, derived from this job's transcript
+    target: OutputSpec                       # width, height, crf, preset
+    dest: Path                               # server-generated, inside the job directory
+
+@dataclass(frozen=True, slots=True)
+class RenderedFile:
+    path: Path
+    size_bytes: int
+    duration_s: float
+
+class VideoRenderPort(Protocol):
+    def capabilities(self) -> RenderCapabilities: ...
+    def render(self, request: RenderRequest) -> RenderedFile:
+        """Raises RenderFailed, FfmpegUnavailable."""
+        ...
+```
+
+**`RenderRequest` is the design response to the "rendered content originates only from the source"
+requirement, and it answers it with a type rather than a check.** The request has no field capable of
+carrying an external image, audio track, video asset, font file, or overlay. There is nothing to validate
+at runtime because there is nothing to pass. The spec scenario ("its inputs MUST consist only of the source
+media, a `CropTrajectory` computed from that same source, and subtitle cues derived from that same
+source's transcript") is closed by construction, and the RED test that proves it is a structural one — the
+same shape as the shipped test asserting no `UploadFile` import exists anywhere in `adapters/web`, and for
+the same reason: an absence cannot be proven by a request.
+
+```python
+# ports/publish.py — DECLARED, deliberately unimplemented (proposal Open Question 11)
+class PublishPort(Protocol):
+    def capabilities(self) -> PublishCapabilities: ...
+    def publish(self, export: ClipExport) -> PublishReceipt: ...
+```
+
+`PublishPort` exists in this design for exactly one purpose: to keep `ClipExport` from becoming hostile to
+it. Three constraints on `ClipExport` follow, and each would be expensive to discover later:
+
+| Constraint on `ClipExport` | Why a future publisher needs it |
+| --- | --- |
+| It is a **value**, JSON-round-trippable through the existing codec — never an open file handle or a live object. | A publisher may run in a different process, minutes or days later. A handle cannot survive that; a `Path` plus metadata can. |
+| It carries **everything a post needs**: clip path, title, description, the `ScriptVariant` used, source `start_s`/`end_s`, the quality declaration, and the tracking confidence. | Otherwise a publisher would have to re-open the transcript and the trajectory to build a caption — which is a reshape, not an added adapter. |
+| It carries **nothing a publisher owns**: no credentials, no account ids, no scheduling, no per-network fields. | Exactly as ASR API keys live in the resolver and never in `JobRecord`. A per-network field on a domain export makes Open Question 3 structural, which the rev-1 design deliberately kept as data. |
+
+Nothing else about publishing is designed. `PublishReceipt` and `PublishCapabilities` are named so the
+Protocol type-checks; their contents are the future change's problem.
+
+## Decision: trajectory planning is a six-stage pure pipeline, and the order is load-bearing
+
+```python
+# usecases/plan_trajectory.py
+def build_trajectory(
+    detections: tuple[SubjectDetection, ...],
+    frame: FrameSize,
+    span: TimeSpan,
+    policy: TrajectoryPolicy,
+) -> CropTrajectory: ...
+```
+
+`TrajectoryPolicy` is a frozen value from settings: `aspect_w=9`, `aspect_h=16`, `smoothing_window_s=1.0`,
+`dead_zone_fraction=0.04` (of frame width), `max_gap_s=1.5`, `max_fallback_ratio=0.5`, `punch_in=1.0`.
+
+| # | Stage | What it does | Why it is here and not elsewhere |
+| --- | --- | --- | --- |
+| 1 | **Crop size** | Computed **once** for the whole clip: `crop_h = frame.height`, `crop_w = even(frame.height * 9 / 16)`, both clamped to the frame and re-evened. If the source is already narrower than 9:16, `crop_w = frame.width` and `crop_h = even(frame.width * 16 / 9)`. | Even dimensions because H.264 requires them. Constant because a per-keyframe crop size would make "native vs upscaled" vary *within one clip* and therefore undeclarable as one fact. |
+| 2 | **Centres** | Each hit's `box` → desired crop centre (box centre, horizontally; vertically the crop is full-height so `y` is fixed). | Pure geometry over the detector's output. Misses carry no desired centre and are simply absent from stages 3–5. |
+| 3 | **Smooth** | Centred moving average of `smoothing_window_s` over the **tracked subsequence only**. | Averaging across misses would drag the centre toward whatever the miss was replaced with — which is how a "smoothed" trajectory silently walks off the subject. |
+| 4 | **Dead-zone** | Forward hysteresis: hold the last committed `x` until `abs(desired - held) > dead_zone_fraction * frame.width`, then commit. | **After** smoothing, never before. Raw jitter trips a dead-zone repeatedly; smoothed drift trips it once. Reversing stages 3 and 4 produces a crop that twitches at exactly the threshold. |
+| 5 | **Clamp** | `x = min(max(x, 0), frame.width - crop_w)`, same for `y`. | **Last** among the position stages, so nothing after it can push the rect out of frame. |
+| 6 | **Fill** | A run of misses bounded by `TRACKED` on **both** sides and lasting `<= max_gap_s` → linear interpolation between the two bounding committed rects, origin `INTERPOLATED`. Every other run — leading, trailing, or longer than `max_gap_s` — → centred rect, origin `FALLBACK_CENTER`. | Both fill methods preserve the clamp invariant without re-clamping: the frame is convex, both endpoints are inside it, so every point on the segment between them is inside it, and a centred rect is inside by construction. |
+
+Confidence is computed once, on the finished trajectory: `fallback_ratio = count(FALLBACK_CENTER) / total`,
+and `TrackingConfidence.LOW_CONFIDENCE` when it exceeds `max_fallback_ratio` (0.5 = "predominantly", per
+the spec's wording). `INTERPOLATED` counts as *well tracked*, because the spec's own scenario says a
+trajectory predominantly `TRACKED` **or** `INTERPOLATED` is not flagged. Because it is a field on
+`CropTrajectory`, it is available **before** rendering — the spec requires exactly that, and the
+alternative (deriving it at render time) would make it observable only after the file exists.
+
+### Decision: the trajectory is built at detection rate; densification belongs to the adapter
+
+This is the trap in this subsystem, and it is worth naming. Detection is expensive, so it samples at
+`sample_hz` (default 4). `sendcmd` holds a commanded value until the next command, so smooth motion needs
+commands at roughly frame rate (`command_hz`, default 25). Naively resampling the *trajectory* up to 25 Hz
+would mark ~84% of its keyframes `INTERPOLATED` — collapsing the tracked ratio and flagging every
+trajectory low-confidence, on a purely cosmetic resampling.
+
+| Option | Tradeoff | Verdict |
+| --- | --- | --- |
+| Densify in the use case, mark fills `INTERPOLATED` | Destroys the confidence signal. The provenance axis stops meaning anything. | Rejected |
+| Densify in the use case, propagate the left keyframe's origin | Keeps the ratio honest but inflates `CropTrajectory` to ~1,500 keyframes for a 60 s clip, all of which must be persisted and serialised. | Rejected |
+| **Densify in the ffmpeg command-file writer (chosen)** | `CropTrajectory` stays 1:1 with detection samples, so provenance and the tracked ratio mean exactly what they say. | **Chosen** |
+
+Does adapter-side densification violate *"the renderer MUST NOT recompute smoothing, dead-zone, or
+clamping"*? No, and the reason is one line: **linear interpolation between two already-committed rects
+introduces no decision, and by convexity every densified rect lies inside the frame.** No smoothing
+parameter, no threshold, and no clamp is consulted. It is a rendering-fidelity detail, not a geometric
+re-decision — and the densifier lives in a **pure** module (`adapters/ffmpeg/sendcmd.py`), tested in the
+default suite with no ffmpeg, exactly as `argv.py` is today.
+
+## Decision: one native pass via `sendcmd` from a generated command file
+
+| Option | Tradeoff | Verdict |
+| --- | --- | --- |
+| `crop=x='if(between(t,..),..)'` piecewise expression | The whole trajectory becomes one argv token, thousands of characters long, in a syntax that must be composed by string concatenation — the one construction this project's threat matrix bans everywhere else. | Rejected |
+| `zoompan` | Built for panning stills; awkward frame-rate semantics on video and no clean per-time addressing. | Rejected |
+| Decode → per-frame crop in Python → encode | Pipes raw frames across a process boundary. The spec forbids it outright, and it is 1–2 orders of magnitude slower. | Rejected |
+| **`sendcmd=f=<file>` driving `crop` (chosen)** | Native, single process, and the trajectory leaves argv entirely — it lives in a generated file inside the job directory. Only `x` and `y` are commanded, because stage 1 fixed the crop size. | **Chosen** |
+
+The filter graph and argv, extending `adapters/ffmpeg/argv.py` rather than inventing a second approach —
+`_ffmpeg_prefix()` and `resolve_inside()` are reused **verbatim**, so the shipped threat-matrix rows keep
+covering the new path:
+
+```
+ffmpeg -nostdin -hide_banner -loglevel error -protocol_whitelist file
+       -ss <clip_start>                        # BEFORE -i: seek the container, not decode 3 hours to reach it
+       -i <absolute source path>
+       -t <clip duration>
+       -filter_complex "[0:v]sendcmd=f=<CLIP_ID>.cmds,crop=w=<CW>:h=<CH>:x=0:y=0,
+                        scale=<TW>:<TH>:flags=lanczos,subtitles=<CLIP_ID>.ass[v]"
+       -map [v] -map 0:a:0
+       -c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p
+       -c:a aac -b:a 128k
+       -movflags +faststart
+       -y <absolute dest path>
+```
+
+`-ss` before `-i` is the same decision `build_slice_argv` already made and for the same reason; the bonus
+here is that it zeroes the output timestamps, which is what makes clip-local coordinates correct end to
+end rather than merely convenient.
+
+### The one genuinely new attack surface: a filter graph IS parsed
+
+`argv.py`'s safety rests on a fact that stops being true inside `-filter_complex`: *nothing parses the
+tokens*. A filter graph is parsed, with its own escaping rules for `:`, `,`, `'`, `\` and `[`/`]` — and on
+Windows every absolute path contains a drive colon, so `subtitles=C:\...\x.ass` is malformed before any
+hostile input is involved. Documented escaping for this is three layers deep and famously fragile.
+
+**Design response — containment, not escaping.** ffmpeg is spawned with `cwd` set to the job directory
+(itself `resolve_inside`-checked), and the two auxiliary files are referenced in the graph by **bare
+relative filename**: `<CLIP_ID>.cmds` and `<CLIP_ID>.ass`, where `CLIP_ID` is a server-generated ULID
+validated against `^[0-9A-HJKMNP-TV-Z]{26}$` before the graph is composed. A name drawn from that alphabet
+contains no character with meaning in a filter graph, so **the escaping problem is deleted rather than
+solved**. Input and output paths stay absolute in argv, where absoluteness already guarantees no leading
+dash.
+
+Setting `cwd` needs a runner that accepts it. The shipped `ProcessRunner` protocol is
+`__call__(argv, timeout_s)`, and widening it would force every existing extractor fake to grow a parameter
+it will never use. Instead the renderer declares its **own** `RenderProcessRunner` protocol with a `cwd`
+parameter — four lines, structural typing means one real `subprocess.run` wrapper satisfies both, and zero
+shipped code changes.
+
+### Decision: ASS, not SRT, for burn-in
+
+Burned-in social captions need explicit styling — font, size, outline, bottom-third margin, alignment.
+SRT carries none of it, so the styling would have to travel as `force_style=...` **inside the filter
+graph**, creating a second injection surface whose values the operator can tune. ASS carries styling in
+the file, which keeps the graph a fixed shape with two ULID filenames in it. The `.ass` is generated by
+`adapters/ffmpeg/subtitles.py` (pure, default suite) from `tuple[SubtitleCue, ...]`.
+
+**ASS text needs escaping, and the text is model output.** Cue text comes from an ASR engine, and an ASR
+engine can emit `{`, `}`, `\` or a newline. In ASS, `{...}` is an inline override block and a raw newline
+terminates the dialogue line — so a hallucinated brace silently changes the styling of the rest of the
+clip, or truncates a caption. Response: neutralise `{`/`}`, escape `\`, strip CR/LF, and emit intentional
+line breaks only as `\N`. One RED test per hostile string, in the default suite, with no ffmpeg.
+
+## Decision: the three declarations are computed above the port, not reported by the adapter
+
+`VideoRenderPort.render` returns a thin `RenderedFile`. The use case `usecases/render_clip.py` assembles
+the operator-facing `RenderedClip`:
+
+```python
+# domain/rendering.py
+class OutputQualityKind(StrEnum):
+    NATIVE   = "native"
+    UPSCALED = "upscaled"
+
+@dataclass(frozen=True, slots=True)
+class OutputQuality:
+    kind: OutputQualityKind
+    factor: float          # target_width / crop_width; <= 1.0 is NATIVE
+
+class SubtitleTimingSource(StrEnum):
+    WORD_LEVEL    = "word_level"
+    SEGMENT_LEVEL = "segment_level"
+
+@dataclass(frozen=True, slots=True)
+class RenderedClip:
+    clip_id: ClipId
+    job_id: JobId
+    path: Path
+    source_start_s: float
+    source_end_s: float
+    quality: OutputQuality
+    subtitle_timing: SubtitleTimingSource
+    tracking: TrackingConfidence
+```
+
+**Rationale**: none of the three declarations is an observation of ffmpeg's output. All three are known
+*before the spawn* — quality from `FrameSize` and `OutputSpec`, subtitle timing from whether the clip's
+segments carried words, tracking confidence from the trajectory. Letting the adapter report them would put
+pure arithmetic behind an `integration` marker, which is precisely the trade the hexagon exists to refuse
+(the proposal's own phrasing, applied to a new axis). It would also make the adapter capable of lying about
+a value it did not compute.
+
+The arithmetic, in `domain/framing.py` as module functions beside `crop_size_for`, mirroring how
+`render_message_text` lives beside its entities:
+
+```
+4K   3840x2160 → crop_w = even(2160 * 9/16) = 1214 → factor 1080/1214 = 0.89 → NATIVE
+1080p 1920x1080 → crop_w = even(1080 * 9/16) =  606 → factor 1080/606  = 1.78 → UPSCALED x1.78
+```
+
+Those are the proposal's own numbers, now derived rather than asserted, in a function a unit test pins.
+
+Subtitle timing is decided where the decision is made — `usecases/build_subtitle_cues.py` returns
+`(cues, timing_source)`. A clip is `WORD_LEVEL` only when **every** speech segment in its range carries
+non-empty `words`; otherwise `SEGMENT_LEVEL`. This is deliberately computed from the actual segments and
+not from `capabilities().word_timing`: a capable adapter still returns `()` for a `MUSIC` segment, so the
+capability answers "could this engine ever", while the clip's own segments answer "did this clip get it".
+Only the second one is true about the artifact.
+
+Cue construction: take segments overlapping the span, restrict to the span, and split each into cues of at
+most `max_cue_chars` (default 42, two lines) at **word boundaries using word times**. With no words, one
+cue per segment at segment times — never an even distribution across the segment's duration, which is the
+fabrication the spec names explicitly.
+
+## Decision: a render is a separate short-lived worker, and render state lives per clip
+
+| Option | Tradeoff | Verdict |
+| --- | --- | --- |
+| Extend `JobState` with `RENDERING`/`RENDERED` | Touches the shipped state machine, the storage codec's `JobState` decode, the progress derivation and the status route — and makes a job with three rendered clips and one failed render unrepresentable. | Rejected |
+| Render inline in the web request | Minutes-long ffmpeg pass inside an HTTP request. The rev-1 design already rejected this shape for transcription and the reasoning is unchanged. | Rejected |
+| **A second entrypoint, `python -m onevoicecut.runtime.render_worker --job-id <id> --clip-id <id>` (chosen)** | Same spawn mechanism, same headless-first testability, and `JobState` is untouched — slices 11–13 ship **no state-machine migration**. | **Chosen** |
+
+The **single-writer rule holds without a new mechanism**: a render only starts on a `COMPLETED` job, so the
+transcription worker is already dead, and the render worker writes only `render/{clip_id}.json` — never
+`job.json`. Render state is `ClipState = PENDING | RENDERING | RENDERED | FAILED` on `ClipExport`, and N
+clips per job each carry their own, which is the representation the rejected option could not express.
+
+Guards in `usecases/render_clip.py`, before any spawn: `0 <= start_s < end_s <= probe.duration_s`, and
+`end_s - start_s <= max_clip_seconds` (default 180) → `ClipRangeInvalid`. The render timeout is
+`max(60.0, 20 * clip_duration_s)` — two orders of magnitude tighter than extraction's four-hour ceiling,
+because a clip is minutes and a render that has run twenty times realtime is hung, not slow.
+
+## Decision: `TranscriptStoragePort` grows by two methods; the pre-committed split is deferred
+
+The rev-1 design pre-committed: *"if it grows past this, the split line is job-record vs artifact."* That
+line is now due, and it is deliberately not taken yet.
+
+| Option | Tradeoff | Verdict |
+| --- | --- | --- |
+| Split into `JobStatePort` + `ArtifactStoragePort` now | Correct eventually, and it means a ninth port plus rewriting the filesystem adapter, the fake, and every construction site across shipped slices 1–6 — **in the same slice range that already carries the `WordTiming` retrofit through the same adapter**. Two simultaneous retrofits through one file is how a 4x overrun becomes an 8x one. | Deferred |
+| **Add `save_clip_export` / `load_clip_exports` (chosen)** | A clip export *is* part of the job aggregate, so the port is still the persistence boundary it claims to be. Two methods, one codec pair, no reshape. | **Chosen** |
+
+**Recorded trigger for the deferred split**: when a *third* artifact family arrives (publishing receipts is
+the obvious candidate), split then. Logged as a rev-4 open question so it is a decision with a date rather
+than a slow drift.
+
+## Rev-4 Domain Model Additions
+
+All new entities are `@dataclass(frozen=True, slots=True)`, consistent with every entity above.
+
+| Module | Additions |
+| --- | --- |
+| `domain/ids.py` | `ClipId` (`NewType`), `make_clip_id` — same ULID family and same regex validation as `JobId`, because it becomes a filename component. |
+| `domain/media.py` | `FrameSize`; `MediaProbe.frame: FrameSize \| None = None`. |
+| `domain/transcript.py` | `WordTiming`; `TranscriptSegment.words: tuple[WordTiming, ...] = ()`. |
+| `domain/framing.py` **(new)** | `TimeSpan`, `CropRect`, `KeyframeOrigin` (`TRACKED \| INTERPOLATED \| FALLBACK_CENTER`), `CropKeyframe`, `CropTrajectory`, `TrackingConfidence`, `TrajectoryPolicy`; module functions `crop_size_for(frame, policy)` and `quality_of(crop, target)`. |
+| `domain/rendering.py` **(new)** | `SubtitleCue`, `SubtitleTimingSource`, `OutputSpec`, `OutputQuality`, `OutputQualityKind`, `RenderedClip`, `ClipExport`, `ClipState`. |
+| `domain/errors.py` | `FrameGeometryUnavailable`, `TrackingUnavailable`, `DetectionFailed`, `RenderFailed`, `ClipRangeInvalid` — all deriving from `DomainError`, all raised across a port boundary. |
+
+`CropTrajectory` carries **the first `__post_init__` invariant in the domain**: every keyframe's rect must
+share one `width`/`height`. Justified because the renderer's fixed `crop=w=..:h=..` depends on it, and a
+violated invariant would otherwise surface as a corrupt filter graph inside a subprocess rather than a
+caught `ValueError` in the default suite. The alternative — letting the adapter refuse a mixed-size
+trajectory — pushes a domain invariant into an adapter and behind an `integration` marker.
+
+## Rev-4 Data Flow
+
+```
+job COMPLETED ──► operator selects a ClipCandidate ──► POST /api/jobs/{id}/clips
+                                                              │
+                                                     ClipExport(PENDING) written
+                                                              │
+                                        spawn render_worker --job-id --clip-id
+                                                              │
+                            ┌─────────────────────────────────┼──────────────────────────────┐
+                            ▼                                 ▼                              ▼
+                  AudioExtractorPort.probe            SubjectTrackerPort.detect       load_transcript
+                     → MediaProbe.frame                  → detections (clip-local)      → segments
+                            │                                 │                              │
+                            └──────────────┬──────────────────┘                              │
+                                           ▼                                                 ▼
+                                    plan_trajectory                                 build_subtitle_cues
+                            (crop size, smooth, dead-zone,                       (word-level or declared
+                             clamp, fill, confidence)                             segment-level fallback)
+                                           │                                                 │
+                                           └────────────────┬────────────────────────────────┘
+                                                            ▼
+                                                  render/{clip}.cmds + .ass
+                                                            │
+                                                  VideoRenderPort.render
+                                                  (ONE ffmpeg process, cwd = job dir)
+                                                            │
+                                                  render/{clip}.mp4
+                                                            │
+                                          RenderedClip assembled ABOVE the port
+                                        (quality + subtitle timing + tracking)
+                                                            │
+                                                  render/{clip}.json  (ClipExport RENDERED)
+```
+
+Job directory, extending the rev-1 layout with one subdirectory:
+
+```
+{ONEVOICECUT_DATA_DIR}/jobs/{job_id}/
+  job.json  control.json  source  audio.flac
+  chunks/NNNN.flac  results/NNNN.json
+  transcript.json  transcript.txt  artifacts.json
+  render/{clip_id}.cmds  {clip_id}.ass  {clip_id}.mp4  {clip_id}.json
+```
+
+### Sequence: selected candidate to exported vertical clip
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant W as Web (FastAPI)
+    participant S as Storage
+    participant RW as render_worker
+    participant FF as ffmpeg adapter
+    participant TR as SubjectTrackerPort
+    participant UC as Use cases (pure)
+
+    B->>W: POST /api/jobs/{id}/clips {candidate_index, variant}
+    W->>S: load_job — require COMPLETED
+    W->>S: save_clip_export(ClipExport PENDING, clip_id)
+    W-->>B: 202 {clip_id}
+    W->>RW: spawn render_worker --job-id --clip-id
+
+    RW->>FF: probe(source) → MediaProbe
+    alt probe.frame is None
+        RW->>S: save_clip_export(FAILED, FrameGeometryUnavailable)
+        Note over RW,S: refuses cleanly — never crops against invented dimensions
+    else dimensions known
+        RW->>TR: capabilities()
+        alt detection != AVAILABLE
+            RW->>S: save_clip_export(FAILED, TrackingUnavailable + remediation)
+        else
+            RW->>TR: detect(media, span, sample_hz)
+            TR-->>RW: clip-local detections, misses explicit (box=None)
+            RW->>UC: build_trajectory(detections, frame, span, policy)
+            UC-->>RW: CropTrajectory + TrackingConfidence
+            RW->>S: load_transcript
+            RW->>UC: build_subtitle_cues(segments, span)
+            UC-->>RW: cues + SubtitleTimingSource
+            RW->>FF: render(RenderRequest)
+            Note over FF: writes {clip}.cmds and {clip}.ass, then ONE ffmpeg process<br/>cwd = job dir, aux files referenced by bare ULID filename
+            FF-->>RW: RenderedFile
+            RW->>UC: quality_of(crop, target)
+            RW->>S: save_clip_export(RENDERED, RenderedClip)
+            B->>W: GET /api/jobs/{id}/clips/{clip_id}
+            W-->>B: {state, quality, subtitle_timing, tracking}
+        end
+    end
+```
+
+The two `alt` branches are the design's whole answer to "the artifact looks fine": both refuse *before*
+ffmpeg is spawned, and both record a remediation string rather than producing a plausible file.
+
+## Rev-4 Threat Matrix
+
+The shipped rows (ffmpeg subprocess argv, uploaded-file classification, HTTP path params, ingest
+exhaustion) remain **Applicable and unchanged** — the render path reuses `_ffmpeg_prefix()`,
+`resolve_inside()` and the ULID route guard verbatim, which is the point of extending `argv.py` rather
+than writing a second composer. Four new rows:
+
+| Boundary | Adversarial cases | Applicability | Design response | Planned RED tests |
+| --- | --- | --- | --- | --- |
+| **ffmpeg filter-graph composition** | A job-directory path containing `:` (every Windows drive letter), `'`, `,`, `\` or `[`; a clip id that is not a ULID reaching the graph | **Applicable — new in rev 4.** Unlike argv, a filter graph *is* parsed. | `cwd` set to the `resolve_inside`-checked job directory; aux files referenced by **bare relative ULID filename**, whose alphabet contains no graph metacharacter; `clip_id` validated against the ULID regex before composition. Escaping is deleted, not solved. | Graph composition under a job dir path containing `:`/`'`/`,`; a non-ULID `clip_id` refused before spawn; assert the composed graph contains no absolute path |
+| **ASS subtitle content injection** | Transcript text containing `{\an8}`, `}`, a lone `\`, `\r\n`, or a 5,000-character hallucinated run | **Applicable — new in rev 4.** Cue text is ASR output, and ASR output is model output. | Neutralise `{`/`}`, escape `\`, strip CR/LF, emit intended breaks only as `\N`; cue length bounded by `max_cue_chars`. Pure function, default suite. | One test per hostile string asserting the emitted dialogue line is a single line with no override block |
+| **Render resource exhaustion** | A clip span of three hours; `end_s` past the source duration; a negative or inverted span; an ffmpeg process that hangs | **Applicable — new in rev 4.** | `0 <= start_s < end_s <= probe.duration_s` and `end_s - start_s <= max_clip_seconds` → `ClipRangeInvalid` before spawn; render timeout `max(60, 20 * duration)`; `-ss` before `-i` so a late clip does not decode the whole source. | Each invalid span rejected before any spawn; timeout surfaces as `RenderFailed`, never `TimeoutExpired` |
+| **Vision adapter decode** | A multi-hour source handed to the tracker; whole-span frame buffering; `ffmpeg \| python` raw-frame pipe | **Applicable — new in rev 4.** | Decode **in-process** (no subprocess pipe of raw frames, per the binding constraint), sequentially over the clip span only, downscaled to ≤640 px, evaluating every Nth frame and releasing each. Cost is bounded by clip length, never source length. | Tracker asked for a span longer than `max_clip_seconds` refuses; `localmodel`-marked test asserts detection covers only the requested span |
+
+Applicable rows carry into `tasks.md` unchanged and are written RED before implementation.
+
+## Rev-4 Testing Strategy
+
+| Layer | What | Approach |
+| --- | --- | --- |
+| Unit | `WordTiming` round-trip: absent key decodes `()`; malformed `words` raises `CorruptedRecord`; `()` persists and returns `()` | Pure codec tests, no filesystem — the module is already pure by design |
+| Unit | Stitcher lockstep: a boundary word's timing appears exactly once; no orphaned entry after a cut; a word-less transcript stitches byte-identically to today | Pure functions over fixtures; the last case is the regression guard for the whole retrofit |
+| Contract | The word-timing invariant `"".join(w.text) == segment.text` on both ASR adapter families | Added to the existing shared contract body; `localmodel` / `paid` marked |
+| Unit | Trajectory: jitter is smoothed; sub-threshold movement does not move the crop; supra-threshold does; a rect near an edge is clamped inside; a bounded short gap is `INTERPOLATED`; a leading gap and an over-long gap are `FALLBACK_CENTER`; a predominantly-fallback trajectory is `LOW_CONFIDENCE` and a predominantly-tracked one is not | Fake detector, **no vision weights** — the success criterion rev 4 was most likely to break |
+| Unit | `crop_size_for` / `quality_of`: 4K → NATIVE 0.89; 1080p → UPSCALED 1.78; both dimensions even; a source narrower than 9:16 | Pure arithmetic, the proposal's numbers pinned |
+| Unit | `MediaProbe.frame`: dimensions read; attached cover art does not become a frame; ±90° rotation swaps to display geometry; absence is `None`; a consumer refuses with `FrameGeometryUnavailable` | ffprobe JSON fixtures — no ffmpeg needed, the parse is already isolated |
+| Unit | Cue building: a multi-second segment splits at word boundaries; a word-less segment yields `SEGMENT_LEVEL` and never an even distribution; `WORD_LEVEL` only when every speech segment has words | Pure, default suite |
+| Unit | ASS escaping and `sendcmd` densification | Pure modules beside `argv.py`, the shipped precedent |
+| Architecture | `domain`/`usecases`/`ports` still import no `adapters`/`runtime` after three new ports and three new use cases | The shipped `ast` walk, unchanged and not weakened |
+| Structural | `RenderRequest` has no field able to carry an external asset | Same shape as the shipped "no `UploadFile` in `adapters/web`" test — an absence cannot be proven by a request |
+| Integration | A real ffmpeg render of a tiny fixture produces a 9:16 file with the commanded crop and visible burned-in text; graph composition under a path containing `:` | `integration` marker, skipped when ffmpeg is absent |
+| Contract | The real vision tracker returns explicit misses and never a synthesised centre | `localmodel` marked, excluded from the default run |
+
+## Rev-4 Slice Ordering — three units become seven
+
+The proposal's slices 11–13 (~1,700 estimated lines) are re-planned against the measured 4.0x multiplier
+and the 800-line budget. **Slice 11 must split, and the split also reorders.**
+
+| Unit | Contents | Blocks | Note |
+| --- | --- | --- | --- |
+| **11a** | `FrameSize`, `MediaProbe.frame`, the two ffprobe guards, `FrameGeometryUnavailable`, refusal path | 12a | Small and independent. **No storage change, no codec change, no migration** — because the probe is re-run rather than persisted. |
+| **11b** | `WordTiming`, capability axis, codec tolerance, stitcher lockstep, contract invariant | the subtitle half of 13a | The retrofit. Shares **zero files** with 11a. |
+| **12a** | `domain/framing.py` entities + `__post_init__` invariant, `SubjectTrackerPort`, `TrackerCapabilities`, fake detector | 12b | |
+| **12b** | The six-stage pipeline + confidence | 13a | The one estimate with real grounding — pure logic, like the well-measured 2a/2b. |
+| **13a** | `VideoRenderPort`, `RenderRequest`, pure `render_argv`/`sendcmd`/`subtitles` modules, cue building, quality arithmetic | 13b | No ffmpeg executed. All arithmetic, all default suite. |
+| **13b** | The real ffmpeg renderer, `render_worker`, `ClipExport` storage, HTTP clip routes, integration test | — | |
+| **13c** | The real vision tracker adapter | — | `localmodel` only; independent of 13b. |
+
+**11a and 11b must not ship as one unit.** They share no file, no type and no test; they were bundled in
+the proposal only because both are "domain gaps rendering exposed". Bundled, they land as one ~1,600-line
+review in which a two-line entity addition is buried under a five-layer retrofit — and 11a is the one that
+unblocks slice 12, so bundling delays the whole geometry track behind the riskiest change in rev 4.
+
+## Rev-4 Open Questions
+
+- [ ] **Q11 — publishing.** Unchanged: out of scope, `PublishPort` declared. This design constrains
+      `ClipExport` to keep the flip an added adapter rather than a reshape. Flipping it also falsifies the
+      rollback clause *"no external state is mutated"*, which is the real cost.
+- [ ] **Q13 — which candidates render.** Assumption taken as designed: the operator selects, rendering is
+      explicit, and render state lives per `ClipExport` rather than in `JobState`. If the answer becomes
+      "render all", the change is a loop in the web layer and a concurrency limit — not a state machine.
+- [ ] **New — `TranscriptStoragePort` split, deferred with a trigger.** Two methods added now; split at the
+      job-record/artifact line when a third artifact family arrives.
+- [ ] **New — punch-in factor is unmeasured.** `TrajectoryPolicy.punch_in` defaults to 1.0 (no punch-in)
+      because proposal Open Question 12 records that how large the preacher is within the wide frame has
+      never been measured. On the 1080p path a punch-in multiplies an already 1.78x upscale, so the default
+      must stay 1.0 until someone measures a real frame.
+- [ ] **New — `command_hz` is a guess.** 25 Hz is chosen as "about frame rate" without `MediaProbe`
+      carrying frame rate, which the spec did not require. If stepping is visible on 50/60 fps footage, the
+      fix is either raising the constant or adding `fps` to `MediaProbe` — a second, separate probe delta.
+- [ ] **Open Question 9 sharpens again.** Whether musical ranges are *promoted* as clip candidates is now a
+      question about the most shareable artifact the system can produce. Still a ranking-policy decision in
+      slice 10b, still changes no type — but rev 4 raised its value.
