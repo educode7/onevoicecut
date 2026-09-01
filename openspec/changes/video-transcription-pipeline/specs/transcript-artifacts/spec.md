@@ -107,3 +107,55 @@ future retention policy.
 - GIVEN a completed job
 - WHEN no retention policy is configured
 - THEN the system MUST NOT automatically delete the job's source video, audio, or chunk files
+
+### Requirement: Word-Level Timing
+
+`TranscriptSegment` MUST carry an ordered collection of `WordTiming` entries — one per word, each with
+its own start and end timestamp — in addition to the segment's own start/end timestamps. Segment-level
+timestamps remain authoritative for chunk stitching and clip-candidate references; word-level timing is
+additive and exists to support sub-segment consumers such as subtitle cue construction (see
+`clip-rendering`).
+
+An adapter that cannot produce word-level timing MUST declare no word-timing support (see
+`speech-transcription`: Capability Declaration), and the resulting segment's word-timing collection
+MUST be explicitly empty. It MUST NOT be filled with fabricated, evenly-distributed, or estimated word
+boundaries presented as though the engine produced them — the same no-silent-degradation invariant
+already binding on diarization and non-speech classification, applied to a fourth axis.
+
+#### Scenario: Segment carries word-level timing from a supporting adapter
+
+- GIVEN an ASR adapter that declares word-timing support
+- WHEN it transcribes a chunk
+- THEN each returned segment MUST carry a `WordTiming` entry for each word in its text
+- AND each `WordTiming` MUST carry its own start and end timestamp
+
+#### Scenario: Non-supporting adapter never fabricates word timing
+
+- GIVEN an ASR adapter that declares no word-timing support
+- WHEN it transcribes a chunk
+- THEN every returned segment's word-timing collection MUST be explicitly empty
+- AND no word-timing entry MUST be estimated or evenly distributed across the segment's duration
+
+#### Scenario: Word timing survives storage round-trip
+
+- GIVEN a `TranscriptSegment` carrying word-level timing
+- WHEN it is persisted and retrieved via `TranscriptStoragePort`
+- THEN the retrieved segment MUST carry the same word-level timing
+- AND a segment persisted with an empty word-timing collection MUST be retrieved with an empty
+  collection, not a fabricated one
+
+### Requirement: Word-Level Timing Is Consistent With Overlap Stitching
+
+When overlap stitching removes duplicated words at a chunk boundary (see `speech-transcription`:
+Overlap Stitching), it MUST remove the corresponding `WordTiming` entries for those words along with
+their text. The stitched transcript MUST NOT retain orphaned word-timing entries that no longer
+correspond to any word in the assembled segment text, and MUST NOT lose word-timing entries for words
+that remain.
+
+#### Scenario: Deduplicated boundary words drop their timing together with their text
+
+- GIVEN two adjacent chunks whose overlap region both transcribe the same trailing/leading words with
+  word-level timing
+- WHEN results are stitched
+- THEN the assembled transcript MUST contain each boundary word's timing exactly once
+- AND no `WordTiming` entry MUST remain for a word removed as a duplicate

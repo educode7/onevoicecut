@@ -95,8 +95,15 @@ to the contract.
 
 ### Requirement: Scope Boundary — No Rendering
 
-The system MUST stop at the summary and clip-candidate/script artifact. It MUST NOT render, assemble,
-or publish video.
+Script generation MUST stop at the summary and clip-candidate/script artifact. It MUST NOT render,
+assemble, or publish video.
+
+Through proposal rev 3 this was a system-wide non-goal. Rev 4 put vertical clip rendering in scope, so
+this is now a **capability** boundary rather than a delivery boundary: rendering is specified in
+`clip-rendering` and MUST be reached through `VideoRenderPort`, never from inside generation. The
+separation is load-bearing — generation decides *which* moments are worth cutting, and knows nothing
+about how a frame is cropped. Publishing remains out of scope system-wide: `PublishPort` is declared
+and deliberately unimplemented.
 
 #### Scenario: Output is a data artifact, not a video
 

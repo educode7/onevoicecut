@@ -42,3 +42,39 @@ error. This is a runtime failure mode, not only an install-time concern.
 - THEN the system MUST fail the extraction step with a clear message naming ffmpeg and instructing the
   operator to install it
 - AND the failure MUST NOT surface as an unhandled low-level subprocess exception
+
+### Requirement: Media Probe Reports Frame Dimensions
+
+`MediaProbe`, returned by `AudioExtractorPort.probe()`, MUST additionally report the source video's
+frame width and height in pixels, alongside its existing duration, container, and audio-presence
+fields. Neither crop geometry (see `subject-tracking`) nor the render quality declaration (see
+`clip-rendering`) is computable without them, and `ffprobe` already returns both in the stream metadata
+the adapter consults.
+
+Where the source has no video stream, or `ffprobe` cannot resolve frame dimensions, `MediaProbe` MUST
+report that absence explicitly rather than defaulting to a fabricated resolution. A downstream consumer
+that requires dimensions MUST be able to rely on the declared absence to refuse cleanly, rather than
+computing crop or quality decisions against invented values — the same no-silent-degradation invariant
+already binding elsewhere in this system, applied to frame geometry.
+
+#### Scenario: Probe reports dimensions for a valid video
+
+- GIVEN a validated `SourceMedia` reference with a video stream
+- WHEN it is probed
+- THEN `MediaProbe` MUST report frame width and height in pixels matching the source video
+
+#### Scenario: Probe declares absence rather than fabricating dimensions
+
+- GIVEN a `SourceMedia` reference for which `ffprobe` cannot resolve frame dimensions (no video stream,
+  or an unreadable stream)
+- WHEN it is probed
+- THEN `MediaProbe` MUST report the absence of frame dimensions explicitly
+- AND it MUST NOT report a default or estimated width/height as though it were read from the source
+
+#### Scenario: Downstream consumers can rely on declared absence
+
+- GIVEN a `MediaProbe` with no frame dimensions
+- WHEN a consumer requiring dimensions (crop trajectory construction, render quality declaration)
+  inspects it
+- THEN it MUST be able to detect the absence and refuse cleanly
+- AND it MUST NOT be forced to compute against a fabricated width/height

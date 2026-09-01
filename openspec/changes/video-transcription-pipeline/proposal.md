@@ -351,10 +351,10 @@ adapters on the single-speaker path; diarization behavior is asserted per declar
 | `pytest.ini` / `pyproject.toml` | New | pytest config, `integration` marker registration |
 | `openspec/config.yaml` | Modified | Fill `test_command`, `build_command` (currently `""`) |
 | `.gitignore` | Exists | Already excludes uploaded media, local ASR model weights, `.env` |
-| `src/transcribe/domain/` | New | `SourceMedia`, `AudioTrack`, `AudioChunk`, `ChunkPlan`, `ChunkResult`, `Transcript`, `TranscriptSegment`, `SegmentKind`, `SpeakerMode`, `EngineChoice`, `JobRecord`, `ClipCandidate`, `ScriptVariant`; **[rev 4]** `WordTiming`, `CropKeyframe`, `CropTrajectory`, `KeyframeOrigin`, `SubtitleCue`, `RenderedClip` |
-| `src/transcribe/ports/` | New | Five port protocols + capability declaration; **[rev 4]** `SubjectTrackerPort`, `VideoRenderPort`, and `PublishPort` declared but unimplemented |
-| `src/transcribe/usecases/` | New | Ingest, chunk plan/transcribe/stitch/resume, map-reduce generate; **[rev 4]** trajectory planning (smoothing/clamping/interpolation), subtitle cue building, clip render orchestration |
-| `src/transcribe/adapters/` | New | web/upload, ffmpeg, local ASR, cloud ASR, LLM, filesystem storage; **[rev 4]** vision tracker, ffmpeg vertical renderer |
+| `src/onevoicecut/domain/` | New | `SourceMedia`, `AudioTrack`, `AudioChunk`, `ChunkPlan`, `ChunkResult`, `Transcript`, `TranscriptSegment`, `SegmentKind`, `SpeakerMode`, `EngineChoice`, `JobRecord`, `ClipCandidate`, `ScriptVariant`; **[rev 4]** `WordTiming`, `CropKeyframe`, `CropTrajectory`, `KeyframeOrigin`, `SubtitleCue`, `RenderedClip` |
+| `src/onevoicecut/ports/` | New | Five port protocols + capability declaration; **[rev 4]** `SubjectTrackerPort`, `VideoRenderPort`, and `PublishPort` declared but unimplemented |
+| `src/onevoicecut/usecases/` | New | Ingest, chunk plan/transcribe/stitch/resume, map-reduce generate; **[rev 4]** trajectory planning (smoothing/clamping/interpolation), subtitle cue building, clip render orchestration |
+| `src/onevoicecut/adapters/` | New | web/upload, ffmpeg, local ASR, cloud ASR, LLM, filesystem storage; **[rev 4]** vision tracker, ffmpeg vertical renderer |
 | `requirements-vision.txt` | **New [rev 4]** | Object/face detection weights, kept out of the default install for the same reason as local ASR and diarization |
 | `pytest.ini` | Modified **[rev 4]** | The existing `localmodel` marker now also covers vision weights; no new marker needed |
 | `tests/` | New | Fast unit suite (fakes) + marked adapter contract tests |
