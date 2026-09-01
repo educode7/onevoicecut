@@ -22,7 +22,7 @@
 | Test share expectation | 65–80%, consistent with every slice measured since 4a |
 | 400-line budget risk | Low per-unit — every unit individually estimated 450–575 lines; High in aggregate across all four |
 | Chained PRs recommended | Yes |
-| Suggested split | 4 work units, PR 28 → PR 31 |
+| Suggested split | 4 work units, PR 45 → PR 48 (shifted from PR 28–31 by the rev-5 re-baseline of slices 7a–10b) |
 | Delivery strategy | auto-chain |
 | Chain strategy | stacked-to-main |
 
@@ -37,10 +37,10 @@ Chain strategy: stacked-to-main
 
 | Unit | Goal | PR | Focused test command | Runtime harness | Rollback boundary |
 |------|------|----|-----------------------|------------------|--------------------|
-| 12a-i | `domain/framing.py` entities (`TimeSpan`, `CropRect`, `KeyframeOrigin`, `CropKeyframe`, `CropTrajectory` + `__post_init__` invariant, `TrackingConfidence`, `TrajectoryPolicy`) + `crop_size_for` | PR 28 | `pytest tests/unit/domain/test_framing.py -m "not paid and not localmodel"` | N/A — pure domain types | `domain/framing.py` (entities + `crop_size_for`) |
-| 12a-ii | `SubjectTrackerPort`, `BoundingBox`, `SubjectDetection`, `DetectionSupport`/`TrackerCapabilities`, fake detector | PR 29 | `pytest tests/unit/ports/test_capabilities.py tests/unit/ports/test_subject_tracker.py -m "not paid and not localmodel"` | N/A — fake detector only | `ports/subject_tracker.py`, `ports/capabilities.py` (`DetectionSupport`), `tests/fakes/subject_tracker.py` |
-| 12b-i | Trajectory pipeline stages 2–4: centres, smoothing, dead-zone | PR 30 | `pytest tests/unit/usecases/test_plan_trajectory.py -m "not paid and not localmodel"` | N/A — pure functions over the fake detector's output | `usecases/plan_trajectory.py` (centres/smooth/dead-zone stages) |
-| 12b-ii | Trajectory pipeline stages 5–6 + confidence: clamp, interpolation, fallback, provenance, `LOW_CONFIDENCE` | PR 31 | `pytest tests/unit/usecases/test_plan_trajectory.py -m "not paid and not localmodel"` | N/A — pure functions | `usecases/plan_trajectory.py` (clamp/fill stages, confidence calculation) |
+| 12a-i | `domain/framing.py` entities (`TimeSpan`, `CropRect`, `KeyframeOrigin`, `CropKeyframe`, `CropTrajectory` + `__post_init__` invariant, `TrackingConfidence`, `TrajectoryPolicy`) + `crop_size_for` | PR 45 | `pytest tests/unit/domain/test_framing.py -m "not paid and not localmodel"` | N/A — pure domain types | `domain/framing.py` (entities + `crop_size_for`) |
+| 12a-ii | `SubjectTrackerPort`, `BoundingBox`, `SubjectDetection`, `DetectionSupport`/`TrackerCapabilities`, fake detector | PR 46 | `pytest tests/unit/ports/test_capabilities.py tests/unit/ports/test_subject_tracker.py -m "not paid and not localmodel"` | N/A — fake detector only | `ports/subject_tracker.py`, `ports/capabilities.py` (`DetectionSupport`), `tests/fakes/subject_tracker.py` |
+| 12b-i | Trajectory pipeline stages 2–4: centres, smoothing, dead-zone | PR 47 | `pytest tests/unit/usecases/test_plan_trajectory.py -m "not paid and not localmodel"` | N/A — pure functions over the fake detector's output | `usecases/plan_trajectory.py` (centres/smooth/dead-zone stages) |
+| 12b-ii | Trajectory pipeline stages 5–6 + confidence: clamp, interpolation, fallback, provenance, `LOW_CONFIDENCE` | PR 48 | `pytest tests/unit/usecases/test_plan_trajectory.py -m "not paid and not localmodel"` | N/A — pure functions | `usecases/plan_trajectory.py` (clamp/fill stages, confidence calculation) |
 
 ## Dependency Notes
 

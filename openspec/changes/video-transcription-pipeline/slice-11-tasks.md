@@ -24,7 +24,7 @@
 | Test share expectation | 65–80%, per the measured pattern on every slice since 4a (68–81%, never the original 56%) |
 | 400-line budget risk | Low per-unit — every unit individually estimated 400–650 lines, none at the ceiling; High in aggregate across all four |
 | Chained PRs recommended | Yes |
-| Suggested split | 4 work units, PR 24 → PR 27 |
+| Suggested split | 4 work units, PR 41 → PR 44 (shifted from PR 24–27 by the rev-5 re-baseline of slices 7a–10b) |
 | Delivery strategy | auto-chain |
 | Chain strategy | stacked-to-main |
 
@@ -39,10 +39,10 @@ Chain strategy: stacked-to-main
 
 | Unit | Goal | PR | Focused test command | Runtime harness | Rollback boundary |
 |------|------|----|-----------------------|------------------|--------------------|
-| 11a | `MediaProbe.frame`: `FrameSize`, two ffprobe guards (attached cover art, ±90° rotation), `FrameGeometryUnavailable` | PR 24 | `pytest tests/unit/domain/test_media.py tests/unit/adapters/ffmpeg/test_probe_frame.py -m "not paid and not localmodel"` | `pytest -m integration` — real ffmpeg-synthesized fixture confirms the two guards against the real binary | `domain/media.py` (`FrameSize`, `MediaProbe.frame`), `adapters/ffmpeg/extractor.py` (`probe()` frame parsing) |
-| 11b-i | `WordTiming` domain + `WordTimingSupport` capability + word-timing-aware fake + contract invariant + `AdmitJob` warning | PR 25 | `pytest tests/unit/domain/test_transcript.py tests/unit/ports/test_capabilities.py tests/unit/usecases/test_admit_job.py tests/contract -m "not paid and not localmodel"` | N/A — fakes only, no real ASR adapter is modified this unit | `domain/transcript.py` (`WordTiming`, `words` field), `ports/capabilities.py` (`WordTimingSupport`), `tests/fakes/transcription.py`, `usecases/admit_job.py` warning branch |
-| 11b-ii | Stitcher word-timing lockstep: `_shift`/`_split_words`, boundary dedup, byte-identical regression for word-less transcripts | PR 26 | `pytest tests/unit/usecases/test_stitch_transcript.py -m "not paid and not localmodel"` | N/A — pure functions | `usecases/stitch_transcript.py` (`_shift`, `_split_words`, `_clip_before`/`_clip_after` word-aware branches) |
-| 11b-iii | Storage codec backward-compatible decode: absent `words` → `()`, malformed `words` → `CorruptedRecord`, round-trip | PR 27 | `pytest tests/unit/adapters/storage/test_filesystem_transcript_storage.py -m "not paid and not localmodel"` | `pytest -m integration` — round-trip against real files on disk | `adapters/storage/serialization.py` (`_word_timings()` decode helper) |
+| 11a | `MediaProbe.frame`: `FrameSize`, two ffprobe guards (attached cover art, ±90° rotation), `FrameGeometryUnavailable` | PR 41 | `pytest tests/unit/domain/test_media.py tests/unit/adapters/ffmpeg/test_probe_frame.py -m "not paid and not localmodel"` | `pytest -m integration` — real ffmpeg-synthesized fixture confirms the two guards against the real binary | `domain/media.py` (`FrameSize`, `MediaProbe.frame`), `adapters/ffmpeg/extractor.py` (`probe()` frame parsing) |
+| 11b-i | `WordTiming` domain + `WordTimingSupport` capability + word-timing-aware fake + contract invariant + `AdmitJob` warning | PR 42 | `pytest tests/unit/domain/test_transcript.py tests/unit/ports/test_capabilities.py tests/unit/usecases/test_admit_job.py tests/contract -m "not paid and not localmodel"` | N/A — fakes only, no real ASR adapter is modified this unit | `domain/transcript.py` (`WordTiming`, `words` field), `ports/capabilities.py` (`WordTimingSupport`), `tests/fakes/transcription.py`, `usecases/admit_job.py` warning branch |
+| 11b-ii | Stitcher word-timing lockstep: `_shift`/`_split_words`, boundary dedup, byte-identical regression for word-less transcripts | PR 43 | `pytest tests/unit/usecases/test_stitch_transcript.py -m "not paid and not localmodel"` | N/A — pure functions | `usecases/stitch_transcript.py` (`_shift`, `_split_words`, `_clip_before`/`_clip_after` word-aware branches) |
+| 11b-iii | Storage codec backward-compatible decode: absent `words` → `()`, malformed `words` → `CorruptedRecord`, round-trip | PR 44 | `pytest tests/unit/adapters/storage/test_filesystem_transcript_storage.py -m "not paid and not localmodel"` | `pytest -m integration` — round-trip against real files on disk | `adapters/storage/serialization.py` (`_word_timings()` decode helper) |
 
 ## Dependency Notes
 
