@@ -861,9 +861,9 @@ ASR adapter — no slice 1 comparable; calibrated as a first-of-its-kind adapter
 `localmodel`-marked, excluded from the default run — the contract-test body is still authored/committed code and
 counted here.
 
-- [ ] 7.1 RED: `localmodel`-marked contract test — real `faster-whisper` adapter satisfies the shared
+- [x] 7.1 RED: `localmodel`-marked contract test — real `faster-whisper` adapter satisfies the shared
       single-speaker contract body.
-- [ ] 7.2 GREEN: `adapters/asr/local/faster_whisper_adapter.py` implementing `TranscriptionPort`;
+- [x] 7.2 GREEN: `adapters/asr/local/faster_whisper_adapter.py` implementing `TranscriptionPort`;
       `capabilities()` still returns `DiarizationSupport.UNSUPPORTED` (diarization lands slice 9a), real
       `max_chunk_bytes=None`, real `max_chunk_duration_s`.
 

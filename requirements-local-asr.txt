@@ -1,1 +1,11 @@
-# Local ASR engine dependencies (faster-whisper). Populated in Slice 7.
+# Local ASR engine dependencies (faster-whisper). Slice 7a-i.
+#
+# Deliberately separate from requirements.txt: installing this pulls CTranslate2
+# and onnxruntime, ~90 MB of wheels before a single model weight is downloaded.
+# A default `pytest -m "not paid and not localmodel"` run must never need them,
+# which is what keeps the unit suite installable and fast on a bare checkout.
+#
+# Model weights are NOT pinned here — faster-whisper downloads them on first use
+# and caches them outside the repo. The model SIZE is a per-construction argument
+# with no default, so it is chosen visibly at the call site, never here.
+faster-whisper==1.2.1
