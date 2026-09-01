@@ -30,6 +30,7 @@ from onevoicecut.domain.jobs import EngineChoice, JobState
 from onevoicecut.runtime.engine_resolver import EngineResolver
 from onevoicecut.runtime.worker import run_job
 from tests.fakes.transcription import FakeTranscriptionPort
+from tests.unit.adapters.web.conftest import auth_headers, fake_authenticate
 
 pytestmark = pytest.mark.integration
 
@@ -79,9 +80,15 @@ async def client(data_dir: Path) -> AsyncIterator[AsyncClient]:
             resolver=EngineResolver({EngineChoice.LOCAL: FakeTranscriptionPort}),
         )
 
-    app = create_app(WebDependencies(storage=storage, start_job=run_worker_now))
+    app = create_app(
+        WebDependencies(
+            storage=storage,
+            authenticate=fake_authenticate,
+            start_job=run_worker_now,
+        )
+    )
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", headers=auth_headers()
     ) as http:
         yield http
 

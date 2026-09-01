@@ -21,6 +21,7 @@ from onevoicecut.adapters.storage.media_source import FilesystemMediaSource
 from onevoicecut.domain.ids import (
     JobId,
     MediaId,
+    OperatorId,
     generate_job_id,
     generate_media_id,
 )
@@ -38,6 +39,7 @@ DEFAULT_MAX_UPLOAD_BYTES = 16 * 1024**3
 MediaSourceFactory = Callable[[TranscriptStoragePort, JobId], MediaSourcePort]
 ExtractorFactory = Callable[[TranscriptStoragePort, JobId], AudioExtractorPort]
 JobStarter = Callable[[JobId], None]
+Authenticator = Callable[[str | None], OperatorId]
 
 
 def no_job_starter(job_id: JobId) -> None:
@@ -76,6 +78,10 @@ def ffmpeg_extractor(
 @dataclass(frozen=True, slots=True)
 class WebDependencies:
     storage: TranscriptStoragePort
+    # Required, deliberately, with no default: an app cannot be constructed
+    # without deciding who authenticates it. Deny-by-default is structural —
+    # the absence of auth is a build error, not a server that runs open.
+    authenticate: Authenticator
     max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
     now: Callable[[], float] = time.time
     new_job_id: Callable[[], JobId] = field(default=generate_job_id)

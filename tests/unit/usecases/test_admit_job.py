@@ -12,7 +12,7 @@ import pytest
 
 from onevoicecut.domain.chunking import AudioChunk
 from onevoicecut.domain.errors import DiarizationUnsupported
-from onevoicecut.domain.ids import JobId
+from onevoicecut.domain.ids import JobId, make_operator_id
 from onevoicecut.domain.jobs import EngineChoice, JobState, SpeakerMode
 from onevoicecut.ports.capabilities import (
     ClassificationSupport,
@@ -26,6 +26,8 @@ from tests.fakes.transcription import (
     NonClassifyingFakeTranscriptionPort,
 )
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
+
+OPERATOR = make_operator_id("test-operator")
 
 
 def _caps(diarization: DiarizationSupport) -> TranscriptionCapabilities:
@@ -79,6 +81,7 @@ class TestAdmitJobCapabilities:
             admit_job(
                 engine=EngineChoice.LOCAL,
                 speaker_mode=SpeakerMode.MULTI,
+                operator=OPERATOR,
                 storage=storage,
                 capabilities=lambda _e: _caps(DiarizationSupport.UNSUPPORTED),
             )
@@ -95,6 +98,7 @@ class TestAdmitJobCapabilities:
             admit_job(
                 engine=EngineChoice.LOCAL,
                 speaker_mode=SpeakerMode.MULTI,
+                operator=OPERATOR,
                 storage=storage,
                 capabilities=lambda _e: _caps(DiarizationSupport.REQUIRES_SETUP),
             )
@@ -108,6 +112,7 @@ class TestAdmitJobCapabilities:
         job = admit_job(
             engine=EngineChoice.LOCAL,
             speaker_mode=SpeakerMode.MULTI,
+            operator=OPERATOR,
             storage=storage,
             capabilities=lambda _e: _caps(DiarizationSupport.AVAILABLE),
         )
@@ -123,6 +128,7 @@ class TestAdmitJobCapabilities:
         job = admit_job(
             engine=EngineChoice.LOCAL,
             speaker_mode=SpeakerMode.MULTI,
+            operator=OPERATOR,
             storage=storage,
         )
 
@@ -143,6 +149,7 @@ class TestAdmitJobCapabilities:
         job = admit_job(
             engine=EngineChoice.LOCAL,
             speaker_mode=SpeakerMode.SINGLE,
+            operator=OPERATOR,
             storage=storage,
             capabilities=lambda _e: _caps(diarization),
         )

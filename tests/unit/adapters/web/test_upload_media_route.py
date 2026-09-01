@@ -22,7 +22,12 @@ from onevoicecut.adapters.web.app import WebDependencies, create_app
 from onevoicecut.domain.ids import JobId, make_job_id
 from onevoicecut.domain.jobs import JobState
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
-from tests.unit.adapters.web.conftest import accepting_extractor, unstarted
+from tests.unit.adapters.web.conftest import (
+    accepting_extractor,
+    auth_headers,
+    fake_authenticate,
+    unstarted,
+)
 
 FORBIDDEN_HELPERS = {"UploadFile", "File", "Form"}
 
@@ -37,6 +42,7 @@ async def client(storage: FakeTranscriptStoragePort) -> AsyncIterator[AsyncClien
     app = create_app(
         WebDependencies(
             storage=storage,
+            authenticate=fake_authenticate,
             max_upload_bytes=4096,
             # The route probes what it stored. Whether ffprobe agrees is a
             # separate claim, proven in the integration tests.
@@ -45,7 +51,7 @@ async def client(storage: FakeTranscriptStoragePort) -> AsyncIterator[AsyncClien
         )
     )
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", headers=auth_headers()
     ) as http:
         yield http
 

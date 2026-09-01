@@ -22,6 +22,7 @@ from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
 from onevoicecut.adapters.web.app import WebDependencies, create_app
+from onevoicecut.adapters.web.auth import build_authenticator, parse_operator_tokens
 from onevoicecut.domain.ids import JobId
 from onevoicecut.domain.jobs import JobState
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
@@ -124,8 +125,13 @@ def reconcile_interrupted_jobs(
 
 
 def build_dependencies(settings: Settings) -> WebDependencies:
+    # Parsing the token map is the composition root's one authentication act.
+    # It refuses an empty or malformed map before anything can serve a request —
+    # a server must never come up with authentication disabled or ambiguous.
+    authenticate = build_authenticator(parse_operator_tokens(settings.operator_tokens))
     return WebDependencies(
         storage=FilesystemTranscriptStorage(settings.data_dir),
+        authenticate=authenticate,
         max_upload_bytes=settings.max_upload_bytes,
         start_job=spawn_worker(settings.data_dir),
     )

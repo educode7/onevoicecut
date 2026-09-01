@@ -19,6 +19,7 @@ from onevoicecut.ports.capabilities import (
     TranscriptionCapabilities,
 )
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
+from tests.unit.adapters.web.conftest import auth_headers, fake_authenticate
 
 FIXED_NOW = 1723501234.5
 
@@ -54,12 +55,15 @@ async def unsupported_client(
 ) -> AsyncIterator[AsyncClient]:
     deps = WebDependencies(
         storage=storage,
+        authenticate=fake_authenticate,
         now=lambda: FIXED_NOW,
         capabilities=_unsupported_caps,
     )
     app = create_app(deps)
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as http:
+    async with AsyncClient(
+        transport=transport, base_url="http://test", headers=auth_headers()
+    ) as http:
         yield http
 
 
@@ -69,12 +73,15 @@ async def supported_client(
 ) -> AsyncIterator[AsyncClient]:
     deps = WebDependencies(
         storage=storage,
+        authenticate=fake_authenticate,
         now=lambda: FIXED_NOW,
         capabilities=_available_caps,
     )
     app = create_app(deps)
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as http:
+    async with AsyncClient(
+        transport=transport, base_url="http://test", headers=auth_headers()
+    ) as http:
         yield http
 
 

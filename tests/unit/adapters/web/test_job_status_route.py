@@ -23,7 +23,11 @@ from onevoicecut.domain.ids import JobId, make_job_id, make_media_id
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
-from tests.unit.adapters.web.conftest import accepting_extractor
+from tests.unit.adapters.web.conftest import (
+    accepting_extractor,
+    auth_headers,
+    fake_authenticate,
+)
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
 MEDIA_ID = make_media_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFE")
@@ -91,11 +95,14 @@ def storage(tmp_path: Path) -> FakeTranscriptStoragePort:
 async def client(storage: FakeTranscriptStoragePort) -> AsyncIterator[AsyncClient]:
     app = create_app(
         WebDependencies(
-            storage=storage, now=lambda: NOW, extractor_for=accepting_extractor
+            storage=storage,
+            authenticate=fake_authenticate,
+            now=lambda: NOW,
+            extractor_for=accepting_extractor,
         )
     )
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", headers=auth_headers()
     ) as http:
         yield http
 

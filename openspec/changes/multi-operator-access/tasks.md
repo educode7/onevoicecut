@@ -152,50 +152,52 @@ Rollback boundary: `adapters/web/auth.py` (new), `adapters/web/app.py`, `adapter
 `runtime/settings.py`, `runtime/app.py` (wiring only), web tests.
 Runtime harness: in-process ASGI transport (the existing web-test style) — the HTTP matrix IS the harness.
 
-- [ ] 2.1 RED: `tests/unit/adapters/web/test_operator_tokens.py` (new) — `parse_operator_tokens` matrix
+- [x] 2.1 RED: `tests/unit/adapters/web/test_operator_tokens.py` (new) — `parse_operator_tokens` matrix
       (D3): valid `maria:tok;jose:tok2` → mapping of `OperatorId → token`; whitespace per pair stripped;
       split at FIRST `:` (tokens may contain `:`); rejects with boot-refusing errors: absent/empty raw
       (zero operators — AUTH-07 parse level), pair with no `:`, empty name, name failing `make_operator_id`,
       empty token, duplicate operator name, duplicate token value (AUTH-08); every error message MAY name the
       offending name/position and MUST NOT contain any token value (AUTH-09 boot half).
-- [ ] 2.2 GREEN: `adapters/web/auth.py` (new) — `InvalidCredential` (web-adapter error),
+- [x] 2.2 GREEN: `adapters/web/auth.py` (new) — `InvalidCredential` (web-adapter error),
       `parse_operator_tokens` pure function per the D3 table.
-- [ ] 2.3 RED: same file — `build_authenticator(map)` returns `Callable[[str | None], OperatorId]`:
+- [x] 2.3 RED: same file — `build_authenticator(map)` returns `Callable[[str | None], OperatorId]`:
       a configured token resolves its operator (AUTH-01); a token matching no operator raises
       `InvalidCredential` (AUTH-03); missing header (`None`, `""`), wrong scheme (`Basic x`), bare `Bearer`,
       and unparsable forms all raise the SAME `InvalidCredential` (AUTH-04); scheme is case-insensitive;
       a token equal to a later pair's token still resolves correctly when an earlier pair shares its prefix —
       full scan, never early exit; wrong-token-for-existing-operator vs token-matching-no-operator raise
       indistinguishably (AUTH-05 authenticator half).
-- [ ] 2.4 GREEN: `adapters/web/auth.py` — `build_authenticator`: parse `Bearer` (case-insensitive), scan
+- [x] 2.4 GREEN: `adapters/web/auth.py` — `build_authenticator`: parse `Bearer` (case-insensitive), scan
       EVERY pair with `hmac.compare_digest` on UTF-8 bytes, no early exit; exactly one match → `OperatorId`,
       zero → `InvalidCredential`.
-- [ ] 2.5 RED: `WebDependencies.authenticate` is REQUIRED — construction without it fails (no permissive
+- [x] 2.5 RED: `WebDependencies.authenticate` is REQUIRED — construction without it fails (no permissive
       default: deny-by-default at construction, D8); `tests/unit/adapters/web/conftest.py` supplies a fake
       authenticator resolving a default operator and a header helper, and every existing web test authenticates
       through it (suite-wide regression stays green).
-- [ ] 2.6 GREEN: `adapters/web/app.py` — `authenticate: Callable[[str | None], OperatorId]` field with no
+- [x] 2.6 GREEN: `adapters/web/app.py` — `authenticate: Callable[[str | None], OperatorId]` field with no
       default; conftest + affected wiring updated.
-- [ ] 2.7 RED: `tests/unit/adapters/web/test_auth_gate.py` (new) — the R2 gate: a parametrized 401 check
+- [x] 2.7 RED: `tests/unit/adapters/web/test_auth_gate.py` (new) — the R2 gate: a parametrized 401 check
       GENERATED from the registered route table (`app.routes` APIRoutes, never a hand-maintained list) — for
       every route a well-formed unauthenticated request answers 401 with the identical body
       `{"detail": "not authenticated"}` and `WWW-Authenticate: Bearer`, and causes NO state change (no job
       admitted, no upload bytes written, recording fake starter never called, no cancellation recorded)
       (AUTH-02, AUTH-06); all 401 causes (missing/malformed/unknown) produce byte-identical response bodies
       (AUTH-04/05 HTTP half). New routes registered later join this test automatically — deny-by-default
-      enforced by a test, not a document.
-- [ ] 2.8 GREEN: `adapters/web/routers/jobs.py` — `_authorized(request, deps) -> OperatorId` shared helper,
+      enforced by a test, not a document. (Applied: FastAPI 0.141 wraps an included router in a lazy
+      `_IncludedRouter`, so the walk starts from `app.routes` and descends anything carrying an
+      `original_router` — still the registered route table, never a hand-maintained list.)
+- [x] 2.8 GREEN: `adapters/web/routers/jobs.py` — `_authorized(request, deps) -> OperatorId` shared helper,
       the FIRST statement of every existing handler (admit, status, upload); `InvalidCredential` → uniform 401
       translation; route-table test green.
-- [ ] 2.9 RED: `tests/unit/usecases/test_ownership.py` (new) + admission tests — `JobNotOwned(DomainError)`
+- [x] 2.9 RED: `tests/unit/usecases/test_ownership.py` (new) + admission tests — `JobNotOwned(DomainError)`
       exists; `require_owner(job, operator)` raises `JobNotOwned` on mismatch INCLUDING `owner=None` (D1's
       uniform rule) and passes on match; authenticated admission by operator "a" persists owner "a" (OWN-01);
       the persisted record bytes contain the name and NOT the token value (AUTH-09 record half).
-- [ ] 2.10 GREEN: `domain/errors.py` — `JobNotOwned`; `usecases/ownership.py` (new) — `require_owner`
+- [x] 2.10 GREEN: `domain/errors.py` — `JobNotOwned`; `usecases/ownership.py` (new) — `require_owner`
       (imports domain only); `usecases/admit_job.py` gains keyword-only `operator` and records it AFTER the
       capability guard; router passes the token-resolved operator; `JobNotOwned` → 403
       `{"detail": "not the owner of this job"}` translation (D4: generic — V2 already made existence public).
-- [ ] 2.11 RED: `tests/unit/adapters/web/test_upload_ownership.py` (new) — owner upload succeeds and the
+- [x] 2.11 RED: `tests/unit/adapters/web/test_upload_ownership.py` (new) — owner upload succeeds and the
       mechanics are unchanged under the authorized path: commit-by-rename from the sibling `.part`,
       extensionless stored source, content type from probe, percent-encoded filename as metadata only
       (OWN-03, OWN-10 — authenticated re-runs of the existing mechanics proofs); non-owner upload → 403 with
@@ -204,21 +206,24 @@ Runtime harness: in-process ASGI transport (the existing web-test style) — the
       secrecy — well-formed id, real job, still 403 (OWN-08); malformed id on the mutating route → 404 before
       any filesystem access, authenticated (OWN-09); the load-bearing precedence holds: 401 beats 404 beats
       403 (unauthenticated+malformed → 401; authenticated+malformed → 404; authenticated+foreign → 403).
-- [ ] 2.12 GREEN: `adapters/web/routers/jobs.py` upload handler — `_authorized` → `_load` → `require_owner`
+- [x] 2.12 GREEN: `adapters/web/routers/jobs.py` upload handler — `_authorized` → `_load` → `require_owner`
       BEFORE the writer is constructed (before any byte is accepted); reuse the single 403 translation.
-- [ ] 2.13 RED: `tests/unit/adapters/web/test_identity_discard.py` (new) — operator "b" admits with a body
+- [x] 2.13 RED: `tests/unit/adapters/web/test_identity_discard.py` (new) — operator "b" admits with a body
       containing `"operator": "a"`: the recorded owner is "b", the token-resolved caller (OWN-07); structural
       assertion over `app.routes`: no route declares an operator-identity parameter in body, header, or query
       (VIS-08 structural half begins; the listing filter half closes in 3.5).
-- [ ] 2.14 GREEN: `adapters/web/schemas.py` — `AdmitJobRequest` keeps `extra="forbid"` for ordinary typos and
+- [x] 2.14 GREEN: `adapters/web/schemas.py` — `AdmitJobRequest` keeps `extra="forbid"` for ordinary typos and
       gains a `model_validator(mode="before")` removing any client-supplied `operator` key before validation
       (D8: discarded, not rejected — a 422 would fail OWN-07).
-- [ ] 2.15 RED: `tests/unit/runtime/test_settings_auth.py` (new) — fail-closed boot (D3): with
+- [x] 2.15 RED: `tests/unit/runtime/test_settings_auth.py` (new) — fail-closed boot (D3): with
       `ONEVOICECUT_OPERATOR_TOKENS` absent/empty the composition root (`build_dependencies`/app construction
       against `Settings(data_dir=tmp, operator_tokens="")`) refuses with an error naming the failure class,
       before any route can serve (AUTH-07); every malformed map form of 2.1 refuses at the same boundary
-      (AUTH-08 boot level); refusal messages contain no token values.
-- [ ] 2.16 GREEN: `runtime/settings.py` — `operator_tokens: str = ""` (absence reaches the parser, whose
+      (AUTH-08 boot level); refusal messages contain no token values. **Note: green at write time —
+      characterization.** The composition-root wiring landed with 2.6 (a required `authenticate` field cannot
+      compile unless the root supplies one), so these tests lock behavior that already exists rather than
+      driving new code. Honesty over ceremony, per the 1.6/2.18 precedent.
+- [x] 2.16 GREEN: `runtime/settings.py` — `operator_tokens: str = ""` (absence reaches the parser, whose
       specific refusal beats a bare pydantic ValidationError); `runtime/app.py` — `build_dependencies` parses
       the map, builds the authenticator, injects it into `WebDependencies`; error paths verified.
 

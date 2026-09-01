@@ -10,7 +10,9 @@ Validation is Pydantic's, and it is doing real work here: `EngineChoice` and
 than a `ValueError` somewhere inside a use case.
 """
 
-from pydantic import BaseModel, ConfigDict
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from onevoicecut.domain.jobs import EngineChoice, JobProgress, JobState, SpeakerMode
 
@@ -25,6 +27,20 @@ class AdmitJobRequest(BaseModel):
     # in with a guess.
     engine: EngineChoice
     speaker_mode: SpeakerMode = SpeakerMode.SINGLE
+
+    @model_validator(mode="before")
+    @classmethod
+    def _discard_client_supplied_identity(cls, data: Any) -> Any:
+        """A client-supplied operator identity has no effect (OWN-07).
+
+        Removed before validation rather than rejected: `extra="forbid"` stays
+        in force for ordinary typos, but a 422 for `operator` would refuse a
+        caller the admission their token entitles them to — and honoring it
+        would let one operator mint jobs as another.
+        """
+        if isinstance(data, dict):
+            return {key: value for key, value in data.items() if key != "operator"}
+        return data
 
 
 class AdmitJobResponse(BaseModel):

@@ -20,6 +20,7 @@ from onevoicecut.adapters.web.app import WebDependencies, create_app
 from onevoicecut.domain.ids import _ULID_PATTERN
 from onevoicecut.domain.jobs import EngineChoice, JobState, SpeakerMode
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
+from tests.unit.adapters.web.conftest import auth_headers, fake_authenticate
 
 FIXED_NOW = 1723501234.5
 
@@ -31,9 +32,15 @@ def storage(tmp_path: Path) -> FakeTranscriptStoragePort:
 
 @pytest.fixture
 async def client(storage: FakeTranscriptStoragePort) -> AsyncIterator[AsyncClient]:
-    app = create_app(WebDependencies(storage=storage, now=lambda: FIXED_NOW))
+    app = create_app(
+        WebDependencies(
+            storage=storage, authenticate=fake_authenticate, now=lambda: FIXED_NOW
+        )
+    )
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as http:
+    async with AsyncClient(
+        transport=transport, base_url="http://test", headers=auth_headers()
+    ) as http:
         yield http
 
 

@@ -24,7 +24,11 @@ from onevoicecut.ports.audio_extractor import AudioExtractorPort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from tests.fakes.audio_extractor import FakeAudioExtractorPort
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
-from tests.unit.adapters.web.conftest import unstarted
+from tests.unit.adapters.web.conftest import (
+    auth_headers,
+    fake_authenticate,
+    unstarted,
+)
 
 
 @pytest.fixture
@@ -45,10 +49,15 @@ def client_for(
 
     app = create_app(
         WebDependencies(
-            storage=storage, extractor_for=extractor, start_job=unstarted
+            storage=storage,
+            authenticate=fake_authenticate,
+            extractor_for=extractor,
+            start_job=unstarted,
         )
     )
-    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+    return AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers=auth_headers()
+    )
 
 
 @pytest.fixture

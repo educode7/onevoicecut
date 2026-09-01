@@ -23,7 +23,11 @@ from onevoicecut.ports.audio_extractor import AudioExtractorPort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from tests.fakes.audio_extractor import FakeAudioExtractorPort
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
-from tests.unit.adapters.web.conftest import accepting_extractor
+from tests.unit.adapters.web.conftest import (
+    accepting_extractor,
+    auth_headers,
+    fake_authenticate,
+)
 
 LIMIT = 4096
 
@@ -50,12 +54,15 @@ def client_for(
     app = create_app(
         WebDependencies(
             storage=storage,
+            authenticate=fake_authenticate,
             max_upload_bytes=LIMIT,
             extractor_for=extractor if probe_error else accepting_extractor,
             start_job=started.append,
         )
     )
-    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+    return AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers=auth_headers()
+    )
 
 
 @pytest.fixture
@@ -108,12 +115,13 @@ async def test_the_media_record_exists_before_the_worker_is_started(
     app = create_app(
         WebDependencies(
             storage=storage,
+            authenticate=fake_authenticate,
             extractor_for=accepting_extractor,
             start_job=check_then_start,
         )
     )
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", headers=auth_headers()
     ) as client:
         job_id = await admitted(client)
         await client.put(f"/api/jobs/{job_id}/media", content=b"media")
@@ -159,11 +167,16 @@ async def test_an_app_with_no_starter_refuses_rather_than_silently_doing_nothing
     """The failure this default exists to prevent: uploads accepted, nothing
     transcribed, and every response saying success."""
     app = create_app(
-        WebDependencies(storage=storage, extractor_for=accepting_extractor)
+        WebDependencies(
+            storage=storage,
+            authenticate=fake_authenticate,
+            extractor_for=accepting_extractor,
+        )
     )
     async with AsyncClient(
         transport=ASGITransport(app=app, raise_app_exceptions=False),
         base_url="http://test",
+        headers=auth_headers(),
     ) as client:
         job_id = await admitted(client)
         response = await client.put(f"/api/jobs/{job_id}/media", content=b"media")
@@ -181,11 +194,14 @@ async def test_a_video_with_no_audio_starts_nothing(
 
     app = create_app(
         WebDependencies(
-            storage=storage, extractor_for=extractor, start_job=started.append
+            storage=storage,
+            authenticate=fake_authenticate,
+            extractor_for=extractor,
+            start_job=started.append,
         )
     )
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", headers=auth_headers()
     ) as client:
         job_id = await admitted(client)
         await client.put(f"/api/jobs/{job_id}/media", content=b"video only")

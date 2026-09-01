@@ -23,7 +23,11 @@ from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMo
 from onevoicecut.ports.media_source import MediaSourcePort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
-from tests.unit.adapters.web.conftest import accepting_extractor
+from tests.unit.adapters.web.conftest import (
+    accepting_extractor,
+    auth_headers,
+    fake_authenticate,
+)
 
 HOSTILE_IDS = [
     "..",
@@ -52,10 +56,14 @@ def storage(tmp_path: Path) -> FakeTranscriptStoragePort:
 @pytest.fixture
 async def client(storage: FakeTranscriptStoragePort) -> AsyncIterator[AsyncClient]:
     app = create_app(
-        WebDependencies(storage=storage, extractor_for=accepting_extractor)
+        WebDependencies(
+            storage=storage,
+            authenticate=fake_authenticate,
+            extractor_for=accepting_extractor,
+        )
     )
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", headers=auth_headers()
     ) as http:
         yield http
 
@@ -131,6 +139,7 @@ async def test_a_hostile_id_never_reaches_the_writer(tmp_path: Path) -> None:
     app = create_app(
         WebDependencies(
             storage=TrustingStorage(tmp_path),
+            authenticate=fake_authenticate,
             media_source_for=spy,
             extractor_for=accepting_extractor,
         )
@@ -138,6 +147,7 @@ async def test_a_hostile_id_never_reaches_the_writer(tmp_path: Path) -> None:
     async with AsyncClient(
         transport=ASGITransport(app=app, raise_app_exceptions=False),
         base_url="http://test",
+        headers=auth_headers(),
     ) as client:
         # `%2e%2e` survives routing and decodes to `..` in the path parameter —
         # the form that reaches a handler, unlike `../..`, which the router and
@@ -178,6 +188,7 @@ async def test_a_non_ulid_that_survives_routing_never_reaches_the_writer(
     app = create_app(
         WebDependencies(
             storage=TrustingStorage(tmp_path),
+            authenticate=fake_authenticate,
             media_source_for=spy,
             extractor_for=accepting_extractor,
         )
@@ -185,6 +196,7 @@ async def test_a_non_ulid_that_survives_routing_never_reaches_the_writer(
     async with AsyncClient(
         transport=ASGITransport(app=app, raise_app_exceptions=False),
         base_url="http://test",
+        headers=auth_headers(),
     ) as client:
         response = await client.put("/api/jobs/not-a-ulid/media", content=b"x")
 

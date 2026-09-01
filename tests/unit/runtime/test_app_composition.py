@@ -95,6 +95,7 @@ def test_the_app_is_wired_to_the_configured_directory(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("ONEVOICECUT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ONEVOICECUT_OPERATOR_TOKENS", "maria:tok")
 
     deps = build_dependencies(Settings())  # type: ignore[call-arg]
 

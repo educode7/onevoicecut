@@ -17,6 +17,7 @@ from onevoicecut.domain.errors import DiarizationUnsupported
 from onevoicecut.domain.ids import (
     JobId,
     MediaId,
+    OperatorId,
     generate_job_id,
     generate_media_id,
 )
@@ -45,6 +46,7 @@ def admit_job(
     *,
     engine: EngineChoice,
     speaker_mode: SpeakerMode,
+    operator: OperatorId,
     storage: TranscriptStoragePort,
     capabilities: Callable[[EngineChoice], TranscriptionCapabilities] | None = None,
     now: Callable[[], float] = time.time,
@@ -56,6 +58,10 @@ def admit_job(
     The media id is allocated now even though no bytes have arrived, so the
     upload that follows has somewhere to belong rather than inventing an identity
     from whatever the client sent.
+
+    The authenticated caller is recorded as owner here and never reassigned:
+    ownership is written once, at admission. The capability guard above runs
+    before any of this, so a refused admission still touches no storage.
 
     When a capabilities callable is supplied, engine/speaker-mode compatibility
     is validated before any storage operation — IDs are not minted, no storage
@@ -74,9 +80,7 @@ def admit_job(
         updated_at=now(),
         worker_pid=None,
         error=None,
-        # Ownerless until the authentication slice wires the caller's identity
-        # in; behavior-neutral here, and the key is still persisted from now on.
-        owner=None,
+        owner=operator,
     )
     storage.create_job(job)
     return job

@@ -62,6 +62,16 @@ class JobNotFound(DomainError):
     """
 
 
+class JobNotOwned(DomainError):
+    """Raised when an operator mutates a job that is not theirs.
+
+    The one ownership rule raises it — `require_owner` — including for jobs with
+    no owner at all: a legacy job is visible to everyone and mutable by nobody.
+    The web adapter maps it to 403; job existence is already public under the
+    shared listing, so the refusal leaks nothing new.
+    """
+
+
 class JobAlreadyExists(DomainError):
     """Raised when creating a job whose id is already stored.
 

@@ -20,7 +20,12 @@ from onevoicecut.domain.ids import JobId, make_job_id
 from onevoicecut.ports.media_source import MediaSourcePort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
-from tests.unit.adapters.web.conftest import accepting_extractor, unstarted
+from tests.unit.adapters.web.conftest import (
+    accepting_extractor,
+    auth_headers,
+    fake_authenticate,
+    unstarted,
+)
 
 LIMIT = 4096
 
@@ -52,12 +57,13 @@ async def client(storage: FakeTranscriptStoragePort) -> AsyncIterator[AsyncClien
     app = create_app(
         WebDependencies(
             storage=storage,
+            authenticate=fake_authenticate,
             max_upload_bytes=LIMIT,
             extractor_for=accepting_extractor,
          start_job=unstarted,)
     )
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", headers=auth_headers()
     ) as http:
         yield http
 
@@ -72,13 +78,14 @@ async def guarded_client(
     app = create_app(
         WebDependencies(
             storage=storage,
+            authenticate=fake_authenticate,
             max_upload_bytes=LIMIT,
             media_source_for=refuse,
             extractor_for=accepting_extractor,
          start_job=unstarted,)
     )
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", headers=auth_headers()
     ) as http:
         yield http
 

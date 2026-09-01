@@ -23,6 +23,7 @@ from onevoicecut.adapters.storage.filesystem_transcript_storage import (
 )
 from onevoicecut.adapters.web.app import WebDependencies, create_app
 from onevoicecut.domain.ids import JobId, make_job_id
+from tests.unit.adapters.web.conftest import auth_headers, fake_authenticate
 
 pytestmark = pytest.mark.integration
 
@@ -42,9 +43,13 @@ async def client(
     storage: FilesystemTranscriptStorage,
 ) -> AsyncIterator[AsyncClient]:
     """No fake extractor: this is the point of the file."""
-    app = create_app(WebDependencies(storage=storage, start_job=unstarted))
+    app = create_app(
+        WebDependencies(
+            storage=storage, authenticate=fake_authenticate, start_job=unstarted
+        )
+    )
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", headers=auth_headers()
     ) as http:
         yield http
 

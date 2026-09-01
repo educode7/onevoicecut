@@ -11,6 +11,7 @@ from urllib.parse import unquote
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from onevoicecut.adapters.web.app import WebDependencies
+from onevoicecut.adapters.web.auth import InvalidCredential
 from onevoicecut.adapters.web.schemas import (
     AdmitJobRequest,
     AdmitJobResponse,
@@ -20,19 +21,55 @@ from onevoicecut.adapters.web.schemas import (
 from onevoicecut.domain.errors import (
     DiarizationUnsupported,
     JobNotFound,
+    JobNotOwned,
     UnsupportedContainer,
     UploadTooLarge,
 )
-from onevoicecut.domain.ids import InvalidIdError, JobId, make_job_id
+from onevoicecut.domain.ids import InvalidIdError, JobId, OperatorId, make_job_id
 from onevoicecut.domain.jobs import JobRecord, derive_progress
 from onevoicecut.domain.media import SourceMedia
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
 from onevoicecut.ports.media_source import MediaSourcePort
 from onevoicecut.usecases.admit_job import admit_job
+from onevoicecut.usecases.ownership import require_owner
 
 # The client's filename travels as metadata, never in the URL — a path parameter
 # would invite treating it as one.
 FILENAME_HEADER = "x-filename"
+
+
+def _authorized(request: Request, deps: WebDependencies) -> OperatorId:
+    """Resolve the caller's identity, or refuse with the one 401 shape.
+
+    First statement of every handler, so no route can serve a request it never
+    authenticated. Every credential failure — missing header, malformed header,
+    unknown token — becomes the SAME response: one status, one body, one header.
+    Distinguishing the causes would tell a caller which operators exist.
+    """
+    try:
+        return deps.authenticate(request.headers.get("authorization"))
+    except InvalidCredential as error:
+        raise HTTPException(
+            status_code=401,
+            detail="not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from error
+
+
+def _owned(job: JobRecord, operator: OperatorId) -> None:
+    """The one 403 translation, shared by every mutating route.
+
+    The use case raises `JobNotOwned`; the adapter maps it. The detail is
+    generic on purpose — under the shared listing every job's existence is
+    already public, so a refusal on a foreign id reveals nothing new and must
+    not name the owner.
+    """
+    try:
+        require_owner(job, operator)
+    except JobNotOwned as error:
+        raise HTTPException(
+            status_code=403, detail="not the owner of this job"
+        ) from error
 
 
 def _load(job_id: str, deps: WebDependencies) -> JobRecord:
@@ -152,17 +189,19 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
     router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
     @router.post("", status_code=201, response_model=AdmitJobResponse)
-    def admit(body: AdmitJobRequest) -> AdmitJobResponse:
+    def admit(body: AdmitJobRequest, request: Request) -> AdmitJobResponse:
         """Returns before anything expensive happens.
 
         Admission records a decision. The upload that follows and the hours of
         transcription after it are separate, precisely so neither sits inside an
         HTTP request.
         """
+        operator = _authorized(request, deps)
         try:
             job = admit_job(
                 engine=body.engine,
                 speaker_mode=body.speaker_mode,
+                operator=operator,
                 storage=deps.storage,
                 now=deps.now,
                 new_job_id=deps.new_job_id,
@@ -174,7 +213,7 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         return AdmitJobResponse(job_id=job.job_id, state=job.state)
 
     @router.get("/{job_id}", response_model=JobStatusResponse)
-    def status(job_id: str) -> JobStatusResponse:
+    def status(job_id: str, request: Request) -> JobStatusResponse:
         """Read-only by construction, which is what makes it safe to poll.
 
         The worker is the sole writer of the job record. This reads the record,
@@ -186,6 +225,7 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         the upload, so the rate comes out slightly low and the ETA slightly long.
         That is the direction to be wrong in.
         """
+        _authorized(request, deps)
         job = _load(job_id, deps)
         progress = derive_progress(
             deps.storage.load_chunk_plan(job.job_id),
@@ -216,7 +256,11 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         metadata. It is never consulted when deciding where anything goes: storage
         decided that before this handler ran.
         """
+        operator = _authorized(request, deps)
         job = _load(job_id, deps)
+        # Ownership is decided before the writer exists: a non-owner's request
+        # never opens a partial file, never accepts a byte.
+        _owned(job, operator)
 
         _refuse_if_declared_too_large(request, deps.max_upload_bytes)
 

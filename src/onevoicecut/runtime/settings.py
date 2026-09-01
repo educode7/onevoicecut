@@ -23,3 +23,8 @@ class Settings(BaseSettings):
     data_dir: Path
 
     max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
+
+    # `name:token;name:token`. Defaults to empty rather than absent so the
+    # token-map parser — not a bare pydantic validation error — is what refuses
+    # an unconfigured boot, with a message naming the actual failure.
+    operator_tokens: str = ""
