@@ -232,34 +232,51 @@ Runtime harness: in-process ASGI transport (the existing web-test style) — the
 Closes: AUTH-09 (logs/argv halves), OWN-02, OWN-05 (upload + purge arms), OWN-06, OWN-11.
 Rollback boundary: the test files below + `usecases/purge_job_artifacts.py` (one field).
 
-- [ ] 2.17 RED: AUTH-09 completion — capturing stdout/stderr/logging during an authenticated
+- [x] 2.17 RED: AUTH-09 completion — capturing stdout/stderr/logging during an authenticated
       admit+upload cycle: no emitted line contains the token value; the worker argv recorded by a fake
       launcher contains only `--job-id`/`--data-dir` — no token, no operator identity (worker argv unchanged
-      by this change).
-- [ ] 2.18 GREEN: expected green (the design already forbids both channels) — confirm and record as
-      characterization; any leak found is fixed here with the minimal wiring change.
-- [ ] 2.19 RED: OWN-02 — owner immutability across every transition that exists at this point: admission →
+      by this change). (Applied: `tests/unit/adapters/web/test_secret_discipline.py`; argv driven through
+      the real authenticated upload into `spawn_worker` with a fake launch sink, asserted byte-exact.)
+- [x] 2.18 GREEN: expected green (the design already forbids both channels) — confirm and record as
+      characterization; any leak found is fixed here with the minimal wiring change. (Applied: green at
+      write time — characterization. The web path emits nothing and argv is fixed by construction; no
+      leak found, no wiring change needed.)
+- [x] 2.19 RED: OWN-02 — owner immutability across every transition that exists at this point: admission →
       `save_media` → worker-claim-shaped `update_job(replace(...))` → reconcile rewrite: owner "a" at every
       point; structural assertion that `dataclasses.replace` is the only record-mutation vehicle and carries
       `owner` (later slices lock the rest: 5.5 asserts gate transitions preserve owner, 6.7 asserts extended
-      reconcile does).
-- [ ] 2.20 GREEN: expected green (`replace` carries the field structurally) — characterization note; any
-      owner-dropping transition found is a defect fixed here.
-- [ ] 2.21 RED: OWN-06 + OWN-05 arms — `PurgeJobArtifacts.operator: OperatorId` is REQUIRED (no default;
+      reconcile does). (Applied: `tests/unit/usecases/test_owner_immutability.py`; lifecycle over the real
+      filesystem storage with disk re-loads at every point, AST scan proving all four `update_job` call
+      sites in src pass records built by `replace`, frozen-record reassignment refused.)
+- [x] 2.20 GREEN: expected green (`replace` carries the field structurally) — characterization note; any
+      owner-dropping transition found is a defect fixed here. (Applied: green at write time —
+      characterization. No owner-dropping transition exists; none fixed.)
+- [x] 2.21 RED: OWN-06 + OWN-05 arms — `PurgeJobArtifacts.operator: OperatorId` is REQUIRED (no default;
       construction without it fails) so a future route needs no signature surgery; the seam's gate is the
       shared `require_owner`: a non-owner purge request raises `JobNotOwned` and removes nothing; an owner
       request proceeds (use-case level — the seam has no route); with the upload arm of 2.11 this establishes
       two of OWN-05's three mutation classes (the cancel arm lands in 4.7, which closes OWN-05).
-- [ ] 2.22 GREEN: `usecases/purge_job_artifacts.py` — add the required `operator` field; gate test green.
-- [ ] 2.23 RED: OWN-11 — authenticated admission requesting a speaker mode the supplied capabilities cannot
+      (Applied: `tests/unit/usecases/test_purge_job_artifacts.py`; genuine RED — 5 failures: construction
+      without operator DID NOT RAISE, construction with it got an unexpected keyword. Legacy `owner=None`
+      refusal triangulates D1's uniform rule at the seam.)
+- [x] 2.22 GREEN: `usecases/purge_job_artifacts.py` — add the required `operator` field; gate test green.
+      (Applied: required no-default `operator: OperatorId` between `job_id` and `keep`; 5/5 green.)
+- [x] 2.23 RED: OWN-11 — authenticated admission requesting a speaker mode the supplied capabilities cannot
       satisfy refuses 422 BEFORE any storage touch: zero records created (storage empty after), and the new
-      `operator` argument has not moved the capability guard's position.
-- [ ] 2.24 GREEN: expected green (`admit_job` validates compatibility first; 2.10 added `operator` after the
-      guard) — characterization lock.
-- [ ] 2.25 DONE-UNIT (S2a+S2b): both definition-of-done commands green; measure S2a's diff. If S2a exceeded
+      `operator` argument has not moved the capability guard's position. (Applied:
+      `tests/unit/adapters/web/test_admission_capability_order.py`; HTTP refusal with zero storage calls,
+      positive control recording the owner on the satisfiable path, use-case proof that the guard precedes
+      even id minting via recording id factories.)
+- [x] 2.24 GREEN: expected green (`admit_job` validates compatibility first; 2.10 added `operator` after the
+      guard) — characterization lock. (Applied: green at write time — characterization. The guard stands
+      where it stood before this change.)
+- [x] 2.25 DONE-UNIT (S2a+S2b): both definition-of-done commands green; measure S2a's diff. If S2a exceeded
       800, apply the R3-safe contingency from the forecast (eject ONLY the AUTH-05 permutation matrix and the
       non-load-bearing OWN-09 precedence permutations into a same-slice unit landing before S3). The fused
-      401+403 core is never split.
+      401+403 core is never split. (Applied: S2a measured 1294 changed lines and landed as commit 09cc1f0
+      under accepted exception — the fused core was never split; the contingency was not the relief used.
+      S2b measured within its cap on branch `feat/multi-operator-access-03-secret-discipline-purge-ownership`;
+      full suite 652 passed, mypy clean at 125 source files.)
 
 ## Slice 3 — Shared job listing, V2 visibility (Unit S3, PR 4, expected ~320)
 

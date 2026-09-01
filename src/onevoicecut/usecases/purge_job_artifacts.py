@@ -25,7 +25,7 @@ Which leaves exactly the two large, regenerable intermediates.
 from dataclasses import dataclass
 from enum import StrEnum
 
-from onevoicecut.domain.ids import JobId
+from onevoicecut.domain.ids import JobId, OperatorId
 
 
 class PurgeableArtifact(StrEnum):
@@ -42,7 +42,14 @@ class PurgeJobArtifacts:
     `keep` rather than `remove`: a policy that lists what to delete silently grows
     to cover new artifact kinds as they are added, while one that lists what to
     keep fails closed — a kind nobody thought about is not swept up by default.
+
+    `operator` is required and carries no default: the authenticated caller is
+    part of the request itself, the same identity the other mutations gate on,
+    so the eventual route and policy need no signature surgery (OWN-06). The
+    gate the request faces is the shared `require_owner` — deletion belongs to
+    the mutation class that is owner-only.
     """
 
     job_id: JobId
+    operator: OperatorId
     keep: frozenset[PurgeableArtifact] = frozenset(PurgeableArtifact)
