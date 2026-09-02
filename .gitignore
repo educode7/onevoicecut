@@ -12,6 +12,10 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
+# Per-machine agent scratch — not part of the change artifacts they sit next to
+.qwen/
+.gentle-ai-instance
+
 # Environment / secrets (API keys for cloud ASR and LLM adapters)
 .env
 .env.*
