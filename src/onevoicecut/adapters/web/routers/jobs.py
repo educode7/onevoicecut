@@ -29,7 +29,7 @@ from onevoicecut.domain.errors import (
     UploadTooLarge,
 )
 from onevoicecut.domain.ids import InvalidIdError, JobId, OperatorId, make_job_id
-from onevoicecut.domain.jobs import JobRecord, derive_progress
+from onevoicecut.domain.jobs import JobRecord, JobState, derive_progress
 from onevoicecut.domain.media import SourceMedia
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
 from onevoicecut.ports.media_source import MediaSourcePort
@@ -105,6 +105,26 @@ def _validated_job_id(raw: str) -> JobId:
         return make_job_id(raw)
     except InvalidIdError as error:
         raise HTTPException(status_code=404, detail="no such job") from error
+
+
+def _accepting_media(job: JobRecord) -> None:
+    """Media is only legal while the job is still PENDING.
+
+    Before the cancel route existed this could not go wrong: nothing moved a job
+    out of PENDING until its upload had finished. Now the operator can cancel
+    mid-transfer, and an upload that committed afterwards would resurrect the
+    job — bytes on disk, a media record, and a worker spawned for work that was
+    explicitly called off.
+
+    It also closes an older hazard nobody had a reason to hit: a second upload
+    into a job already extracting used to be accepted, replacing the file a
+    worker was reading at that moment.
+    """
+    if job.state is not JobState.PENDING:
+        raise HTTPException(
+            status_code=409,
+            detail=f"job is {job.state}, which does not accept media",
+        )
 
 
 def _refuse_if_declared_too_large(request: Request, max_bytes: int) -> None:
@@ -327,8 +347,11 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         operator = _authorized(request, deps)
         job = _load(job_id, deps)
         # Ownership is decided before the writer exists: a non-owner's request
-        # never opens a partial file, never accepts a byte.
+        # never opens a partial file, never accepts a byte. The state check
+        # follows rather than precedes it, so a stranger learns nothing about
+        # what happened to somebody else's job.
         _owned(job, operator)
+        _accepting_media(job)
 
         _refuse_if_declared_too_large(request, deps.max_upload_bytes)
 
@@ -342,6 +365,17 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
             )
         except UploadTooLarge as error:
             raise HTTPException(status_code=413, detail=str(error)) from error
+
+        # Read again, now that the bytes are in. The record consulted before the
+        # transfer is hours stale by the time a multi-hour upload finishes, and
+        # the cancel it missed is exactly the one worth catching. Checked before
+        # the probe because probing a job nobody wants is wasted work.
+        if deps.storage.load_job(job.job_id).state is not JobState.PENDING:
+            writer.discard(media)
+            raise HTTPException(
+                status_code=409,
+                detail="job stopped accepting media while it was being uploaded",
+            )
 
         verified = _verified_media(
             media, extractor=deps.extractor_for(deps.storage, job.job_id), writer=writer

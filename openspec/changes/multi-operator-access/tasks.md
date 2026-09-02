@@ -364,14 +364,44 @@ Runtime harness: in-process ASGI transport + fake-storage call logs.
       closes here.**
 - [x] 4.8 GREEN: expected green — the chunk-boundary poll exists (`transcribe_job`); any failure is a real
       seam gap fixed minimally. Record as characterization where applicable.
-- [ ] 4.9 RED: `tests/unit/adapters/web/test_upload_state_guard.py` (new) — the upload-path guard D9's
+- [x] 4.9 RED: `tests/unit/adapters/web/test_upload_state_guard.py` (new) — the upload-path guard D9's
       PENDING-cancellation entails: upload to a record that is not PENDING (cancelled, extracting) → 409
       BEFORE any byte is accepted (early check); a record cancelled mid-stream → the late re-read just before
       `save_media` discards the stored bytes through the existing `discard` seam and answers 409.
-- [ ] 4.10 GREEN: `adapters/web/routers/jobs.py` upload handler — early state check after ownership, late
+- [x] 4.10 GREEN: `adapters/web/routers/jobs.py` upload handler — early state check after ownership, late
       re-read + discard before persisting.
-- [ ] 4.11 DONE-UNIT: both definition-of-done commands green; measure; pre-declared split seam if exceeded
+- [x] 4.11 DONE-UNIT: both definition-of-done commands green; measure; pre-declared split seam if exceeded
       (not expected): use case + route (4.1–4.8) vs upload state guard (4.9–4.10).
+
+### Split taken, and why the pre-declared seam was not enough
+
+Split into **four** units, not the two 4.11 pre-declared. The two-way seam would have put 4.1–4.8 in one
+unit: measured after the fact, that is 1,107 lines — the same 3–4x overrun every prior slice hit, and it
+would have needed an exception like slice 1's rather than a split.
+
+Measured, in delivery order:
+
+| Unit | Tasks | Lines | vs 400 budget |
+| --- | --- | --- | --- |
+| S4a — domain classification + `cancel_job` | 4.1–4.4 | 412 | +12 |
+| S4b — route + `CancelJobResponse` | 4.5–4.6 | 272 | −128 |
+| S4c — boundary characterization + OWN-05 matrix | 4.7–4.8 | 423 | +23 |
+| S4d — upload state guard | 4.9–4.10 | 270 | −130 |
+| **Total** | | **1,377** | **2.5x the ~560 estimate** |
+
+Two things worth carrying forward:
+
+- **The 4x multiplier held at the slice level, not the unit level.** Estimating `560 × 2.5` and dividing by
+  400 predicts four units, which is what it took. The prior slices' "overrun" was never a estimation error
+  about the work — it was a splitting error.
+- **Test share was 79%** (1,092 of 1,377), at the top of the 61–81% band and again nowhere near the plan's
+  56%. The `src` half of this whole slice is 285 lines.
+
+**Deviation from the task text.** 4.7 names the OWN-05 matrix as living in `test_cancel_boundary.py`. It
+was written instead as `tests/unit/adapters/web/test_mutation_ownership_matrix.py`, generated from the
+registered route table the way the 401 gate is. Listing the mutating routes by hand would have proven the
+two that exist and nothing about the next one; derived, a future mutating route that forgets `_owned`
+fails the default run the day it is written.
 
 ## Slice 5 — Capacity gate (Units S5a + S5b, PR 6 + PR 7)
 
