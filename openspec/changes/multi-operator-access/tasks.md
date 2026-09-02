@@ -284,30 +284,44 @@ Closes: VIS-01..08. `list_jobs()` stays unscoped — no new port method under V2
 Rollback boundary: `adapters/web/schemas.py`, `adapters/web/routers/jobs.py` (list handler + status owner
 field), new tests. Runtime harness: in-process ASGI transport.
 
-- [ ] 3.1 RED: `tests/unit/adapters/web/test_job_list_shapes.py` (new) — response shapes (D10): listing is a
+- [x] 3.1 RED: `tests/unit/adapters/web/test_job_list_shapes.py` (new) — response shapes (D10): listing is a
       WRAPPER object `JobListResponse(jobs=[JobListItem...])` (future pagination stays additive);
       `JobListItem` = job_id, state, owner, engine, speaker_mode, created_at, updated_at (record-derived only —
       no per-job plan/results scans); `JobStatusResponse` gains `owner: str | None` ADDITIVELY — every
-      pre-change field present with unchanged meaning (VIS-06).
-- [ ] 3.2 GREEN: `adapters/web/schemas.py` — `JobListResponse`, `JobListItem`, `owner` on
-      `JobStatusResponse`; status handler passes `job.owner` through.
-- [ ] 3.3 RED: `tests/unit/adapters/web/test_job_list_route.py` (new) — listing behavior: jobs admitted by
+      pre-change field present with unchanged meaning (VIS-06). (Applied: genuine RED — ImportError on
+      `JobListItem`/`JobListResponse`; 4 shape tests pin the wrapper, the exact item field set, legacy
+      `owner: null` serialization, and the additive status field set.)
+- [x] 3.2 GREEN: `adapters/web/schemas.py` — `JobListResponse`, `JobListItem`, `owner` on
+      `JobStatusResponse`; status handler passes `job.owner` through. (Applied: 4/4 shapes green, all 11
+      pre-existing status-route tests stay green — additive change confirmed.)
+- [x] 3.3 RED: `tests/unit/adapters/web/test_job_list_route.py` (new) — listing behavior: jobs admitted by
       operators "a" and "b" both appear, each attributed (VIS-03); legacy jobs surface with `owner: null`
       (VIS-04); a data directory with N mixed records lists exactly N — no caller-identity scoping removes
       items (VIS-05); operator "b" reads operator "a"'s single job → 200 with owner attribution (VIS-01);
       reading writes NOTHING — the fake storage call log shows zero write methods during GET status and GET
       list (VIS-02). The route-table 401 gate of 2.7 covers `GET /api/jobs` automatically (AUTH-02
-      reinforcement).
-- [ ] 3.4 GREEN: `adapters/web/routers/jobs.py` — `GET ""` handler over the unscoped `list_jobs()`,
-      `_authorized` first.
-- [ ] 3.5 RED: same test file — `?mine=true` by operator "a" returns exactly "a"'s jobs, no foreign job
+      reinforcement). (Applied: genuine RED — 4 failures, `GET /api/jobs` answered 405 with no list route
+      registered. The VIS-01/VIS-06 status halves were green at write time — characterization: foreign reads
+      already worked and the status `owner` field landed with 3.2. Verified by collection: the gate now
+      parametrizes `[GET /api/jobs]`, so the unauthenticated listing dies with the one 401 shape
+      automatically.)
+- [x] 3.4 GREEN: `adapters/web/routers/jobs.py` — `GET ""` handler over the unscoped `list_jobs()`,
+      `_authorized` first. (Applied: handler registered before `GET /{job_id}`; items built record-derived
+      only — no plan/results scans. The 4 RED tests green; whole web suite green.)
+- [x] 3.5 RED: same test file — `?mine=true` by operator "a" returns exactly "a"'s jobs, no foreign job
       (VIS-07); operator "b" requesting `?mine=true&operator=a` gets "b"'s jobs computed solely from the
       token identity — the supplied identity is never honored (VIS-08); structural assertion from 2.13
-      re-run: still no route declares an operator-identity parameter anywhere.
-- [ ] 3.6 GREEN: `mine: bool = False` query parameter on the list handler, resolved server-side against the
-      authenticated `OperatorId` and nothing else.
-- [ ] 3.7 DONE-UNIT: both definition-of-done commands green; measure; pre-declared split seam if exceeded
-      (not expected): shapes+status-owner vs list route+filter.
+      re-run: still no route declares an operator-identity parameter anywhere. (Applied: genuine RED — both
+      filter tests failed with the unfiltered board, `mine` not yet a parameter. The 2.13 structural
+      assertion re-ran green over the new route table: the listing declares only `mine`, never an operator.)
+- [x] 3.6 GREEN: `mine: bool = False` query parameter on the list handler, resolved server-side against the
+      authenticated `OperatorId` and nothing else. (Applied: a client-supplied `operator` query parameter
+      has nowhere to arrive — FastAPI never binds undeclared parameters — so the filter can only see the
+      token identity; a legacy record (owner None) matches nobody.)
+- [x] 3.7 DONE-UNIT: both definition-of-done commands green; measure; pre-declared split seam if exceeded
+      (not expected): shapes+status-owner vs list route+filter. (Applied: full suite 665 passed,
+      5 deselected — baseline 652 + 13 new (12 tests + 1 auto-added gate case); mypy clean at 127 source
+      files; measured diff within the 800-line cap, no split needed.)
 
 ## Slice 4 — Cancel route (Unit S4, PR 5, expected ~560)
 

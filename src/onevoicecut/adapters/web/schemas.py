@@ -84,3 +84,34 @@ class JobStatusResponse(BaseModel):
     # `null` before the job is planned: there is no denominator yet, and zero of
     # zero renders as a finished job.
     progress: ProgressResponse | None
+    # Additive: every pre-change field keeps its name and meaning (VIS-06).
+    # `null` for a record written before owners existed — visible to all,
+    # mutable by nobody. A token value never appears here, only a name (AUTH-09).
+    owner: str | None
+
+
+class JobListItem(BaseModel):
+    """One row of the shared board, record-derived only.
+
+    No progress, because progress costs a per-job plan/results scan and a poll
+    of the board must cost one directory listing. How far along a job is remains
+    the per-job status read.
+    """
+
+    job_id: str
+    state: JobState
+    # `null` for legacy records (VIS-04): the listing hides nothing, and an
+    # ownerless job is everybody's to see and nobody's to change.
+    owner: str | None
+    engine: EngineChoice
+    speaker_mode: SpeakerMode
+    created_at: float
+    updated_at: float
+
+
+class JobListResponse(BaseModel):
+    """A wrapper object, not a bare array (D10): pagination, totals, whatever
+    comes next, join the wrapper additively instead of changing every client's
+    shape."""
+
+    jobs: list[JobListItem]

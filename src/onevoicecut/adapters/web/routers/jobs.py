@@ -15,6 +15,8 @@ from onevoicecut.adapters.web.auth import InvalidCredential
 from onevoicecut.adapters.web.schemas import (
     AdmitJobRequest,
     AdmitJobResponse,
+    JobListItem,
+    JobListResponse,
     JobStatusResponse,
     ProgressResponse,
 )
@@ -212,6 +214,46 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
             raise HTTPException(status_code=422, detail=str(error)) from error
         return AdmitJobResponse(job_id=job.job_id, state=job.state)
 
+    @router.get("", response_model=JobListResponse)
+    def listing(request: Request, mine: bool = False) -> JobListResponse:
+        """The shared board: every job, attributed, hidden from nobody.
+
+        One ministry team cuts one church's sermons, so "is Sunday's sermon
+        done?" is collaboration, not leakage — read access to every job is the
+        point of a shared server, while mutation stays owner-gated on the
+        routes that change things.
+
+        The listing rides the same unscoped `list_jobs()` startup reconcile
+        uses, which is what makes "nothing hidden" structural rather than a
+        promise this handler keeps: the route cannot scope by caller what the
+        store never scoped. Items are record-derived only — one directory
+        listing per poll, no per-job plan/results scans; progress remains the
+        per-job status read.
+
+        `mine` narrows the view, never the store's: a boolean resolved against
+        the token identity and nothing else. No route accepts an operator
+        identity as a parameter — a client-supplied one has nowhere to arrive,
+        so a legacy record (owner None) can never match anybody.
+        """
+        operator = _authorized(request, deps)
+        jobs = deps.storage.list_jobs()
+        if mine:
+            jobs = tuple(job for job in jobs if job.owner == operator)
+        return JobListResponse(
+            jobs=[
+                JobListItem(
+                    job_id=job.job_id,
+                    state=job.state,
+                    owner=job.owner,
+                    engine=job.engine,
+                    speaker_mode=job.speaker_mode,
+                    created_at=job.created_at,
+                    updated_at=job.updated_at,
+                )
+                for job in jobs
+            ]
+        )
+
     @router.get("/{job_id}", response_model=JobStatusResponse)
     def status(job_id: str, request: Request) -> JobStatusResponse:
         """Read-only by construction, which is what makes it safe to poll.
@@ -240,6 +282,7 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
             speaker_mode=job.speaker_mode,
             error=job.error,
             progress=None if progress is None else ProgressResponse.of(progress),
+            owner=job.owner,
         )
 
     @router.put("/{job_id}/media", status_code=204)
