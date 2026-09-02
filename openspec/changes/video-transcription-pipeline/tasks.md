@@ -872,7 +872,7 @@ counted here.
 Closes: `speech-transcription` Contract Parity and Declared Divergence (local half, registration). Depends on
 7a-i.
 
-- [ ] 7.3 RED: shared `tests/contract/` module, parametrized to include the local adapter alongside the
+- [x] 7.3 RED: shared `tests/contract/` module, parametrized to include the local adapter alongside the
       existing fake, `localmodel`-marked, excluded from the default run.
 - [ ] 7.4 GREEN: register the adapter in `runtime/engine_resolver.py` for `EngineChoice.LOCAL`.
 

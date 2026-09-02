@@ -14,21 +14,32 @@ promoted to `SPEECH`. Real speech and music fixtures arrive with classification
 in 7a-iii and hallucination containment in 7a-iv.
 """
 
-import subprocess
 from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.asr.local.faster_whisper_adapter import (
+# Before the adapter import, and load-bearing: pytest imports every test module
+# during collection, *before* it filters on markers. Without this guard the
+# module-level `from faster_whisper import ...` inside the adapter breaks the
+# default run on any checkout that has not installed the optional local-ASR
+# extras — the suite that is specifically supposed to need none of them.
+pytest.importorskip(
+    "faster_whisper",
+    reason="local ASR extras not installed (requirements-local-asr.txt)",
+)
+
+import subprocess  # noqa: E402 - must follow the guard above
+
+from onevoicecut.adapters.asr.local.faster_whisper_adapter import (  # noqa: E402
     FasterWhisperTranscriber,
 )
-from onevoicecut.domain.chunking import AudioChunk
-from onevoicecut.domain.errors import DiarizationUnsupported
-from onevoicecut.domain.ids import JobId
-from onevoicecut.domain.jobs import SpeakerMode
-from onevoicecut.domain.transcript import SegmentKind
-from onevoicecut.ports.capabilities import ClassificationSupport, DiarizationSupport
-from onevoicecut.ports.transcription import TranscriptionPort, TranscriptionRequest
+from onevoicecut.domain.chunking import AudioChunk  # noqa: E402
+from onevoicecut.domain.errors import DiarizationUnsupported  # noqa: E402
+from onevoicecut.domain.ids import JobId  # noqa: E402
+from onevoicecut.domain.jobs import SpeakerMode  # noqa: E402
+from onevoicecut.domain.transcript import SegmentKind  # noqa: E402
+from onevoicecut.ports.capabilities import ClassificationSupport, DiarizationSupport  # noqa: E402
+from onevoicecut.ports.transcription import TranscriptionPort, TranscriptionRequest  # noqa: E402
 
 pytestmark = pytest.mark.localmodel
 
