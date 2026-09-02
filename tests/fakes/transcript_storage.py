@@ -125,6 +125,10 @@ class FakeTranscriptStoragePort:
         return self._export_paths.get(job_id)
 
     def request_cancellation(self, job_id: JobId, *, requested: bool = True) -> None:
+        # Recorded, because cancellation's central claim is about *who writes
+        # what*: a terminal job must come out of the route with the control file
+        # untouched, and an untouched file is only observable as an absent call.
+        self.calls.append(f"request_cancellation:{requested}")
         self._cancelled[job_id] = requested
 
     def cancellation_requested(self, job_id: JobId) -> bool:

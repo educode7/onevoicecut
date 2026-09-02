@@ -21,6 +21,10 @@ class EngineChoice(StrEnum):
 
 class JobState(StrEnum):
     PENDING = "pending"
+    # Admitted and uploaded, waiting for a worker slot. Nothing writes it until
+    # the capacity gate exists; cancellation already classifies over it, because
+    # a classification table with a hole gets patched later under pressure.
+    QUEUED = "queued"
     EXTRACTING = "extracting"
     PLANNED = "planned"
     TRANSCRIBING = "transcribing"
@@ -30,6 +34,34 @@ class JobState(StrEnum):
     FAILED = "failed"
     CANCELLED = "cancelled"
     INTERRUPTED = "interrupted"
+
+
+WORKER_BOUND_STATES = frozenset(
+    {
+        JobState.EXTRACTING,
+        JobState.PLANNED,
+        JobState.TRANSCRIBING,
+        JobState.STITCHING,
+        JobState.GENERATING,
+    }
+)
+"""States in which a worker process owns the record.
+
+The single-writer rule is stated here rather than rediscovered at each call
+site. Startup reconcile, the capacity gate and cancellation all need the same
+answer to "does a worker own this?", and three independent derivations of one
+rule is how the three come to disagree.
+"""
+
+TERMINAL_STATES = frozenset({JobState.COMPLETED, JobState.FAILED, JobState.CANCELLED})
+"""States nothing follows.
+
+Everything outside these two sets is unbound: no worker owns it and no outcome
+has settled, so the web process may write it. That the three groups partition
+`JobState` is not a comment — `tests/unit/domain/test_jobs.py` asserts it, because
+a state outside all three would take cancellation's unbound branch and let the
+web process overwrite a live worker's record.
+"""
 
 
 @dataclass(frozen=True, slots=True)

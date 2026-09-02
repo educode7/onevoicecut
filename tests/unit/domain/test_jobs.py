@@ -3,7 +3,14 @@ from dataclasses import FrozenInstanceError, replace
 import pytest
 
 from onevoicecut.domain.ids import make_job_id, make_media_id, make_operator_id
-from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.domain.jobs import (
+    TERMINAL_STATES,
+    WORKER_BOUND_STATES,
+    EngineChoice,
+    JobRecord,
+    JobState,
+    SpeakerMode,
+)
 
 JOB_ID = make_job_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 MEDIA_ID = make_media_id("01BX5ZZKBKACTAV9WEVGEMMVRZ")
@@ -21,6 +28,7 @@ def test_engine_choice_has_no_default_member() -> None:
 def test_job_state_covers_full_lifecycle() -> None:
     assert {m.value for m in JobState} == {
         "pending",
+        "queued",
         "extracting",
         "planned",
         "transcribing",
@@ -31,6 +39,54 @@ def test_job_state_covers_full_lifecycle() -> None:
         "cancelled",
         "interrupted",
     }
+
+
+class TestStateClassification:
+    """The two frozensets every state-dependent policy reads from.
+
+    Reconcile, the capacity gate and cancellation each need to know whether a
+    worker owns a record. Deriving that answer three times is how the three
+    drift apart, so the domain answers once and they all consume it.
+
+    Nothing writes QUEUED yet — the capacity gate does, one slice later. It is
+    defined here because cancellation classifies over every state, and a table
+    with a hole in it is a table that gets patched later under pressure.
+    """
+
+    def test_queued_names_a_job_waiting_for_a_worker_slot(self) -> None:
+        assert JobState.QUEUED.value == "queued"
+
+    def test_worker_bound_states_are_the_five_a_worker_owns(self) -> None:
+        assert WORKER_BOUND_STATES == frozenset(
+            {
+                JobState.EXTRACTING,
+                JobState.PLANNED,
+                JobState.TRANSCRIBING,
+                JobState.STITCHING,
+                JobState.GENERATING,
+            }
+        )
+
+    def test_terminal_states_are_the_three_nothing_follows(self) -> None:
+        assert TERMINAL_STATES == frozenset(
+            {JobState.COMPLETED, JobState.FAILED, JobState.CANCELLED}
+        )
+
+    def test_the_two_classes_never_overlap(self) -> None:
+        assert not (WORKER_BOUND_STATES & TERMINAL_STATES)
+
+    def test_every_remaining_state_is_unbound(self) -> None:
+        """The partition is total, which is what lets cancellation branch on it.
+
+        A state belonging to neither set is a state no worker owns and no
+        outcome has settled — the web process may write it. If a future state
+        landed outside all three groups, cancellation would silently take the
+        unbound branch and let the web process write over a live worker's
+        record. This test is the tripwire for that.
+        """
+        unbound = set(JobState) - WORKER_BOUND_STATES - TERMINAL_STATES
+
+        assert unbound == {JobState.PENDING, JobState.QUEUED, JobState.INTERRUPTED}
 
 
 def test_job_record_holds_fields() -> None:

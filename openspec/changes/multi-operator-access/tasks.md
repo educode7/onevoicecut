@@ -330,15 +330,15 @@ Rollback boundary: `domain/jobs.py` (enum value + frozensets), `usecases/cancel_
 `adapters/web/routers/jobs.py` (cancel handler + upload state guard), `adapters/web/schemas.py`, new tests.
 Runtime harness: in-process ASGI transport + fake-storage call logs.
 
-- [ ] 4.1 RED: `tests/unit/domain/test_jobs.py` — `JobState.QUEUED` exists with value `"queued"`;
+- [x] 4.1 RED: `tests/unit/domain/test_jobs.py` — `JobState.QUEUED` exists with value `"queued"`;
       `WORKER_BOUND_STATES == frozenset({EXTRACTING, PLANNED, TRANSCRIBING, STITCHING, GENERATING})`;
       `TERMINAL_STATES == frozenset({COMPLETED, FAILED, CANCELLED})`. **Dependency-forced pull-forward from
       S5 (slice order unchanged):** D9's cancel classification is one table over every state; the constants
       and enum value land here so `cancel_job` is written complete from the start. They are behavior-neutral —
       nothing writes QUEUED until S5.
-- [ ] 4.2 GREEN: `domain/jobs.py` — the enum value and both frozensets, defined ONCE for reconcile, capacity
+- [x] 4.2 GREEN: `domain/jobs.py` — the enum value and both frozensets, defined ONCE for reconcile, capacity
       derivation, and cancel classification to consume (D6).
-- [ ] 4.3 RED: `tests/unit/usecases/test_cancel_job.py` (new) — `cancel_job(job_id, *, operator, storage,
+- [x] 4.3 RED: `tests/unit/usecases/test_cancel_job.py` (new) — `cancel_job(job_id, *, operator, storage,
       now)` per-state matrix (design §5 table): worker-bound states (parametrized over all five
       `WORKER_BOUND_STATES`) → `request_cancellation` recorded, NO record write by the use case (CXL-03);
       PENDING / QUEUED / INTERRUPTED → record → CANCELLED AND control file written (web legitimacy per D7 —
@@ -346,7 +346,7 @@ Runtime harness: in-process ASGI transport + fake-storage call logs.
       over all three) → ZERO writes, control files untouched (CXL-06); non-owner → `JobNotOwned` raised before
       any write (CXL-02 use-case level); unknown id → `JobNotFound` (CXL-08 use-case level); owner proceeds
       (CXL-01 use-case level). Fake storage records every write for the zero-write assertions.
-- [ ] 4.4 GREEN: `usecases/cancel_job.py` (new) — classification via the domain frozensets; `require_owner`
+- [x] 4.4 GREEN: `usecases/cancel_job.py` (new) — classification via the domain frozensets; `require_owner`
       first; injected `now` (clock seam, `WebDependencies.now` precedent).
 - [ ] 4.5 RED: `tests/unit/adapters/web/test_cancel_route.py` (new) — `POST /api/jobs/{id}/cancel`: owner
       cancels a worker-bound job → 200 `CancelJobResponse(job_id, state)` immediately — the recording takes
