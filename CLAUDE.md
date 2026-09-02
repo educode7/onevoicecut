@@ -35,7 +35,16 @@ Windows paths (`.venv\Scripts\`), no POSIX `bin/`.
 
 # Install
 .venv\Scripts\python.exe -m pip install -r requirements.txt -r requirements-dev.txt
+
+# Hear what the local engine makes of real audio — a dev tool, outside the spec and outside mypy
+.venv\Scripts\python.exe scripts\try_local_asr.py RECORDING.mp4 --model small --start 42:10 --seconds 90
 ```
+
+`scripts/try_local_asr.py` exists because every ASR fixture in the suite is synthesised with ffmpeg, and
+no synthetic signal reproduces a human singing over a sermon — the case `SegmentKind` was built for. It
+goes through `local_transcriber`, the same lazily-imported factory the resolver uses, and prints each
+segment's kind and timestamps, the per-kind totals, the share of the window covered, and the
+`transcript.txt` that would be delivered.
 
 The two commands above are recorded as `test_command` / `build_command` in `openspec/config.yaml`.
 Both must be green before any slice is considered done.
@@ -61,7 +70,9 @@ venv + pip, hand-pinned, deliberately split so a unit-test run never downloads P
 
 - `requirements.txt` — core (fastapi, uvicorn, pydantic, pydantic-settings, httpx)
 - `requirements-dev.txt` — pytest, pytest-asyncio, mypy
-- `requirements-local-asr.txt` — faster-whisper (slice 7, still empty)
+- `requirements-local-asr.txt` — `faster-whisper==1.2.1`, installed. Pulls CTranslate2 and onnxruntime,
+  ~90 MB of wheels before a single weight is fetched, which is why every module that touches it is
+  imported lazily or behind `pytest.importorskip`
 - `requirements-diarization.txt` — pyannote.audio / WhisperX (slice 9, still empty)
 - `requirements.lock.txt` — `pip freeze` of a full install, for reproduction only
 
@@ -76,9 +87,13 @@ src/onevoicecut/
   domain/     # zero third-party imports; frozen slotted dataclasses only
   ports/      # typing.Protocol definitions; imports domain only
   usecases/   # imports domain + ports only — all orchestration lives here
-  adapters/   # web/ ffmpeg/ asr/local/ asr/cloud/ llm/ storage/   (not built yet)
-  runtime/    # composition root — the ONLY place adapters are constructed (not built yet)
+  adapters/   # web/ ffmpeg/ asr/local/ storage/   (asr/cloud/ and llm/ not built yet)
+  runtime/    # composition root — the ONLY place adapters are constructed
 ```
+
+`runtime/` holds `app.py` (web composition root, drain, reconcile), `supervisor.py` (liveness, the
+per-chunk watchdog, reaping), `engine_resolver.py`, `settings.py` and `worker.py`. `worker.py` is a
+second composition root in its own right: it is a separate process, and it reads its own environment.
 
 `tests/test_architecture.py` walks `domain`, `usecases`, and `ports` with `ast` and fails if any of them
 imports `onevoicecut.adapters` or `onevoicecut.runtime`. It parses source text rather than importing, so it
@@ -115,9 +130,17 @@ change, not a refactor.
   the dangerous failure, because the transcript looks fine.
 - **`SegmentKind` (`SPEECH | MUSIC | UNCERTAIN`) is marked, never filtered at the boundary.** Every
   segment keeps its timestamps regardless of class, so a musical range stays addressable as clip
-  material; the `.txt` message export and the LLM MAP windows select `SPEECH` only. **An adapter that
-  cannot classify returns `UNCERTAIN`, never `SPEECH`** — same no-silent-degradation invariant as
-  diarization, on a second and independent axis. Do not infer one axis from the other.
+  material. **An adapter that cannot classify returns `UNCERTAIN`, never `SPEECH`** — same
+  no-silent-degradation invariant as diarization, on a second and independent axis. Do not infer one axis
+  from the other.
+
+  The two message-facing consumers then differ on purpose, and it is easy to conflate them:
+  `speech_segments` (for the LLM) takes `SPEECH` only, because a model will not honour an inline marker
+  the way a reader does; `render_message_text` (the `.txt`) drops `MUSIC` but **keeps `UNCERTAIN`,
+  marked**, because dropping it would render an all-uncertain transcript — exactly what a non-classifying
+  adapter produces — as a zero-byte file after a three-hour run. Segments with no text at all are
+  skipped: a filtered non-speech range is a range, not a line, and rendering it printed a bare `[?] ` per
+  silence.
 - **Engine choice has no global default** — it is per job, resolved by `runtime/engine_resolver.py`.
   Use cases stay engine-agnostic.
 - **Secrets** are read at adapter construction in the resolver, so a missing key fails fast before a
@@ -135,6 +158,33 @@ change, not a refactor.
   loaded into memory.
 - **State-set membership lives in `domain/jobs.py`** (`WORKER_BOUND_STATES`, `TERMINAL_STATES`), because
   reconcile, the capacity gate and cancel classification all branch on it and three derivations drift.
+- **Filtering non-speech out of the decode is only half the job.** The local adapter runs the
+  voice-activity pass twice over the same samples: once inside the decode, to starve the hallucination,
+  and once alongside it, to put the filtered ranges *back into the result* with their timestamps. A plain
+  `vad_filter=True` satisfies "no fabricated SPEECH" while destroying every musical range clip rendering
+  has to aim at. `_tile` fills every remaining hole, so a chunk always comes back whole.
+- **Two non-speech kinds, decided by which detector said what.** A hole with no voice activity is `MUSIC`;
+  a hole *with* voice activity but no decoder text is `UNCERTAIN` — a real disagreement between two
+  detectors, and claiming to know which was right is the silent degradation this axis exists to stop. The
+  same reasoning classifies decoded text carrying a high `no_speech_prob` as `UNCERTAIN`, not `MUSIC`,
+  because `without_music` drops `MUSIC` outright and a misjudged sentence would vanish from the export
+  instead of arriving marked.
+- **The engine must prove the device, not merely load on it.** CTranslate2 allocates the model on the
+  selected device and returns happily, then resolves its compute libraries lazily on the first `encode()`
+  — so a machine with a GPU and no usable cuBLAS constructs fine and dies mid-job. `_prove` decodes one
+  second of silence in the constructor. **It never falls back to CPU**: that is the same job twenty times
+  slower, chosen by nobody, and the identical silent substitution the resolver refuses between engines.
+- **The watchdog reads the heartbeat, not `results/` mtime.** The worker writes a heartbeat at the top of
+  every chunk iteration, and TRANSCRIBING begins only after extraction and planning — so for a job in that
+  state the heartbeat's age *is* how long the current chunk has been running. Two conditions must hold
+  together: the heartbeat is stale **and** the job has been TRANSCRIBING longer than the timeout. The
+  second is not decoration — the heartbeat is not refreshed during extraction, and extracting three hours
+  of video outlasts a thirty-minute chunk timeout.
+- **Reconcile, the watchdog and reaping do not overlap**, because they ask different questions. Reconcile
+  asks whether a worker *exists* (at boot). The watchdog asks whether a *live* one is still moving. Reaping
+  asks what an *exited* one left behind, and classifies by what the record says rather than by the exit
+  code: QUEUED means nothing will ever write it → FAILED with a reason; worker-bound means it died
+  mid-flight → INTERRUPTED; terminal means the worker wrote its own account → left alone.
 
 ### Security invariants (already specified, tested per slice)
 
@@ -159,43 +209,61 @@ This repo runs **Spec-Driven Development** (`openspec/`) with **strict TDD** (`s
   ratio is tests 56% / `src` 36% / config 8% — budget accordingly, tests dominate.
 - `delivery_strategy: auto-chain`, `chain_strategy: stacked-to-main`. Work lands as 23 stacked units,
   PR 1 → PR 23.
-- **Measure the diff before committing a slice, not after.** Nine measured slices have overrun their
-  estimate by **3.2x to 5.1x, mean ≈ 4.0x, with none under 3.2x** — a fixed multiplier, not noise. The
-  excess is test code every time (test share 61–81%, never the 56% the plan assumed). Split units the
-  moment the measurement exceeds the budget; slice 1 did not and needed an exception, every slice since
-  has split instead. Treat every remaining estimate in `tasks.md` as `estimate × 4`.
+- **Measure the diff before committing a slice, not after.** The ×4 rule came from nine early slices that
+  overran **3.2x to 5.1x, mean ≈ 4.0x**. It no longer describes how this repo works: the six units since
+  `multi-operator-access` measured **0.86x, 0.92x, 1.06x, 1.26x, and 1.97x** (the last only because it
+  absorbed an unforeseen defect). What changed is not estimating skill — it is that units are now sized
+  against the smaller target and split at the first natural seam. **Keep measuring every unit**; the ×4
+  multiplier is history, not a planning rule, and treating it as one now over-splits.
 - **The budget is 800 lines**, not 400 — `openspec/config.yaml` `review.budget_lines` was raised on
   2026-08-31 and this file said 400 for months afterwards. Units in `multi-operator-access` were still
   sized against 400, deliberately: the smaller target is what forced the four-way splits that finally
   landed units on estimate instead of 4x over.
+- **Split at the seam, not at the line count.** The rule that has actually held: two halves that are each
+  green alone are two units. Slice 7a-ii split that way at 504 lines, slice 7c at 986 — and both halves of
+  each landed well inside the budget.
 
 ### Current state
 
-Two changes are in flight. `video-transcription-pipeline` is green through slice 7a-i;
-`multi-operator-access` is **complete** (all six slices). Together: **866 tests, 5 deselected (`paid` +
-`localmodel`), mypy clean over 144 files**.
+Two changes are in flight. `video-transcription-pipeline` is green through **slice 7c**; only 7b-ii is
+open in slice 7. `multi-operator-access` is **complete** (all six slices) and ready to archive. Together:
+**973 tests — 954 in the default run, 19 `localmodel`, no `paid` tests yet — mypy clean over 157 files.**
 
 On disk today are `domain/`, `ports/`, the use cases (`ingest_media`, `admit_job`, `plan_chunks`,
 `stitch_transcript`, `transcribe_job`, `resume_job`, `ownership`, `cancel_job`, plus the uncalled
 `purge_job_artifacts` seam), `adapters/ffmpeg/`, `adapters/storage/`, `adapters/web/` (including
-`auth.py`), `adapters/asr/local/faster_whisper_adapter.py`, `runtime/` (`app`, `settings`,
-`engine_resolver`, `worker`), and `tests/fakes/`. Still missing: the cloud ASR adapter, diarization,
-any LLM adapter, script generation, clip rendering, and the browser UI — the HTTP surface exists but
-nothing renders it.
+`auth.py`), `adapters/asr/local/faster_whisper_adapter.py`, `runtime/` (`app`, `supervisor`, `settings`,
+`engine_resolver`, `worker`), `tests/fakes/`, `tests/contract/` and `scripts/`. Still missing: the cloud
+ASR adapter, diarization, any LLM adapter, script generation, clip rendering, and the browser UI — the
+HTTP surface exists but nothing renders it.
 
-The pipeline runs end to end today with a fake ASR engine — real HTTP, real filesystem, real ffmpeg:
+**The pipeline runs end to end with the real local engine** — real HTTP, real filesystem, real ffmpeg,
+real faster-whisper:
 
 ```powershell
-$env:ONEVOICECUT_DATA_DIR = ".\data"; $env:PYTHONPATH = "src"
+$env:ONEVOICECUT_DATA_DIR = ".\data"
+$env:ONEVOICECUT_OPERATOR_TOKENS = "maria:some-token"
+$env:ONEVOICECUT_LOCAL_MODEL_SIZE = "small"   # no default: it decides quality and hours of runtime
+$env:ONEVOICECUT_LOCAL_DEVICE = "cpu"         # "auto" is the default; see the cuBLAS note below
+$env:PYTHONPATH = "src"
 .venv\Scripts\python.exe -m uvicorn onevoicecut.runtime.app:get_app --factory
 ```
 
-`POST /api/jobs` → `PUT /api/jobs/{id}/media` → the record goes **QUEUED** → the drain supervisor
-starts a worker within one five-second sweep → `GET /api/jobs/{id}`
-reports chunk progress → `transcript.txt` lands in the job directory. The faster-whisper adapter exists
-but **`engine_resolver.py` still registers no real engine** (that is task 7.4, slice 7a-ii), so a
-spawned worker exits 3 ("nothing usable to run"); `tests/integration/test_ingest_to_transcript.py`
-drives the same path with a fake engine and gets a transcript.
+`POST /api/jobs` → `PUT /api/jobs/{id}/media` → the record goes **QUEUED** → the drain supervisor starts
+a worker within one five-second sweep → `GET /api/jobs/{id}` reports chunk progress → `transcript.txt`
+lands in the job directory.
+
+**On this machine `ONEVOICECUT_LOCAL_DEVICE=cpu` is required.** `get_cuda_device_count()` returns 1, so
+`auto` selects CUDA, but `cublas64_12.dll` is absent and inference cannot run. Since slice 7c the engine
+proves the device at construction, so this is a clean `EngineUnavailable` at engine resolution naming the
+variable — not a job that dies mid-chunk. Installing the CUDA runtime is the other way out.
+
+Three environment variables are new since slice 7b and none of them existed when the first drafts of this
+file were written: `ONEVOICECUT_LOCAL_MODEL_SIZE` (no default — an unset value registers *no* local
+engine rather than picking a size), `ONEVOICECUT_LOCAL_DEVICE` (default `auto`), and
+`ONEVOICECUT_CHUNK_TIMEOUT_SECONDS` (default 1800; also accepted as `..._CHUNK_TIMEOUT_S`). The worker
+reads the first two from its own inherited environment, because argv is visible to every user on a shared
+machine.
 
 Five HTTP routes exist, **all of them authenticated** — a bearer token parsed from
 `ONEVOICECUT_OPERATOR_TOKENS`, fail-closed at boot: `POST /api/jobs` (admit), `GET /api/jobs` (shared
@@ -228,9 +296,27 @@ Four things about the upload path are load-bearing and easy to undo by accident:
 ffmpeg 9.0.1 is installed (winget, `Gyan.FFmpeg`), so the `integration`-marked tests run rather than
 skip — the flag set in `adapters/ffmpeg/argv.py` is verified against the real binaries, not just argued.
 
-Next up is **`video-transcription-pipeline` slice 7a-ii**: registering the faster-whisper adapter in
-`runtime/engine_resolver.py` so a spawned worker can actually transcribe, plus the shared contract-test
-module. `multi-operator-access` is done and ready to archive.
+Two supervised tasks run for the app's lifetime, on deliberately different clocks. The **drain** sweeps
+every five seconds, reaping exited workers before it serves the queue. The **watchdog** sweeps every
+sixty against a thirty-minute per-chunk timeout; folding it into the drain would tie that judgement to
+the drain's cadence, and a drain sweep that raised would take the timeout down with it.
+
+Next up is **slice 7b-ii** (task 7.7) — but its own text says it is written against the cloud adapter that
+lands in slice 8a, so it will most likely find nothing to extract yet, the way task 4.20 and 5.18 did.
+The follow-up 7b-i noted for it (moving liveness out of `app.py`) is already done: slice 7c's wiring
+forced it, because `app.py` needed the sweep and the sweep needed the probe. After that, **slice 8a-i**:
+the cloud ASR adapter, which needs a provider choice and `CLOUD_ASR_API_KEY`.
+
+Two gaps are known and deliberately open:
+
+- **The worker's own message never reaches the operator.** Reaping records *that* a worker exited and with
+  which status, and points at the server log; the engine's actual complaint goes to the web process's
+  stderr. Capturing the child's stderr means pipe management and a deadlock risk if that pipe fills
+  during a three-hour job.
+- **Real singing is unproven.** Every ASR fixture is synthesised with ffmpeg, and no synthetic signal
+  reaches `no_speech_prob ≤ 0.6`. A human voice singing plausibly does, which would classify sung lyrics
+  as `SPEECH` and put them in the message — the project's stated normal case. `scripts/try_local_asr.py`
+  exists to test it against real material, since media must never be committed.
 
 The proposal is at **rev 4**: rendering vertical clips is now in scope, which adds slices 11-13 after
 10b and modifies `transcript-artifacts` (word-level timing) and `MediaProbe` (frame dimensions). Those
