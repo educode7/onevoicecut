@@ -15,6 +15,7 @@ root appears.
 import argparse
 import os
 import sys
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -54,6 +55,7 @@ def run_job(
     *,
     resolver: EngineResolver,
     extractor_factory: ExtractorFactory = _ffmpeg_extractor,
+    now: Callable[[], float] = time.time,
 ) -> JobRecord:
     """Wire the adapters for one job and run it.
 
@@ -79,6 +81,11 @@ def run_job(
     # still going; without it every running job would look abandoned after a web
     # restart and be marked INTERRUPTED out from under a live process.
     storage.update_job(replace(job, worker_pid=os.getpid()))
+    # Immediately, not after the first chunk. Extraction on a three-hour file
+    # happens before any boundary exists, so a worker that died there would
+    # otherwise have left no evidence it ever ran — and its slot would be held
+    # on the strength of a pid alone.
+    storage.write_heartbeat(job_id, at_s=now())
 
     return transcribe_job(
         job_id,
@@ -86,6 +93,7 @@ def run_job(
         extractor=extractor_factory(storage.job_dir(job_id), job_id),
         transcriber=resolver.resolve(job.engine),
         storage=storage,
+        now=now,
     )
 
 

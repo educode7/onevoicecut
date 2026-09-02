@@ -326,3 +326,68 @@ def test_the_job_record_is_updated_never_recreated(
     run(storage)
 
     assert "create_job" not in storage.calls
+
+
+class TestHeartbeatAtEveryBoundary:
+    """HARD-02. Once per chunk, next to the cancellation poll.
+
+    Both live at the top of the loop for the same reason: it is the one moment
+    in a multi-hour run when the loop reliably comes up for air. A heartbeat
+    written anywhere else would either be too coarse to mean anything or would
+    need a thread, and a thread reports a hung worker as healthy.
+    """
+
+    def test_one_heartbeat_per_chunk_plus_the_claim_is_not_counted_here(
+        self, storage: FakeTranscriptStoragePort
+    ) -> None:
+        """`transcribe_job` owns the boundary writes; `run_job` owns the claim
+        write, which this use case never sees."""
+        run(storage, target_chunk_s=FAKE_DURATION_S / 4)
+
+        chunks = len([c for c in storage.calls if c.startswith("save_chunk_result")])
+        assert chunks > 1, "a single-chunk plan would make the count meaningless"
+        assert storage.calls.count("write_heartbeat") == chunks
+
+    def test_the_heartbeat_lands_before_the_chunk_it_precedes(
+        self, storage: FakeTranscriptStoragePort
+    ) -> None:
+        """Written on entering the boundary, not on leaving it.
+
+        A heartbeat written after a chunk finished would go stale for exactly
+        the duration of the work it was supposed to vouch for — the ninety
+        minutes a retried chunk can take is the window that matters.
+        """
+        run(storage, target_chunk_s=FAKE_DURATION_S / 4)
+
+        assert storage.calls.index("write_heartbeat") < storage.calls.index(
+            "save_chunk_result:0"
+        )
+
+    def test_freshness_reflects_the_latest_boundary_not_the_first(
+        self, storage: FakeTranscriptStoragePort
+    ) -> None:
+        """The whole point: a worker three hours into a job is as alive as one
+        that just started, and the file has to say so."""
+        ticks = iter([100.0 + n * 60.0 for n in range(50)])
+        seen: list[float] = []
+
+        def advancing() -> float:
+            seen.append(next(ticks))
+            return seen[-1]
+
+        transcribe_job(
+            JOB_ID,
+            a_media(),
+            extractor=FakeAudioExtractorPort(JOB_ID),
+            transcriber=FakeTranscriptionPort(),
+            storage=storage,
+            now=advancing,
+            target_chunk_s=FAKE_DURATION_S / 4,
+        )
+
+        # The clock also feeds state transitions and chunk timing, so the last
+        # tick is not a heartbeat. What matters is that the stored value moved
+        # well past the first boundary rather than staying where it started.
+        stored = storage.heartbeat_at(JOB_ID)
+        assert stored is not None
+        assert stored > seen[0]

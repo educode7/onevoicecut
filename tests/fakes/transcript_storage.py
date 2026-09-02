@@ -139,6 +139,11 @@ class FakeTranscriptStoragePort:
         self.calls.append("write_heartbeat")
         self._heartbeats[job_id] = at_s
 
+    def heartbeat_at(self, job_id: JobId) -> float | None:
+        """The stored value, for tests that assert it *advanced* rather than
+        merely that it exists."""
+        return self._heartbeats.get(job_id)
+
     def heartbeat_is_fresh(
         self, job_id: JobId, *, now_s: float, stale_after_s: float
     ) -> bool:

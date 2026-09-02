@@ -97,6 +97,11 @@ def transcribe_job(
         if storage.cancellation_requested(job_id):
             return _finish(job, JobState.CANCELLED, storage=storage, now=now)
 
+        # Liveness as a side effect of doing work, which is the only kind worth
+        # recording. A timer thread would keep reporting a hung worker as
+        # healthy — exactly the case a bare pid check already fails to catch.
+        storage.write_heartbeat(job_id, at_s=now())
+
         chunk = extractor.slice(
             track, planned, storage.chunk_path(job_id, planned.index)
         )

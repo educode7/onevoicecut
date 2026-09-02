@@ -561,14 +561,14 @@ Runtime harness: N/A — injected clock/liveness per design §8; no wall-clock s
       content → not fresh (fail closed). Fakes implement both methods and record calls.
 - [x] 6.2 GREEN: `ports/transcript_storage.py`, `adapters/storage/filesystem_transcript_storage.py`,
       `tests/fakes/transcript_storage.py`.
-- [ ] 6.3 RED: `tests/unit/runtime/test_worker_heartbeat.py` + `tests/unit/usecases/test_transcribe_job.py`
+- [x] 6.3 RED: `tests/unit/runtime/test_worker_heartbeat.py` + `tests/unit/usecases/test_transcribe_job.py`
       extensions — HARD-01: `run_job` writes a fresh heartbeat immediately after claiming the job (injected
       clock); HARD-02: `transcribe_job` touches it at EVERY chunk boundary, adjacent to the existing
       cancellation poll, freshness reflecting the latest boundary; HARD-03: across composite scenarios
       (upload, cancel, drain sweeps, reconcile) the fake's call log shows `write_heartbeat` invoked ONLY by
       the worker path — web, gate, and reconcile never write it (single-writer rule intact); owner-bearing
       records keep their owner through every heartbeat-era transition (OWN-02 final lock).
-- [ ] 6.4 GREEN: `runtime/worker.py` start write; `usecases/transcribe_job.py` boundary writes through an
+- [x] 6.4 GREEN: `runtime/worker.py` start write; `usecases/transcribe_job.py` boundary writes through an
       injected `now` callable with `time.time` default (`WebDependencies.now` precedent; design §8 seam).
 - [ ] 6.5 RED: `tests/unit/runtime/test_worker_is_alive.py` (new) — the SINGLE liveness definition (D5/D6):
       `worker_is_alive(job, storage, *, is_alive, now)` — live pid ∧ fresh heartbeat → alive (HARD-04); live
