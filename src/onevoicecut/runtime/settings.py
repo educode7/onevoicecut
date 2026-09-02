@@ -9,7 +9,7 @@ either up.
 
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from onevoicecut.adapters.web.app import DEFAULT_MAX_UPLOAD_BYTES
@@ -42,4 +42,14 @@ class Settings(BaseSettings):
     # This one depends on the hardware, the model size and the chunk length, and
     # the same value is passed to adapters that can honour a timeout in-call.
     # `gt=0` because zero would kill every worker on its first sweep.
-    chunk_timeout_s: float = Field(default=1800.0, gt=0)
+    #
+    # Aliased because the derived name would be `ONEVOICECUT_CHUNK_TIMEOUT_S`,
+    # and design.md documents `..._SECONDS`. An operator setting the documented
+    # variable and watching it do nothing is the worst of both.
+    chunk_timeout_s: float = Field(
+        default=1800.0,
+        gt=0,
+        validation_alias=AliasChoices(
+            "ONEVOICECUT_CHUNK_TIMEOUT_SECONDS", "ONEVOICECUT_CHUNK_TIMEOUT_S"
+        ),
+    )

@@ -30,6 +30,17 @@ from onevoicecut.domain.jobs import WORKER_BOUND_STATES, JobRecord, JobState
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.runtime.settings import Settings
 
+# Re-exported, not merely used: liveness moved to `supervisor.py` when the
+# watchdog wiring made `app.py` need the sweep and the sweep need the probe —
+# a cycle whose honest resolution is that process supervision does not belong in
+# a FastAPI factory. Existing callers import these from here and still can.
+from onevoicecut.runtime.supervisor import HEARTBEAT_STALE_AFTER_S as HEARTBEAT_STALE_AFTER_S
+from onevoicecut.runtime.supervisor import LivenessProbe as LivenessProbe
+from onevoicecut.runtime.supervisor import kill_worker as kill_worker
+from onevoicecut.runtime.supervisor import process_is_alive as process_is_alive
+from onevoicecut.runtime.supervisor import watchdog_supervisor as watchdog_supervisor
+from onevoicecut.runtime.supervisor import worker_is_alive as worker_is_alive
+
 WORKER_MODULE = "onevoicecut.runtime.worker"
 
 # Five seconds between sweeps. That is the worst-case delay between an upload
@@ -37,42 +48,11 @@ WORKER_MODULE = "onevoicecut.runtime.worker"
 # three-hour job, and QUEUED is an honest status to show meanwhile.
 DRAIN_SWEEP_INTERVAL_S = 5.0
 
-# Two hours. Sized from the longest gap the loop can produce between heartbeats:
-# one chunk retried up to three times under the thirty-minute per-chunk timeout,
-# or the extraction phase that precedes the first boundary on multi-hour input.
-# It is a constant rather than a setting because it is a property of the liveness
-# rule — lower it and healthy jobs get orphaned, raise it and it stops meaning
-# anything. Neither is a knob worth handing an operator.
-HEARTBEAT_STALE_AFTER_S = 7200.0
-
-LivenessProbe = Callable[[int], bool]
-
-
-def process_is_alive(pid: int) -> bool:
-    """Signal 0 is a probe, not a signal, on both platforms this runs on.
-
-    Verified on CPython 3.12 / Windows rather than assumed: `os.kill(pid, 0)`
-    returns for a live process, raises `OSError` for a dead one, and — unlike
-    every other signal value there — does not terminate anything. `os.kill(pid, 9)`
-    on the same platform kills with exit code 9, so the special case is real and
-    worth naming.
-
-    A recycled pid reads as alive, and this probe cannot tell the difference.
-    That used to be an accepted risk on a single-operator machine; it is not one
-    on a shared server, where the orphaned job is somebody else's and sits on the
-    board in a state nobody can clear. It is also blind to a worker that is
-    running and stuck, which is the more common failure on multi-hour work.
-
-    Both holes are closed one level up: `worker_is_alive` pairs this with the
-    heartbeat, and a stale heartbeat vetoes whatever this says. Nothing outside
-    that helper should call this directly.
-    """
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
-
+# A minute between watchdog sweeps, against a timeout measured in tens of
+# minutes. It bounds only how late a kill lands; sweeping at the drain's cadence
+# would re-list every job on the machine twelve times a minute to re-ask a
+# question whose answer changes on the scale of a chunk.
+WATCHDOG_SWEEP_INTERVAL_S = 60.0
 
 def _popen(argv: list[str]) -> None:
     """Launched and not waited on: the response returns while the job runs."""
@@ -149,37 +129,6 @@ def reconcile_interrupted_jobs(
         storage.update_job(replace(job, state=JobState.INTERRUPTED, updated_at=at))
         reconciled.append(job.job_id)
     return tuple(reconciled)
-
-
-def worker_is_alive(
-    job: JobRecord,
-    storage: TranscriptStoragePort,
-    *,
-    is_alive: LivenessProbe = process_is_alive,
-    now: float,
-) -> bool:
-    """The one definition, shared by reconcile and the capacity derivation.
-
-    Both of them ask this question, and if they answered it differently the
-    system would deadlock quietly: the gate would hold a slot for a worker
-    reconcile had already declared dead, and the queue behind it would never
-    move.
-
-    Three facts, and any of them alone is enough to say no:
-
-    - **No pid.** The claim never happened; there is nothing to be alive.
-    - **Dead pid.** The heartbeat is a record of the past, and the past does not
-      keep a process running.
-    - **Stale heartbeat.** This is the pid-reuse veto, and it is why a bare
-      `os.kill(pid, 0)` was never sufficient: the number now belongs to some
-      other process, which answers the probe perfectly well. It also catches a
-      worker that is running and stuck, which the pid check cannot see at all.
-    """
-    if job.worker_pid is None or not is_alive(job.worker_pid):
-        return False
-    return storage.heartbeat_is_fresh(
-        job.job_id, now_s=now, stale_after_s=HEARTBEAT_STALE_AFTER_S
-    )
 
 
 def drain_once(
@@ -317,6 +266,24 @@ class DrainConfig:
     interval_s: float = DRAIN_SWEEP_INTERVAL_S
 
 
+@dataclass(frozen=True, slots=True)
+class WatchdogConfig:
+    """Separate from `DrainConfig` because they are separate decisions.
+
+    One is capacity, the other is enforcement, and their intervals differ by
+    three orders of magnitude. Folding them together would tie a thirty-minute
+    judgement to a five-second cadence.
+    """
+
+    chunk_timeout_s: float
+    # A minute between sweeps. The timeout is measured in tens of minutes, so
+    # this only bounds how late the kill is, and sweeping harder would re-list
+    # every job on the machine for a question whose answer changes slowly.
+    interval_s: float = WATCHDOG_SWEEP_INTERVAL_S
+    kill: Callable[[int], None] = kill_worker
+    is_alive: LivenessProbe = process_is_alive
+
+
 def build_dependencies(settings: Settings) -> WebDependencies:
     # Parsing the token map is the composition root's one authentication act.
     # It refuses an empty or malformed map before anything can serve a request —
@@ -329,11 +296,16 @@ def build_dependencies(settings: Settings) -> WebDependencies:
     )
 
 
-def build_app(deps: WebDependencies, *, drain: DrainConfig | None = None) -> FastAPI:
-    """`drain=None` builds an app that serves routes and starts nothing.
+def build_app(
+    deps: WebDependencies,
+    *,
+    drain: DrainConfig | None = None,
+    watchdog: WatchdogConfig | None = None,
+) -> FastAPI:
+    """`None` for either builds an app that serves routes and starts nothing.
 
     That is what route tests want, and it is explicit rather than implied by a
-    forgotten argument — the composition root always supplies one, and a test
+    forgotten argument — the composition root always supplies both, and a test
     asserts that it does.
     """
 
@@ -350,27 +322,42 @@ def build_app(deps: WebDependencies, *, drain: DrainConfig | None = None) -> Fas
         # wait behind them.
         reconcile_interrupted_jobs(deps.storage, now=deps.now)
 
-        if drain is None:
-            yield
-            return
-
-        supervisor = asyncio.create_task(
-            drain_supervisor(
-                deps.storage,
-                max_concurrent_jobs=drain.max_concurrent_jobs,
-                launch=drain.launch,
-                is_alive=drain.is_alive,
-                interval_s=drain.interval_s,
+        supervisors: list[asyncio.Task[None]] = []
+        if drain is not None:
+            supervisors.append(
+                asyncio.create_task(
+                    drain_supervisor(
+                        deps.storage,
+                        max_concurrent_jobs=drain.max_concurrent_jobs,
+                        launch=drain.launch,
+                        is_alive=drain.is_alive,
+                        interval_s=drain.interval_s,
+                    )
+                )
             )
-        )
+        if watchdog is not None:
+            supervisors.append(
+                asyncio.create_task(
+                    watchdog_supervisor(
+                        deps.storage,
+                        chunk_timeout_s=watchdog.chunk_timeout_s,
+                        interval_s=watchdog.interval_s,
+                        kill=watchdog.kill,
+                        is_alive=watchdog.is_alive,
+                    )
+                )
+            )
+
         try:
             yield
         finally:
-            # A task outliving its app would keep spawning workers against a
-            # data directory this process is finished with.
-            supervisor.cancel()
-            with suppress(asyncio.CancelledError):
-                await supervisor
+            # A task outliving its app would keep spawning workers — or killing
+            # them — against a data directory this process is finished with.
+            for supervisor in supervisors:
+                supervisor.cancel()
+            for supervisor in supervisors:
+                with suppress(asyncio.CancelledError):
+                    await supervisor
 
     return create_app(deps, lifespan=lifespan)
 
@@ -389,4 +376,5 @@ def get_app() -> FastAPI:
             launch=spawn_worker(settings.data_dir),
             max_concurrent_jobs=settings.max_concurrent_jobs,
         ),
+        watchdog=WatchdogConfig(chunk_timeout_s=settings.chunk_timeout_s),
     )

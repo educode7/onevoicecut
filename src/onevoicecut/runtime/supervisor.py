@@ -33,18 +33,87 @@ Writing to the record here is legitimate for the same reason startup reconcile's
 write is: by then this module has killed the worker, so nothing else owns it.
 """
 
+import asyncio
 import os
 import signal
+import sys
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 
 from onevoicecut.domain.chunking import ChunkResult, ChunkState
 from onevoicecut.domain.ids import JobId
 from onevoicecut.domain.jobs import JobRecord, JobState
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
-from onevoicecut.runtime.app import LivenessProbe, process_is_alive
 from onevoicecut.usecases.resume_job import pending_chunks
+
+# Two hours. Sized from the longest gap the loop can produce between heartbeats:
+# one chunk retried up to three times under the thirty-minute per-chunk timeout,
+# or the extraction phase that precedes the first boundary on multi-hour input.
+# It is a constant rather than a setting because it is a property of the liveness
+# rule — lower it and healthy jobs get orphaned, raise it and it stops meaning
+# anything. Neither is a knob worth handing an operator.
+HEARTBEAT_STALE_AFTER_S = 7200.0
+
+LivenessProbe = Callable[[int], bool]
+
+
+def process_is_alive(pid: int) -> bool:
+    """Signal 0 is a probe, not a signal, on both platforms this runs on.
+
+    Verified on CPython 3.12 / Windows rather than assumed: `os.kill(pid, 0)`
+    returns for a live process, raises `OSError` for a dead one, and — unlike
+    every other signal value there — does not terminate anything. `os.kill(pid, 9)`
+    on the same platform kills with exit code 9, so the special case is real and
+    worth naming.
+
+    A recycled pid reads as alive, and this probe cannot tell the difference.
+    That used to be an accepted risk on a single-operator machine; it is not one
+    on a shared server, where the orphaned job is somebody else's and sits on the
+    board in a state nobody can clear. It is also blind to a worker that is
+    running and stuck, which is the more common failure on multi-hour work.
+
+    Both holes are closed one level up: `worker_is_alive` pairs this with the
+    heartbeat, and a stale heartbeat vetoes whatever this says. Nothing outside
+    that helper should call this directly.
+    """
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def worker_is_alive(
+    job: JobRecord,
+    storage: TranscriptStoragePort,
+    *,
+    is_alive: LivenessProbe = process_is_alive,
+    now: float,
+) -> bool:
+    """The one definition, shared by reconcile and the capacity derivation.
+
+    Both of them ask this question, and if they answered it differently the
+    system would deadlock quietly: the gate would hold a slot for a worker
+    reconcile had already declared dead, and the queue behind it would never
+    move.
+
+    Three facts, and any of them alone is enough to say no:
+
+    - **No pid.** The claim never happened; there is nothing to be alive.
+    - **Dead pid.** The heartbeat is a record of the past, and the past does not
+      keep a process running.
+    - **Stale heartbeat.** This is the pid-reuse veto, and it is why a bare
+      `os.kill(pid, 0)` was never sufficient: the number now belongs to some
+      other process, which answers the probe perfectly well. It also catches a
+      worker that is running and stuck, which the pid check cannot see at all.
+    """
+    if job.worker_pid is None or not is_alive(job.worker_pid):
+        return False
+    return storage.heartbeat_is_fresh(
+        job.job_id, now_s=now, stale_after_s=HEARTBEAT_STALE_AFTER_S
+    )
+
 
 Killer = Callable[[int], None]
 
@@ -97,6 +166,46 @@ def watchdog_once(
         killed.append(job.job_id)
 
     return tuple(killed)
+
+
+async def watchdog_supervisor(
+    storage: TranscriptStoragePort,
+    *,
+    chunk_timeout_s: float,
+    interval_s: float,
+    kill: Killer = kill_worker,
+    is_alive: LivenessProbe = process_is_alive,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> None:
+    """Sweep forever, and survive a bad sweep.
+
+    A second supervised task beside the drain rather than a branch inside it.
+    They answer different questions on different clocks — the drain asks "is
+    there a free slot" every five seconds, this asks "has this chunk stopped
+    moving" on the scale of the per-chunk timeout — and a drain sweep that raised
+    would otherwise take the timeout down with it.
+
+    A sweep that raises is reported and the loop continues, for the same reason
+    the drain's does: one unreadable record must not retire the per-chunk timeout
+    for the whole machine. A watchdog that died quietly would be worse than one
+    that never existed, because the design still promises the timeout.
+
+    `CancelledError` is deliberately not caught: it is shutdown, not a failing
+    sweep, and swallowing it would leave a task the event loop cannot stop.
+    """
+    while True:
+        try:
+            watchdog_once(
+                storage,
+                chunk_timeout_s=chunk_timeout_s,
+                kill=kill,
+                is_alive=is_alive,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # noqa: BLE001 - a bad sweep must not end the loop
+            print(f"watchdog: sweep failed: {error}", file=sys.stderr)
+        await sleep(interval_s)
 
 
 def _is_stalled(

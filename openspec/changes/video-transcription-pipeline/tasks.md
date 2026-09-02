@@ -1073,8 +1073,8 @@ found nothing covering either, and both leave the delivered system unable to do 
       first chunk.
 - [x] 7.11 GREEN: `FasterWhisperTranscriber._prove` decodes one second of silence in the constructor;
       `ONEVOICECUT_LOCAL_DEVICE` selects the device and is named in the refusal.
-- [ ] 7.12 RED: lifespan test — the watchdog sweeps on a timer for the app's lifetime and is cancelled with it.
-- [ ] 7.13 GREEN: `WatchdogConfig` + a second supervised task in `runtime/app.py`'s lifespan.
+- [x] 7.12 RED: lifespan test — the watchdog sweeps on a timer for the app's lifetime and is cancelled with it.
+- [x] 7.13 GREEN: `WatchdogConfig` + a second supervised task in `runtime/app.py`'s lifespan.
 
 ### The defect the wiring exposed, which no unit test could have
 
@@ -1109,6 +1109,38 @@ through the real pipeline rather than only against fixtures.
 worker's exit code 3 and its message go to the server's stderr, and `_popen` neither waits for the child nor
 reads its status. Pre-existing — exit 3 was already unread before this unit — but it is now the difference
 between "the operator sees why" and "the job sits there".
+
+### 7.12–7.13: the wiring settled 7b-ii's noted refactor by forcing it
+
+Measured **555 lines** for 7.12–7.13, test share 48% — low for this project because roughly half the `src`
+churn is a *move*, not new code. Slice 7c as a whole ran **986 lines against the ~500 estimate (1.97x)**,
+which the ~500 never covered because it did not anticipate the device defect. Split at the natural seam, both
+units land well inside the 800-line budget (431 and 555) and each is green alone.
+
+**The import cycle decided the refactor 7b-i had only noted.** `app.py` needed `watchdog_once`, and
+`supervisor.py` needed `process_is_alive` — a cycle. The direction that resolves it is the one 7b-i already
+called backwards: liveness (`HEARTBEAT_STALE_AFTER_S`, `LivenessProbe`, `process_is_alive`,
+`worker_is_alive`) moved into `supervisor.py`, where process supervision belongs, and `app.py` re-exports
+each name so every existing caller and test is undisturbed. That closes the follow-up 7b-i left for 7b-ii,
+which is now only about adapter construction.
+
+**Two supervised tasks, not one sweep with a branch.** They answer different questions on clocks three
+orders of magnitude apart — the drain asks "is there a free slot" every five seconds, the watchdog asks "has
+this chunk stopped moving" every sixty against a thirty-minute timeout. Folding them together would tie that
+judgement to the drain's cadence, and a drain sweep that raised would take the per-chunk timeout down with
+it.
+
+**Discovered by the RED, and worth stating: reconcile and the watchdog do not overlap.** The first fixture
+had no heartbeat, so startup reconcile claimed the job as INTERRUPTED before the first sweep and the watchdog
+correctly ignored it. The two divide by the question asked — reconcile asks whether a worker *exists*, the
+watchdog asks whether an existing one is still *moving*. Only a heartbeat fresh against the two-hour liveness
+bound and stale against the per-chunk timeout reaches the sweep at all, which is exactly the hung-worker case
+and nothing else.
+
+**One defect fixed in passing.** `Settings.chunk_timeout_s` derived the env name
+`ONEVOICECUT_CHUNK_TIMEOUT_S`, while design.md documents `ONEVOICECUT_CHUNK_TIMEOUT_SECONDS` — added in
+7b-i and wrong from the start. An operator setting the documented variable and watching it silently do
+nothing is the worst of both, so both names are accepted via `AliasChoices`.
 
 ---
 

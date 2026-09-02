@@ -165,10 +165,15 @@ class TestTheCompositionRootWiresARealDrain:
         real_build_app = app_module.build_app
 
         def spy_build_app(
-            deps: WebDependencies, *, drain: DrainConfig | None = None
+            deps: WebDependencies,
+            *,
+            drain: DrainConfig | None = None,
+            **rest: object,
         ) -> FastAPI:
+            # `**rest` so a second supervised task added later — the watchdog
+            # was — does not fail this test for a reason unrelated to the drain.
             captured.append(drain)
-            return real_build_app(deps, drain=drain)
+            return real_build_app(deps, drain=drain, **rest)  # type: ignore[arg-type]
 
         monkeypatch.setattr(app_module, "build_app", spy_build_app)
 
