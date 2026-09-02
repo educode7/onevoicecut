@@ -71,7 +71,11 @@ class FakeTranscriptStoragePort:
         self._jobs[job.job_id] = job
 
     def list_jobs(self) -> tuple[JobRecord, ...]:
-        return tuple(self._jobs.values())
+        # Sorted, like the real adapter, because the port promises it and the
+        # drain gate's FIFO fairness rests on it. Returning insertion order here
+        # would let ordering bugs pass every unit test and only appear against a
+        # real directory.
+        return tuple(sorted(self._jobs.values(), key=lambda job: job.job_id))
 
     def save_media(self, job_id: JobId, media: SourceMedia) -> None:
         # Recorded so the queue contract can be asserted as an *ordering*: the

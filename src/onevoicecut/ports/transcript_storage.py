@@ -40,7 +40,16 @@ class TranscriptStoragePort(Protocol):
 
     def update_job(self, job: JobRecord) -> None: ...
 
-    def list_jobs(self) -> tuple[JobRecord, ...]: ...
+    def list_jobs(self) -> tuple[JobRecord, ...]:
+        """Every job, **sorted by id** — which for ULIDs is creation order.
+
+        The ordering is part of the contract, not an accident of one adapter.
+        The drain gate selects queued work oldest-first and does no sorting of
+        its own, so an implementation that returned an arbitrary order would
+        turn FIFO fairness into luck: a sermon uploaded on Sunday could wait
+        behind one uploaded on Wednesday, and nothing would report it.
+        """
+        ...
 
     def save_media(self, job_id: JobId, media: SourceMedia) -> None:
         """Recorded at admission and read by the worker hours later.

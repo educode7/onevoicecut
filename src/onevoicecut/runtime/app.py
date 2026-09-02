@@ -24,7 +24,7 @@ from onevoicecut.adapters.storage.filesystem_transcript_storage import (
 from onevoicecut.adapters.web.app import WebDependencies, create_app
 from onevoicecut.adapters.web.auth import build_authenticator, parse_operator_tokens
 from onevoicecut.domain.ids import JobId
-from onevoicecut.domain.jobs import JobState
+from onevoicecut.domain.jobs import WORKER_BOUND_STATES, JobState
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.runtime.settings import Settings
 
@@ -122,6 +122,78 @@ def reconcile_interrupted_jobs(
         )
         reconciled.append(job.job_id)
     return tuple(reconciled)
+
+
+def drain_once(
+    storage: TranscriptStoragePort,
+    *,
+    max_concurrent_jobs: int,
+    launch: Callable[[JobId], None],
+    spawned: set[JobId],
+    is_alive: LivenessProbe = process_is_alive,
+) -> tuple[JobId, ...]:
+    """One sweep of the gate: start queued work up to the cap, and nothing else.
+
+    This is the only code in the system that starts a job. Upload used to do it
+    too, and two spawn decision points meant two concurrent uploads could each
+    decide a slot was free and each spawn — over the cap, with no single line to
+    blame. One decision point, serialized in the event loop, makes the cap true
+    by construction.
+
+    **The active count is derived, never counted.** Every sweep lists the store,
+    keeps the worker-bound records, and asks the operating system which of their
+    pids still exist. Nothing is persisted between sweeps, so a web process that
+    dies mid-sweep leaves nothing to repair, and a worker that dies frees its
+    slot the moment the next sweep looks. A counter would be correct right up
+    until the first crash — which, for multi-hour jobs, is the case being
+    designed for rather than an edge one.
+
+    **The gate writes no record.** QUEUED → EXTRACTING is the worker's own first
+    claim. A write here would put the web process on a record at exactly the
+    moment its worker is claiming it.
+
+    `spawned` is the caller's memory of issued-but-unclaimed launches, and it is
+    emphatically not a worker count: between the launcher call and the worker's
+    pid write the record still reads QUEUED, so without it the next sweep would
+    start a second process on the same job. It holds only within one web
+    lifetime; after a restart the records are the truth, and a job whose worker
+    died before claiming is correctly started again.
+    """
+    records = storage.list_jobs()
+
+    active = sum(
+        1
+        for job in records
+        if job.state in WORKER_BOUND_STATES
+        and job.worker_pid is not None
+        and is_alive(job.worker_pid)
+    )
+
+    # Drop ids the records have moved past, so a long-lived process does not
+    # accumulate one entry per job it ever started.
+    still_queued = {
+        job.job_id for job in records if job.state is JobState.QUEUED
+    }
+    spawned &= still_queued
+
+    launched: list[JobId] = []
+    for job in records:
+        if active >= max_concurrent_jobs:
+            break
+        if job.state is not JobState.QUEUED or job.job_id in spawned:
+            continue
+        # Re-read before starting anything. The listing is a snapshot, and the
+        # cancel that landed while this sweep was walking it is precisely the
+        # one worth catching — a worker started here would transcribe a job the
+        # operator already stopped.
+        if storage.load_job(job.job_id).state is not JobState.QUEUED:
+            continue
+        launch(job.job_id)
+        spawned.add(job.job_id)
+        launched.append(job.job_id)
+        active += 1
+
+    return tuple(launched)
 
 
 def build_dependencies(settings: Settings) -> WebDependencies:

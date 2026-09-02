@@ -428,7 +428,7 @@ web tests rewritten for the new upload contract. Runtime harness: N/A — fakes 
 - [x] 5.4 GREEN: `adapters/web/routers/jobs.py` — upload persists QUEUED instead of calling `start_job`;
       `WebDependencies.start_job` retires from the upload path (field removal lands with the supervisor
       wiring in 5.10).
-- [ ] 5.5 RED: `tests/unit/runtime/test_drain_once.py` (new) — `drain_once(storage, *, max_concurrent_jobs,
+- [x] 5.5 RED: `tests/unit/runtime/test_drain_once.py` (new) — `drain_once(storage, *, max_concurrent_jobs,
       launch, is_alive, spawned, now)` over fakes: active is DERIVED each sweep from `list_jobs()` ∩
       `WORKER_BOUND_STATES` ∩ `is_alive` — never a counter (two sweeps over identical records re-derive the
       same count from nothing persisted in between); cap arithmetic parametrized over N — with N active, an
@@ -442,7 +442,7 @@ web tests rewritten for the new upload contract. Runtime harness: N/A — fakes 
       write to that record (CAP-11); startup reconcile over a directory containing QUEUED records leaves them
       queued — no INTERRUPTED written for them (CAP-12, regression lock ahead of S6); gate transitions carry
       `owner` through unchanged (OWN-02 lock).
-- [ ] 5.6 GREEN: `runtime/app.py` — `drain_once` per the mechanics above (re-read via `load_job`, FIFO via
+- [x] 5.6 GREEN: `runtime/app.py` — `drain_once` per the mechanics above (re-read via `load_job`, FIFO via
       the ULID-sorted `list_jobs()`, dedup `set[JobId]` passed in, injectable launcher/liveness/clock).
 - [ ] 5.7 RED: `tests/unit/runtime/test_worker_terminal_guard.py` (new) — CAP-10's containment: `run_job` on
       a record already in a terminal state (the spawn-wins race: cancelled while the worker started) exits
