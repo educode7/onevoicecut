@@ -1075,6 +1075,11 @@ found nothing covering either, and both leave the delivered system unable to do 
       `ONEVOICECUT_LOCAL_DEVICE` selects the device and is named in the refusal.
 - [x] 7.12 RED: lifespan test — the watchdog sweeps on a timer for the app's lifetime and is cancelled with it.
 - [x] 7.13 GREEN: `WatchdogConfig` + a second supervised task in `runtime/app.py`'s lifespan.
+- [x] 7.14 RED: reaping test — a worker that exits without claiming its job fails it with a reason the
+      operator can read; one that dies mid-job leaves it INTERRUPTED; one that wrote its own outcome is
+      left alone.
+- [x] 7.15 GREEN: `WorkerProcesses` keeps the handles `_popen` used to drop, and `reap_exited_workers`
+      runs at the head of every drain sweep.
 
 ### The defect the wiring exposed, which no unit test could have
 
@@ -1105,10 +1110,9 @@ the job left QUEUED and never claimed; `cpu` completes, and the transcript carri
 covering 100% of the window with the decoder's `"No, no, no…"` loop stripped — 7a-iii and 7a-iv holding
 through the real pipeline rather than only against fixtures.
 
-**Flagged, not fixed.** An unusable engine leaves the job QUEUED with no operator-visible reason: the
-worker's exit code 3 and its message go to the server's stderr, and `_popen` neither waits for the child nor
-reads its status. Pre-existing — exit 3 was already unread before this unit — but it is now the difference
-between "the operator sees why" and "the job sits there".
+**Flagged here, closed by 7.14–7.15 below.** An unusable engine left the job QUEUED with no
+operator-visible reason: the worker's exit code and its message went to the server's stderr, and `_popen`
+neither waited for the child nor read its status.
 
 ### 7.12–7.13: the wiring settled 7b-ii's noted refactor by forcing it
 
@@ -1141,6 +1145,37 @@ and nothing else.
 `ONEVOICECUT_CHUNK_TIMEOUT_S`, while design.md documents `ONEVOICECUT_CHUNK_TIMEOUT_SECONDS` — added in
 7b-i and wrong from the start. An operator setting the documented variable and watching it silently do
 nothing is the worst of both, so both names are accepted via `AliasChoices`.
+
+### 7.14–7.15: the exit code nobody was reading
+
+Measured **441 lines** against no prior estimate (this unit did not exist until 7c-i's own end-to-end run
+produced it), test share 66%.
+
+`_popen` launched and walked away, discarding the one fact only a parent can observe. Two failures came out
+of that, and both were met in the same session:
+
+- An unusable engine makes the worker print its reason to the server's stderr and exit non-zero. The record
+  stays QUEUED, so an operator with a browser watches a job that will never move and can read nothing about
+  why. Verified over real HTTP before and after: `['queued']` forever became `['queued', 'failed']` with a
+  reason on the record.
+- A worker that dies *after* claiming leaves a worker-bound record with a dead pid. Only startup reconcile
+  clears that, so the job is stranded until somebody restarts the server — the exact state the 7c-i smoke run
+  left behind. The watchdog does not cover it either: it requires a *live* pid, because its question is
+  whether a running worker is still moving.
+
+**Classification is by what the record says, not by the exit code**, because the record is what the next
+reader acts on. QUEUED means nothing else will ever write it → FAILED, naming the status. Worker-bound means
+it claimed and died mid-flight → INTERRUPTED, the resumable off-ramp, which is what reconcile decides at boot,
+now reached continuously. Terminal means the worker wrote its own account before exiting → left alone,
+because replacing it with the parent's inference from an exit code loses the better answer.
+
+Keeping the handle also stops finished workers becoming zombies on POSIX until the web process exits, which
+never-waiting quietly guaranteed.
+
+**Still not surfaced: the worker's own message.** The record says which status the worker exited with and
+points at the server log; it does not carry the engine's actual complaint. Capturing the child's stderr means
+pipe management and a deadlock risk if that pipe fills during a three-hour job, which is a larger decision
+than this unit.
 
 ---
 

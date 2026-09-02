@@ -42,8 +42,14 @@ from collections.abc import Awaitable, Callable
 from dataclasses import replace
 
 from onevoicecut.domain.chunking import ChunkResult, ChunkState
+from onevoicecut.domain.errors import DomainError
 from onevoicecut.domain.ids import JobId
-from onevoicecut.domain.jobs import JobRecord, JobState
+from onevoicecut.domain.jobs import (
+    TERMINAL_STATES,
+    WORKER_BOUND_STATES,
+    JobRecord,
+    JobState,
+)
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.usecases.resume_job import pending_chunks
 
@@ -166,6 +172,70 @@ def watchdog_once(
         killed.append(job.job_id)
 
     return tuple(killed)
+
+
+def reap_exited_workers(
+    storage: TranscriptStoragePort,
+    *,
+    exited: tuple[tuple[JobId, int], ...],
+    now: Callable[[], float] = time.time,
+) -> tuple[JobId, ...]:
+    """Turn "the child is gone" into something the operator can read.
+
+    The parent is the only party that can observe a worker's exit, and it used to
+    discard it. Two failures came out of that. An unusable engine makes the
+    worker print its reason to stderr and exit 3, leaving the job in QUEUED with
+    no explanation anywhere a browser can reach; and a worker that dies after
+    claiming its job leaves a worker-bound record with a dead pid, which only
+    startup reconcile clears — so the job is stranded until the next restart.
+
+    The classification is by what the record says, not by the exit code, because
+    the record is what the next reader acts on:
+
+    - **QUEUED** — never claimed, so nothing else will ever write this record.
+      FAILED, naming the exit code, because the operator needs a reason.
+    - **Worker-bound** — claimed, then died mid-flight. INTERRUPTED, the
+      resumable off-ramp; every committed chunk is still on disk. The same
+      conclusion reconcile reaches at boot, reached continuously instead.
+    - **Terminal** — the worker wrote its own account before exiting. Replacing
+      it with the parent's inference from an exit code would lose the better
+      answer.
+    """
+    at = now()
+    reaped: list[JobId] = []
+
+    for job_id, code in exited:
+        try:
+            job = storage.load_job(job_id)
+        except DomainError:
+            # Deleted under us. One missing record must not take the reaping of
+            # every other exited worker with it.
+            continue
+
+        if job.state in TERMINAL_STATES:
+            continue
+        if job.state is JobState.QUEUED:
+            storage.update_job(
+                replace(
+                    job,
+                    state=JobState.FAILED,
+                    updated_at=at,
+                    error=(
+                        f"the worker exited with status {code} without starting "
+                        f"the job; see the server log for what it reported"
+                    ),
+                )
+            )
+        elif job.state in WORKER_BOUND_STATES:
+            storage.update_job(
+                replace(job, state=JobState.INTERRUPTED, updated_at=at)
+            )
+        else:
+            # PENDING: no media, nothing was spawned for it.
+            continue
+        reaped.append(job_id)
+
+    return tuple(reaped)
 
 
 async def watchdog_supervisor(

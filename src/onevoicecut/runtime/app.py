@@ -14,8 +14,9 @@ import sys
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 from fastapi import FastAPI
 
@@ -38,6 +39,7 @@ from onevoicecut.runtime.supervisor import HEARTBEAT_STALE_AFTER_S as HEARTBEAT_
 from onevoicecut.runtime.supervisor import LivenessProbe as LivenessProbe
 from onevoicecut.runtime.supervisor import kill_worker as kill_worker
 from onevoicecut.runtime.supervisor import process_is_alive as process_is_alive
+from onevoicecut.runtime.supervisor import reap_exited_workers as reap_exited_workers
 from onevoicecut.runtime.supervisor import watchdog_supervisor as watchdog_supervisor
 from onevoicecut.runtime.supervisor import worker_is_alive as worker_is_alive
 
@@ -54,29 +56,53 @@ DRAIN_SWEEP_INTERVAL_S = 5.0
 # question whose answer changes on the scale of a chunk.
 WATCHDOG_SWEEP_INTERVAL_S = 60.0
 
-def _popen(argv: list[str]) -> None:
-    """Launched and not waited on: the response returns while the job runs."""
-    subprocess.Popen(argv)
 
+@runtime_checkable
+class ProcessHandle(Protocol):
+    """The one thing the parent needs from a child: has it exited, and how.
 
-def spawn_worker(
-    data_dir: Path, *, launch: Callable[[list[str]], None] = _popen
-) -> Callable[[JobId], None]:
-    """Start the job as a separate process, and do not wait for it.
-
-    A process rather than a task: it can be killed when a three-hour job goes
-    wrong, the operating system reaps it, and while it lives it is the only writer
-    of that job's record — which is what turns the single-writer rule from an
-    agreement into something enforced from outside.
-
-    The environment is inherited, which is how the child finds the package when it
-    is run from a source tree with `PYTHONPATH=src`.
+    `runtime_checkable` so the launcher can tell a real handle from the `None` a
+    test's recording stub returns, without the launcher's type widening into
+    `Any` and taking the argv assertions with it.
     """
 
-    def start(job_id: JobId) -> None:
+    def poll(self) -> int | None: ...
+
+
+def _popen(argv: list[str]) -> ProcessHandle:
+    """Launched and not waited on — but the handle is kept, not dropped.
+
+    Still no `wait()`: the response returns while the job runs. The difference is
+    that the handle survives, so a later sweep can ask whether the child is gone.
+    Discarding it threw away the only fact a parent can observe, and on POSIX it
+    also left every finished worker a zombie until this process exited.
+    """
+    return subprocess.Popen(argv)
+
+
+class WorkerProcesses:
+    """Starts workers and remembers them, because an exit code is evidence.
+
+    A process rather than a task: it can be killed when a three-hour job goes
+    wrong, the operating system reaps it, and while it lives it is the only
+    writer of that job's record — which is what turns the single-writer rule from
+    an agreement into something enforced from outside.
+
+    The environment is inherited, which is how the child finds the package when
+    it is run from a source tree with `PYTHONPATH=src`.
+    """
+
+    def __init__(
+        self, data_dir: Path, *, launch: Callable[[list[str]], object] = _popen
+    ) -> None:
+        self._data_dir = data_dir
+        self._launch = launch
+        self._running: dict[JobId, ProcessHandle] = {}
+
+    def __call__(self, job_id: JobId) -> None:
         # List form, and the id is already ULID-validated by the route before it
         # gets here, so nothing in this argv can be anything but a job id.
-        launch(
+        handle = self._launch(
             [
                 sys.executable,
                 "-m",
@@ -84,11 +110,33 @@ def spawn_worker(
                 "--job-id",
                 job_id,
                 "--data-dir",
-                str(data_dir),
+                str(self._data_dir),
             ]
         )
+        if isinstance(handle, ProcessHandle):
+            self._running[job_id] = handle
 
-    return start
+    def finished(self) -> tuple[tuple[JobId, int], ...]:
+        """Every worker that has exited since the last ask, and its status.
+
+        Reported once and then forgotten: a second report would re-decide a
+        record the first one already settled, and after a resume that record
+        belongs to a different process.
+        """
+        exited = tuple(
+            (job_id, status)
+            for job_id, handle in self._running.items()
+            if (status := handle.poll()) is not None
+        )
+        for job_id, _ in exited:
+            del self._running[job_id]
+        return exited
+
+
+def spawn_worker(
+    data_dir: Path, *, launch: Callable[[list[str]], object] = _popen
+) -> WorkerProcesses:
+    return WorkerProcesses(data_dir, launch=launch)
 
 
 def reconcile_interrupted_jobs(
@@ -215,6 +263,7 @@ async def drain_supervisor(
     launch: Callable[[JobId], None],
     is_alive: LivenessProbe = process_is_alive,
     interval_s: float = DRAIN_SWEEP_INTERVAL_S,
+    reap: Callable[[], tuple[tuple[JobId, int], ...]] = lambda: (),
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> None:
     """Sweep forever, and survive a bad sweep.
@@ -236,6 +285,11 @@ async def drain_supervisor(
     spawned: set[JobId] = set()
     while True:
         try:
+            # Before the drain, for the same reason reconcile runs before the
+            # first sweep: a worker that exited leaves a record only the parent
+            # can settle, and serving the queue on top of a stale one would show
+            # the operator a job that is going nowhere.
+            reap_exited_workers(storage, exited=reap())
             drain_once(
                 storage,
                 max_concurrent_jobs=max_concurrent_jobs,
@@ -264,6 +318,9 @@ class DrainConfig:
     max_concurrent_jobs: int
     is_alive: LivenessProbe = process_is_alive
     interval_s: float = DRAIN_SWEEP_INTERVAL_S
+    # Defaults to reporting nothing, so an app built without a process registry
+    # sweeps exactly as before rather than reaping workers it never started.
+    reap: Callable[[], tuple[tuple[JobId, int], ...]] = field(default=lambda: ())
 
 
 @dataclass(frozen=True, slots=True)
@@ -332,6 +389,7 @@ def build_app(
                         launch=drain.launch,
                         is_alive=drain.is_alive,
                         interval_s=drain.interval_s,
+                        reap=drain.reap,
                     )
                 )
             )
@@ -370,11 +428,13 @@ def get_app() -> FastAPI:
     imported this module, including a test collecting it.
     """
     settings = Settings()  # type: ignore[call-arg]
+    workers = spawn_worker(settings.data_dir)
     return build_app(
         build_dependencies(settings),
         drain=DrainConfig(
-            launch=spawn_worker(settings.data_dir),
+            launch=workers,
             max_concurrent_jobs=settings.max_concurrent_jobs,
+            reap=workers.finished,
         ),
         watchdog=WatchdogConfig(chunk_timeout_s=settings.chunk_timeout_s),
     )
