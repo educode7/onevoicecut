@@ -82,10 +82,17 @@ def render_message_text(transcript: Transcript) -> str:
 
     The marking rule is fixed per kind, never decided per segment: the same kind
     always renders the same way regardless of its neighbours.
+
+    Segments with no text are ranges, not lines. A classifying adapter reports
+    every non-speech range it kept out of its decode, so those ranges stay
+    addressable in the source footage — they carry timestamps and nothing else.
+    Rendering them would print a marker that marks nothing, once per silence, for
+    the length of a three-hour recording.
     """
     return "\n".join(
         segment.text
         if segment.kind is SegmentKind.SPEECH
         else f"{UNCERTAIN_MARKER}{segment.text}"
         for segment in without_music(transcript.segments)
+        if segment.text
     )

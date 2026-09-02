@@ -30,6 +30,7 @@ honour it here would be a timeout that never fires.
 import math
 
 from faster_whisper import WhisperModel, decode_audio
+from faster_whisper.transcribe import Segment
 from faster_whisper.vad import VadOptions, get_speech_timestamps
 
 from onevoicecut.domain.chunking import AudioChunk
@@ -62,6 +63,15 @@ COMPRESSION_RATIO_THRESHOLD = 2.4
 # Below this, a hole between two decoded segments is boundary rounding, not audio
 # that went missing. Reporting those as ranges would bury the real ones.
 MIN_REPORTED_GAP_S = 0.5
+
+# What counts as a degenerate decoder loop rather than a sentence. Measured, not
+# guessed: across 30 provoking fixtures every loop `tiny` produced ran 4 to 9
+# words with exactly one distinct word, while `compression_ratio` never once
+# reached Whisper's own 2.4 threshold (it topped out at 2.33). The guard nominally
+# responsible for breaking these catches none of them, which is why this exists.
+MIN_LOOP_WORDS = 4
+MAX_LOOP_DISTINCT_WORDS = 2
+_LOOP_PUNCTUATION = ",.;:!?¡¿-—…\"'"
 
 _Range = tuple[float, float]
 
@@ -141,29 +151,7 @@ class FasterWhisperTranscriber:
             )
             # The engine returns a generator; decode failures surface while it is
             # being drained, so materialise inside the guard, not outside it.
-            spoken = tuple(
-                TranscriptSegment(
-                    start_s=float(segment.start),
-                    end_s=float(segment.end),
-                    text=str(segment.text).strip(),
-                    speaker=None,
-                    # avg_logprob is the mean token log-probability; exponentiating
-                    # it recovers the geometric mean probability, which is a real
-                    # measurement rather than a score invented to fill the field.
-                    confidence=math.exp(float(segment.avg_logprob)),
-                    kind=(
-                        SegmentKind.SPEECH
-                        if float(segment.no_speech_prob) <= NO_SPEECH_THRESHOLD
-                        # Text the engine produced while reporting it heard no
-                        # speech. Keeping it UNCERTAIN rather than MUSIC is
-                        # deliberate: MUSIC is dropped outright by every
-                        # message-facing consumer, so a misjudged sentence would
-                        # vanish; UNCERTAIN survives, marked.
-                        else SegmentKind.UNCERTAIN
-                    ),
-                )
-                for segment in decoded
-            )
+            spoken = tuple(_classify(segment) for segment in decoded)
             return _tile(spoken, speech, duration_s)
         except DomainError:
             raise
@@ -172,6 +160,55 @@ class FasterWhisperTranscriber:
                 f"the local {ENGINE_NAME} engine failed on chunk {chunk.index}: "
                 f"{error}"
             ) from error
+
+
+def _classify(segment: Segment) -> TranscriptSegment:
+    """One decoded segment, judged on what the engine reported about it.
+
+    `no_speech_prob` above the threshold is the engine saying it heard no speech
+    in a window it nonetheless produced text for. That text is never SPEECH —
+    but it stays UNCERTAIN rather than becoming MUSIC, because MUSIC is dropped
+    outright by every message-facing consumer and a misjudged sentence would
+    vanish from the export instead of arriving marked.
+
+    The text itself is dropped only when both conditions hold: the engine
+    declared the window non-speech *and* what it wrote there is a degenerate
+    loop. Neither alone is enough. Dropping on the probability alone would
+    discard real sentences the engine merely doubted; dropping on repetition
+    alone would silence a preacher saying "no, no, no, no" for emphasis, which
+    is speech and belongs in the transcript.
+    """
+    text = str(segment.text).strip()
+    heard_speech = float(segment.no_speech_prob) <= NO_SPEECH_THRESHOLD
+
+    return TranscriptSegment(
+        start_s=float(segment.start),
+        end_s=float(segment.end),
+        # The range survives either way — it is still addressable footage. Only
+        # the invented words go.
+        text="" if not heard_speech and _is_degenerate_loop(text) else text,
+        speaker=None,
+        # avg_logprob is the mean token log-probability; exponentiating it
+        # recovers the geometric mean probability, which is a real measurement
+        # rather than a score invented to fill the field.
+        confidence=math.exp(float(segment.avg_logprob)),
+        kind=SegmentKind.SPEECH if heard_speech else SegmentKind.UNCERTAIN,
+    )
+
+
+def _is_degenerate_loop(text: str) -> bool:
+    """Whisper writing the same word until the window runs out.
+
+    Not a judgement about whether the audio was speech — that was already made by
+    the caller. This only asks whether what came back is a decoder artefact,
+    which is why it looks at the shape of the text and nothing else.
+    """
+    words = text.lower().translate(str.maketrans("", "", _LOOP_PUNCTUATION)).split()
+
+    return (
+        len(words) >= MIN_LOOP_WORDS
+        and len(set(words)) <= MAX_LOOP_DISTINCT_WORDS
+    )
 
 
 def _tile(

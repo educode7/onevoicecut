@@ -118,6 +118,31 @@ def test_message_text_marks_uncertain_rather_than_dropping_it() -> None:
     ]
 
 
+def test_message_text_omits_segments_that_carry_no_text() -> None:
+    """A range with no words is a range, not a line of the message.
+
+    The local adapter reports every non-speech range it filtered out of the
+    decode, so the musical passages stay addressable in the source footage. Those
+    segments carry timestamps and empty text by design. Rendering them would spray
+    bare `[?] ` markers through a three-hour transcript — a marker that marks
+    nothing, and the operator has to read past every one of them.
+    """
+    transcript = Transcript(
+        job_id=JOB_ID,
+        segments=(
+            _segment("", SegmentKind.UNCERTAIN, 0.0),
+            _segment("hermanos, buenas tardes", SegmentKind.SPEECH, 1.0),
+            _segment("", SegmentKind.UNCERTAIN, 2.0),
+        ),
+        engine_id="faster-whisper",
+        diarized=False,
+    )
+
+    assert render_message_text(transcript).splitlines() == [
+        "hermanos, buenas tardes"
+    ]
+
+
 def test_message_text_marking_rule_is_consistent_not_per_segment() -> None:
     """Same kind always renders the same way, regardless of its neighbours."""
     mixed = Transcript(

@@ -947,11 +947,57 @@ message-facing consumer, so a misjudged sentence would vanish from the export ra
 Closes: `speech-transcription` Non-Speech Segment Classification (hallucination-containment scenario). Depends
 on 7a-iii's decoder guards.
 
-- [ ] 7.4c RED: `localmodel`-marked hallucination-containment test — a music-only fixture produces no
+- [x] 7.4c RED: `localmodel`-marked hallucination-containment test — a music-only fixture produces no
       `SPEECH`-classified segment carrying fabricated text (the Spanish subtitle-boilerplate failure).
-- [ ] 7.4d **GREEN (new — closes a gap in this revision)**: tune the 7.4b decoder guards (or add a targeted
+- [x] 7.4d **GREEN (new — closes a gap in this revision)**: tune the 7.4b decoder guards (or add a targeted
       post-filter) until 7.4c's fixture produces no fabricated `SPEECH` text; the original task list left
       7.4c's RED with no paired GREEN.
+
+### Measured on estimate; the guard that was doing nothing
+
+Measured **266 lines** against the ~250 estimate (**1.06x**), test share 66%. Second unit in a row inside
+its raw nominal estimate.
+
+**The fixture had to be found, not assumed.** A plain tone, a chord, pink noise and pure silence were all
+tried first and all fail to provoke anything: the voice-activity pass rejects them, the decoder never runs,
+and a containment test built on any of them passes while proving nothing. The fixture that works is
+harmonically rich, echoed and formant-shaped — it gets *past* the VAD, so the decoder actually runs. A
+fourth test (`test_the_fixture_still_provokes_the_decoder`) exists purely to fail if the fixture ever goes
+inert, because the other three would otherwise stay green forever after proving nothing.
+
+**Two measurements ran across 30 fixture variants, and they point opposite ways:**
+
+| Signal | Measured | Consequence |
+| --- | --- | --- |
+| `no_speech_prob` on every loop | 0.68 – 0.86 | Always above the 0.6 the adapter maps on, so **the SPEECH half of 7.4c was already closed by 7.4b** |
+| `compression_ratio` on those same loops | 1.00 – 2.33 | **Never once reaches Whisper's 2.4 threshold.** The guard nominally responsible for breaking repetition loops catches none of them |
+
+So `no_speech_prob` was carrying the entire containment alone, and 7.4d's real work was the second half the
+task's own wording anticipated ("or add a targeted post-filter"). `_is_degenerate_loop` drops the invented
+*text* — never the range, which stays addressable footage — and only when **both** conditions hold: the
+engine declared the window non-speech *and* what it wrote there is a degenerate loop. Either alone would be
+wrong. On probability alone it would discard real sentences the engine merely doubted; on repetition alone
+it would silence a preacher saying "no, no, no, no" for emphasis, which is speech and belongs in the
+transcript.
+
+**Defect found and fixed (introduced by 7a-iii, one unit earlier).** `_tile` reports every non-speech range
+with empty text, and `render_message_text` marked UNCERTAIN unconditionally — so the export gained a bare
+`[?] ` line per silence, a marker marking nothing, once per gap across a three-hour recording. Empty-text
+segments are ranges, not lines; the domain renderer now skips them. Caught by writing the export assertion
+in 7.4c rather than by reading the diff.
+
+**Not proven here, and it is the case that matters most.** Every fixture above is synthesised with ffmpeg,
+and no synthetic signal reached `no_speech_prob` ≤ 0.6. Real singing is a real voice and very plausibly
+does, which would classify sung lyrics as `SPEECH` and put them in the message. That is the project's
+stated normal case, it cannot be reproduced without real media, and CLAUDE.md forbids committing media.
+Closing it needs a fixture the operator supplies from an actual recording.
+
+Which is what `scripts/try_local_asr.py` is for, and the reason a `scripts/` directory appears here. It is
+a development tool — outside the spec, outside `mypy src tests` — that runs a window of a real recording
+through `local_transcriber`, the same lazily-imported factory the resolver uses, and prints each segment's
+kind and timestamps, the per-kind totals, the share of the window covered, and the `transcript.txt` that
+would be delivered. It talks to the adapter directly because `runtime/worker.py` still passes
+`resolver=None` and exits 3; wiring that needs a model-size setting no task has specified yet.
 
 ---
 
