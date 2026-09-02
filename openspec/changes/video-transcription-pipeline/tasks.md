@@ -1007,9 +1007,40 @@ Closes: `transcription-jobs` Per-Chunk Timeout (uninterruptible-inference case).
 watchdog is a process-supervision subsystem (`multiprocessing`, mtime polling, kill), not an ASR concern — rev 2
 under-scoped this as a sub-task of "Local ASR Adapter" when it is really independent infrastructure.
 
-- [ ] 7.5 RED: supervisory watchdog test — no progress past `chunk_timeout_s` kills the worker process,
+- [x] 7.5 RED: supervisory watchdog test — no progress past `chunk_timeout_s` kills the worker process,
       chunk recorded `FAILED(TIMEOUT)`.
-- [ ] 7.6 GREEN: `runtime/supervisor.py` watchdog watching `results/` mtime.
+- [x] 7.6 GREEN: `runtime/supervisor.py` watchdog watching `results/` mtime.
+
+### Came in under estimate because the signal already existed
+
+Measured **572 lines** against the ~625 estimate (**0.92x**), test share 65%. Third unit in a row inside its
+estimate. The estimate assumed `multiprocessing` and mtime-polling machinery; almost none of it was needed,
+for the reason below.
+
+**Deviation from 7.6's wording: the heartbeat, not `results/` mtime.** `multi-operator-access` shipped a
+heartbeat the worker writes at the top of every chunk iteration, and a job reaches TRANSCRIBING only after
+extraction and planning have finished — so for a job in that state the age of the heartbeat *is* how long
+the current chunk has been running, which is exactly what a per-chunk timeout is defined over. Polling
+`results/` mtime would reach around `TranscriptStoragePort` into the filesystem from the composition root
+to rebuild a signal the port already publishes, and it would measure from the moment a chunk *finished*
+rather than the moment the current one *started*.
+
+**The second clock is the part that is easy to leave out.** Two conditions must hold together: the
+heartbeat is stale, *and* the job has been in TRANSCRIBING for longer than the timeout. The worker does not
+refresh its heartbeat during extraction, and extracting a three-hour recording outlasts a thirty-minute
+chunk timeout comfortably — so the first sweep after a long extraction would kill a job that had only just
+started working, turning the input this project exists for into the case it cannot process. There is a test
+named for that alone.
+
+**Scope held to the core.** The sweep is not yet wired into the lifespan supervisor, matching the unit's
+stated rollback boundary of `runtime/supervisor.py` alone; it ships as a seam the way `purge_job_artifacts`
+did. `chunk_timeout_s` joins `Settings` as `ONEVOICECUT_CHUNK_TIMEOUT_SECONDS`, per design.md — an
+operator's knob, unlike the two-hour liveness bound, because it depends on hardware, model size and chunk
+length.
+
+**Noted for 7b-ii.** `supervisor.py` imports `process_is_alive` and `LivenessProbe` from `app.py`, which is
+backwards: `app.py` is the FastAPI factory that also happens to hold the supervision helpers. Moving them
+into `supervisor.py` with a re-export is a refactor, and 7b-ii is the refactor unit.
 
 ## Slice 7b-ii: Shared Adapter-Construction Refactor (~375 lines)
 

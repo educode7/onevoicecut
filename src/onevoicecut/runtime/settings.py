@@ -36,3 +36,10 @@ class Settings(BaseSettings):
     # this project has not. `ge=1` because 0 is not "unlimited", it is a queue
     # with no exit, and the server refuses to boot rather than strand every job.
     max_concurrent_jobs: int = Field(default=1, ge=1)
+
+    # Thirty minutes per chunk, and an operator's to set — unlike the two-hour
+    # liveness bound, which is a property of the rule rather than of the machine.
+    # This one depends on the hardware, the model size and the chunk length, and
+    # the same value is passed to adapters that can honour a timeout in-call.
+    # `gt=0` because zero would kill every worker on its first sweep.
+    chunk_timeout_s: float = Field(default=1800.0, gt=0)
