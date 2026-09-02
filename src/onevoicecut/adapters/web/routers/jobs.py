@@ -15,6 +15,7 @@ from onevoicecut.adapters.web.auth import InvalidCredential
 from onevoicecut.adapters.web.schemas import (
     AdmitJobRequest,
     AdmitJobResponse,
+    CancelJobResponse,
     JobListItem,
     JobListResponse,
     JobStatusResponse,
@@ -33,6 +34,7 @@ from onevoicecut.domain.media import SourceMedia
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
 from onevoicecut.ports.media_source import MediaSourcePort
 from onevoicecut.usecases.admit_job import admit_job
+from onevoicecut.usecases.cancel_job import cancel_job
 from onevoicecut.usecases.ownership import require_owner
 
 # The client's filename travels as metadata, never in the URL — a path parameter
@@ -284,6 +286,29 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
             progress=None if progress is None else ProgressResponse.of(progress),
             owner=job.owner,
         )
+
+    @router.post("/{job_id}/cancel", response_model=CancelJobResponse)
+    def cancel(job_id: str, request: Request) -> CancelJobResponse:
+        """Records the request and answers. It does not wait for the worker.
+
+        Waiting would hold the request open for the length of one chunk — ten
+        minutes of sermon — to report something the next status poll gives for
+        free. The state coming back is therefore the record's current one, which
+        for a running job is still the running state.
+
+        Ownership is checked here as well as inside the use case. The use case
+        must refuse a stranger on its own — it is callable without a route — and
+        the handler must produce the 403 before the branch is taken, so the
+        duplication is two different jobs, not one done twice.
+        """
+        operator = _authorized(request, deps)
+        job = _load(job_id, deps)
+        _owned(job, operator)
+
+        cancelled = cancel_job(
+            job.job_id, operator=operator, storage=deps.storage, now=deps.now
+        )
+        return CancelJobResponse(job_id=cancelled.job_id, state=cancelled.state)
 
     @router.put("/{job_id}/media", status_code=204)
     async def upload_media(job_id: str, request: Request) -> Response:

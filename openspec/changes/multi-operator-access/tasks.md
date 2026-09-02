@@ -348,12 +348,12 @@ Runtime harness: in-process ASGI transport + fake-storage call logs.
       (CXL-01 use-case level). Fake storage records every write for the zero-write assertions.
 - [x] 4.4 GREEN: `usecases/cancel_job.py` (new) — classification via the domain frozensets; `require_owner`
       first; injected `now` (clock seam, `WebDependencies.now` precedent).
-- [ ] 4.5 RED: `tests/unit/adapters/web/test_cancel_route.py` (new) — `POST /api/jobs/{id}/cancel`: owner
+- [x] 4.5 RED: `tests/unit/adapters/web/test_cancel_route.py` (new) — `POST /api/jobs/{id}/cancel`: owner
       cancels a worker-bound job → 200 `CancelJobResponse(job_id, state)` immediately — the recording takes
       effect without waiting for any boundary (CXL-01); non-owner → 403, control file NOT created or modified,
       record unchanged (CXL-02); malformed AND unknown id → 404 (CXL-08); unauthenticated → 401 via the
       route-table gate automatically (AUTH-02 reinforcement); precedence 401 → 404 → 403.
-- [ ] 4.6 GREEN: `adapters/web/routers/jobs.py` cancel handler (`_authorized` → `_load` → `require_owner` →
+- [x] 4.6 GREEN: `adapters/web/routers/jobs.py` cancel handler (`_authorized` → `_load` → `require_owner` →
       `cancel_job`); `adapters/web/schemas.py` — `CancelJobResponse`; `JobNotOwned` → 403 translation reused.
 - [ ] 4.7 RED: `tests/unit/usecases/test_cancel_boundary.py` (new) — boundary behavior of the EXISTING seam,
       now spec'd (characterization expected): a job cancelled mid-run stops transcribing after the current

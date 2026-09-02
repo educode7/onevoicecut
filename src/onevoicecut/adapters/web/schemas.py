@@ -90,6 +90,20 @@ class JobStatusResponse(BaseModel):
     owner: str | None
 
 
+class CancelJobResponse(BaseModel):
+    """One status for every cancellation branch, so the client stays flat.
+
+    `state` is what the record carries at response time, which for a running job
+    is still the running state — the request has been recorded, the worker has
+    not stopped yet. Reporting CANCELLED here would tell the operator the
+    machine is free while it is still working, and the shared board would
+    disagree on its next poll.
+    """
+
+    job_id: str
+    state: JobState
+
+
 class JobListItem(BaseModel):
     """One row of the shared board, record-derived only.
 
