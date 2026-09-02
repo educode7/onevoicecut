@@ -85,7 +85,9 @@ async def test_owner_upload_succeeds_with_the_mechanics_unchanged(
     assert media.original_filename == "predicación.mp4"
     assert media.stored_path == storage.source_path(job_id)
     assert media.container == "mov,mp4,m4a"
-    assert started == [job_id]
+    # Queued rather than started: the supervisor owns the spawn decision now.
+    assert storage.load_job(job_id).state is JobState.QUEUED
+    assert started == []
 
 
 async def test_non_owner_upload_is_denied_with_nothing_touched(
@@ -112,7 +114,7 @@ async def test_non_owner_upload_is_denied_with_nothing_touched(
     assert storage.source_path(job_id).read_bytes() == b"first upload"
     assert storage.load_job(job_id) == record_before
     assert not list(storage.job_dir(job_id).glob("*.part"))
-    assert started == [job_id]
+    assert started == []
 
 
 async def test_a_known_foreign_id_is_denied_by_ownership_not_secrecy(

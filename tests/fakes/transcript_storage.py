@@ -74,6 +74,10 @@ class FakeTranscriptStoragePort:
         return tuple(self._jobs.values())
 
     def save_media(self, job_id: JobId, media: SourceMedia) -> None:
+        # Recorded so the queue contract can be asserted as an *ordering*: the
+        # media must be described before the record says QUEUED, because QUEUED
+        # is what makes a supervisor spawn a worker that reads it.
+        self.calls.append("save_media")
         self._media[job_id] = media
 
     def load_media(self, job_id: JobId) -> SourceMedia:

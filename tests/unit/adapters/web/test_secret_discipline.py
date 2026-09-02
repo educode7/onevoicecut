@@ -80,11 +80,15 @@ async def test_no_emitted_line_carries_a_token_value(
     ) as client:
         with caplog.at_level(logging.DEBUG):
             job_id = await _authenticated_admit_and_upload(client)
+            # Upload queues rather than spawns, so the launcher is invoked the
+            # way the supervisor will invoke it — argv still has to be produced
+            # inside the captured region for this to prove anything about it.
+            spawn_worker(tmp_path, launch=launched.append)(make_job_id(job_id))
 
     # The cycle really ran: a record exists, owned by the caller.
     job = storage.load_job(make_job_id(job_id))
     assert job.owner == OPERATOR_A
-    assert launched, "the upload started a worker, so argv was produced"
+    assert launched, "argv was produced"
 
     emitted = capsys.readouterr()
     channels = [emitted.out, emitted.err, *(r.getMessage() for r in caplog.records)]
@@ -114,6 +118,11 @@ async def test_the_worker_argv_carries_no_token_and_no_identity(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
         job_id = await _authenticated_admit_and_upload(client)
+
+    # The launcher is the supervisor's, not the upload's. Calling it directly
+    # is what the supervisor does with a queued id, and argv is what this test
+    # is about.
+    spawn_worker(tmp_path, launch=launched.append)(make_job_id(job_id))
 
     assert len(launched) == 1
     argv = launched[0]

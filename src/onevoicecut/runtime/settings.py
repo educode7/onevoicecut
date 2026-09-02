@@ -9,6 +9,7 @@ either up.
 
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from onevoicecut.adapters.web.app import DEFAULT_MAX_UPLOAD_BYTES
@@ -28,3 +29,10 @@ class Settings(BaseSettings):
     # token-map parser — not a bare pydantic validation error — is what refuses
     # an unconfigured boot, with a message naming the actual failure.
     operator_tokens: str = ""
+
+    # One global integer — not per engine, not per operator. Default 1 because
+    # local ASR saturates this machine by itself, so two concurrent jobs mostly
+    # time-slice; anything higher is a measurement the operator has made and
+    # this project has not. `ge=1` because 0 is not "unlimited", it is a queue
+    # with no exit, and the server refuses to boot rather than strand every job.
+    max_concurrent_jobs: int = Field(default=1, ge=1)

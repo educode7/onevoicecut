@@ -170,14 +170,14 @@ async def test_an_upload_past_the_limit_is_refused(client: AsyncClient) -> None:
 async def test_uploading_starts_no_transcription(
     client: AsyncClient, storage: FakeTranscriptStoragePort
 ) -> None:
-    """The request returns as soon as the bytes are stored and the worker is
-    handed off to. Hours of ASR happen in that other process, never inside this
-    response — nothing is planned or transcribed by the time it returns."""
+    """The request returns as soon as the bytes are stored and the job is
+    queued. Hours of ASR happen in another process, never inside this response —
+    nothing is planned or transcribed by the time it returns."""
     job_id = await admitted(client)
 
     await client.put(f"/api/jobs/{job_id}/media", content=b"hola")
 
-    assert storage.load_job(job_id).state is JobState.PENDING
+    assert storage.load_job(job_id).state is JobState.QUEUED
     assert storage.load_chunk_plan(job_id) is None
     assert storage.load_transcript(job_id) is None
 

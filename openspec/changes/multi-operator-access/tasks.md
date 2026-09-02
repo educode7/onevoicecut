@@ -415,17 +415,17 @@ Rollback boundary: `runtime/settings.py` (cap), `adapters/web/routers/jobs.py` (
 `runtime/app.py` (`drain_once`), `runtime/worker.py` (terminal-state guard), `tests/unit/runtime/`,
 web tests rewritten for the new upload contract. Runtime harness: N/A — fakes + injected launcher/clock/liveness.
 
-- [ ] 5.1 RED: `tests/unit/runtime/test_settings_capacity.py` (new) — `Settings.max_concurrent_jobs: int`,
+- [x] 5.1 RED: `tests/unit/runtime/test_settings_capacity.py` (new) — `Settings.max_concurrent_jobs: int`,
       env `ONEVOICECUT_MAX_CONCURRENT_JOBS`, default 1 (D2); a value below 1 or non-integer fails
       construction at the composition root — fail-closed like D3 and `require_binaries()`.
-- [ ] 5.2 GREEN: `runtime/settings.py` — the field with the `>= 1` constraint.
-- [ ] 5.3 RED: `tests/unit/adapters/web/test_upload_queues.py` (new) + rewrite of `test_job_start.py` —
+- [x] 5.2 GREEN: `runtime/settings.py` — the field with the `>= 1` constraint.
+- [x] 5.3 RED: `tests/unit/adapters/web/test_upload_queues.py` (new) + rewrite of `test_job_start.py` —
       upload NEVER spawns: owner upload completes validation, `save_media` runs, the record is persisted
       `QUEUED` (the gate's one write, before any spawn — CAP-01, CAP-11 write side), response 204, recording
       fake launcher never called; an admitted job without media still reads PENDING, never QUEUED (CAP-02);
       the old "upload calls the starter" expectations in `test_job_start.py` are replaced by the queue
       contract (the supervisor becomes the only spawn decision point — D7).
-- [ ] 5.4 GREEN: `adapters/web/routers/jobs.py` — upload persists QUEUED instead of calling `start_job`;
+- [x] 5.4 GREEN: `adapters/web/routers/jobs.py` — upload persists QUEUED instead of calling `start_job`;
       `WebDependencies.start_job` retires from the upload path (field removal lands with the supervisor
       wiring in 5.10).
 - [ ] 5.5 RED: `tests/unit/runtime/test_drain_once.py` (new) — `drain_once(storage, *, max_concurrent_jobs,

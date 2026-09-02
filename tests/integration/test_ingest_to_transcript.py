@@ -64,27 +64,10 @@ def data_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 async def client(data_dir: Path) -> AsyncIterator[AsyncClient]:
-    """The worker runs in-process and synchronously.
-
-    A real subprocess is what production does and what `spawn_worker` builds; here
-    it would make the test poll and sleep for no extra coverage — the worker's own
-    command-line entry point is already proven in `test_worker_entrypoint.py`.
-    What matters is that the same `run_job` sees what the web process wrote.
-    """
-    storage = FilesystemTranscriptStorage(data_dir)
-
-    def run_worker_now(job_id: JobId) -> None:
-        run_job(
-            job_id,
-            data_dir,
-            resolver=EngineResolver({EngineChoice.LOCAL: FakeTranscriptionPort}),
-        )
-
     app = create_app(
         WebDependencies(
-            storage=storage,
+            storage=FilesystemTranscriptStorage(data_dir),
             authenticate=fake_authenticate,
-            start_job=run_worker_now,
         )
     )
     async with AsyncClient(
@@ -93,7 +76,28 @@ async def client(data_dir: Path) -> AsyncIterator[AsyncClient]:
         yield http
 
 
-async def ingest(client: AsyncClient, sermon: bytes) -> JobId:
+def drain_now(data_dir: Path, job_id: JobId) -> None:
+    """Stand in for the drain supervisor, in-process and synchronously.
+
+    A real subprocess is what production does and what `spawn_worker` builds;
+    here it would make the test poll and sleep for no extra coverage — the
+    worker's own command-line entry point is already proven in
+    `test_worker_entrypoint.py`. What matters is that the same `run_job` sees
+    what the web process wrote.
+    """
+    run_job(
+        job_id,
+        data_dir,
+        resolver=EngineResolver({EngineChoice.LOCAL: FakeTranscriptionPort}),
+    )
+
+
+async def ingest(client: AsyncClient, sermon: bytes, data_dir: Path) -> JobId:
+    """Admit, upload, then drain — three steps now, because upload only queues.
+
+    The separation is the point of the capacity gate: the web process's last act
+    is a QUEUED record, and starting the work is somebody else's decision.
+    """
     admitted = await client.post("/api/jobs", json={"engine": "local"})
     assert admitted.status_code == 201
     job_id = make_job_id(admitted.json()["job_id"])
@@ -104,6 +108,12 @@ async def ingest(client: AsyncClient, sermon: bytes) -> JobId:
         headers={"x-filename": quote("predicación del domingo.mp4")},
     )
     assert uploaded.status_code == 204
+    assert (
+        FilesystemTranscriptStorage(data_dir).load_job(job_id).state
+        is JobState.QUEUED
+    )
+
+    drain_now(data_dir, job_id)
     return job_id
 
 
@@ -117,7 +127,7 @@ async def status_of(client: AsyncClient, job_id: JobId) -> dict[str, Any]:
 async def test_a_sermon_uploaded_over_http_becomes_a_transcript(
     client: AsyncClient, sermon: bytes, data_dir: Path
 ) -> None:
-    job_id = await ingest(client, sermon)
+    job_id = await ingest(client, sermon, data_dir)
 
     assert (await status_of(client, job_id))["state"] == JobState.COMPLETED
 
@@ -126,11 +136,11 @@ async def test_a_sermon_uploaded_over_http_becomes_a_transcript(
 
 
 async def test_the_status_route_counts_the_plan_the_worker_persisted(
-    client: AsyncClient, sermon: bytes
+    client: AsyncClient, sermon: bytes, data_dir: Path
 ) -> None:
     """Two processes agreeing about the same file. The worker wrote the plan; the
     route counted results against it without either knowing about the other."""
-    job_id = await ingest(client, sermon)
+    job_id = await ingest(client, sermon, data_dir)
 
     progress = (await status_of(client, job_id))["progress"]
 
@@ -144,7 +154,7 @@ async def test_ffmpeg_really_extracted_and_sliced_the_upload(
 ) -> None:
     """Not a fake anywhere on this path: the bytes the route stored are the bytes
     ffmpeg opened, and it produced a normalized track and a chunk from them."""
-    job_id = await ingest(client, sermon)
+    job_id = await ingest(client, sermon, data_dir)
 
     job_dir = FilesystemTranscriptStorage(data_dir).job_dir(job_id)
     assert (job_dir / "audio.flac").stat().st_size > 0
@@ -156,7 +166,7 @@ async def test_the_id_the_route_minted_is_the_one_the_worker_used(
 ) -> None:
     """The seam no unit test can cover: a ULID generated in one process, written
     into a path, and read back by another."""
-    job_id = await ingest(client, sermon)
+    job_id = await ingest(client, sermon, data_dir)
 
     storage = FilesystemTranscriptStorage(data_dir)
     transcript = storage.load_transcript(job_id)
@@ -169,7 +179,7 @@ async def test_the_accented_filename_survived_the_whole_round_trip(
 ) -> None:
     """Percent-encoded through a header, decoded, written as JSON, read back by
     the worker's process."""
-    job_id = await ingest(client, sermon)
+    job_id = await ingest(client, sermon, data_dir)
 
     media = FilesystemTranscriptStorage(data_dir).load_media(job_id)
     assert media.original_filename == "predicación del domingo.mp4"
@@ -181,7 +191,7 @@ async def test_the_finished_job_leaves_no_working_files(
 ) -> None:
     """No `.part` from the upload, no `.tmp` from any commit. Both would be
     invisible until a disk filled up."""
-    job_id = await ingest(client, sermon)
+    job_id = await ingest(client, sermon, data_dir)
 
     job_dir = FilesystemTranscriptStorage(data_dir).job_dir(job_id)
     assert list(job_dir.rglob("*.part")) == []
@@ -192,8 +202,8 @@ async def test_a_second_sermon_is_a_separate_job(
     client: AsyncClient, sermon: bytes, data_dir: Path
 ) -> None:
     """Per-job isolation, end to end rather than against a dict."""
-    first = await ingest(client, sermon)
-    second = await ingest(client, sermon)
+    first = await ingest(client, sermon, data_dir)
+    second = await ingest(client, sermon, data_dir)
 
     storage = FilesystemTranscriptStorage(data_dir)
     assert first != second

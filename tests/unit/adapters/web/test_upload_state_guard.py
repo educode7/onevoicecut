@@ -208,7 +208,7 @@ async def test_the_ordinary_pending_upload_still_works(
 
     assert response.status_code == 204
     assert storage.source_path(job_id).read_bytes() == b"hola mundo"
-    assert started == [job_id]
+    assert storage.load_job(job_id).state is JobState.QUEUED
 
 
 async def test_ownership_is_still_decided_before_the_state(

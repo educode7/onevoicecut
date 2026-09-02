@@ -370,7 +370,8 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         # transfer is hours stale by the time a multi-hour upload finishes, and
         # the cancel it missed is exactly the one worth catching. Checked before
         # the probe because probing a job nobody wants is wasted work.
-        if deps.storage.load_job(job.job_id).state is not JobState.PENDING:
+        current = deps.storage.load_job(job.job_id)
+        if current.state is not JobState.PENDING:
             writer.discard(media)
             raise HTTPException(
                 status_code=409,
@@ -380,11 +381,18 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         verified = _verified_media(
             media, extractor=deps.extractor_for(deps.storage, job.job_id), writer=writer
         )
-        # Saved before the worker is started, never after: the worker's first act
-        # is to read this record, and a race here would have it looking for a
-        # media file the web process had not finished describing.
+        # Described before it is queued, never after: QUEUED is what makes the
+        # supervisor spawn a worker, and that worker's first act is to read this
+        # record. The other order is a race against ourselves.
         deps.storage.save_media(job.job_id, verified)
-        deps.start_job(job.job_id)
+        # Queued, not started. This handler does not spawn — the drain
+        # supervisor is the only code that calls a launcher, which is what makes
+        # "never exceed the cap" true by construction rather than by two code
+        # paths agreeing. Written from the re-read record, not the one loaded
+        # before the transfer, so nothing decided hours ago is written back.
+        deps.storage.update_job(
+            replace(current, state=JobState.QUEUED, updated_at=deps.now())
+        )
         return Response(status_code=204)
 
     return router
