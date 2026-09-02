@@ -355,14 +355,14 @@ Runtime harness: in-process ASGI transport + fake-storage call logs.
       route-table gate automatically (AUTH-02 reinforcement); precedence 401 → 404 → 403.
 - [x] 4.6 GREEN: `adapters/web/routers/jobs.py` cancel handler (`_authorized` → `_load` → `require_owner` →
       `cancel_job`); `adapters/web/schemas.py` — `CancelJobResponse`; `JobNotOwned` → 403 translation reused.
-- [ ] 4.7 RED: `tests/unit/usecases/test_cancel_boundary.py` (new) — boundary behavior of the EXISTING seam,
+- [x] 4.7 RED: `tests/unit/usecases/test_cancel_boundary.py` (new) — boundary behavior of the EXISTING seam,
       now spec'd (characterization expected): a job cancelled mid-run stops transcribing after the current
       chunk boundary and the terminal CANCELLED state is recorded by the WORKER path (single-writer intact)
       (CXL-04); a cancellation recorded before the first chunk yields zero completed chunks and zero
       transcriber calls (CXL-05); the OWN-05 cancel arm: non-owner cancellation → 403 with nothing touched —
       completing the parametrized mutation-class matrix (upload 2.11, purge 2.21, cancel here). **OWN-05
       closes here.**
-- [ ] 4.8 GREEN: expected green — the chunk-boundary poll exists (`transcribe_job`); any failure is a real
+- [x] 4.8 GREEN: expected green — the chunk-boundary poll exists (`transcribe_job`); any failure is a real
       seam gap fixed minimally. Record as characterization where applicable.
 - [ ] 4.9 RED: `tests/unit/adapters/web/test_upload_state_guard.py` (new) — the upload-path guard D9's
       PENDING-cancellation entails: upload to a record that is not PENDING (cancelled, extracting) → 409
