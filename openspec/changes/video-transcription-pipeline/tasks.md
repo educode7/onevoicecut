@@ -874,7 +874,36 @@ Closes: `speech-transcription` Contract Parity and Declared Divergence (local ha
 
 - [x] 7.3 RED: shared `tests/contract/` module, parametrized to include the local adapter alongside the
       existing fake, `localmodel`-marked, excluded from the default run.
-- [ ] 7.4 GREEN: register the adapter in `runtime/engine_resolver.py` for `EngineChoice.LOCAL`.
+- [x] 7.4 GREEN: register the adapter in `runtime/engine_resolver.py` for `EngineChoice.LOCAL`.
+
+### Measured, split, and one defect found
+
+Measured 504 lines against the ~250 estimate (**2.0x**), so split at the natural task seam — the two
+halves are independent and each is green alone:
+
+| Unit | Task | Lines |
+| --- | --- | --- |
+| Shared contract module + fake and local call sites | 7.3 | 341 |
+| Lazy resolver registration | 7.4 | 163 |
+
+**Defect found and fixed (pre-existing, from 7a-i).** `tests/unit/adapters/asr/local/test_faster_whisper_adapter.py`
+imported the adapter at module level, and the adapter imports `faster_whisper` at module level. pytest
+imports every test module during collection, *before* it filters on markers — so on any checkout without
+the optional local-ASR extras, `pytest -m "not paid and not localmodel"` failed at collection. That is
+precisely the run that is supposed to need none of those extras. Proven by simulating a bare checkout
+with an import blocker, then fixed with `pytest.importorskip` above the adapter import, and re-verified:
+890 tests collect cleanly with `faster_whisper` unavailable.
+
+The same hazard is why 7.4's registration is a factory that imports on call. `runtime/engine_resolver.py`
+is imported by the composition root, and therefore by most of the suite; a module-level adapter import
+there would have re-introduced the defect one layer down. An `ast` test asserts the absence, following
+`tests/test_architecture.py` — an absence cannot be demonstrated by running something and watching it
+not happen.
+
+**Deviation.** 7.4 says "register the adapter"; the worker still passes `resolver=None` and exits 3, so
+nothing constructs it in production yet. Wiring `runtime/worker.py` to build a real resolver needs a
+model-size setting that no task has specified, so it is deliberately left out rather than invented here.
+`production_factories(local_model_size=...)` is the seam that wiring will use.
 
 ## Slice 7a-iii: Non-Speech Classification (VAD) (~250 lines)
 

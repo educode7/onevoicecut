@@ -47,3 +47,48 @@ class EngineResolver:
                 f"never substituted."
             ) from error
         return build()
+
+
+def local_transcriber(
+    model_size: str, *, device: str = "auto", compute_type: str = "default"
+) -> TranscriberFactory:
+    """A factory that imports the engine when called, never at import time.
+
+    The indirection is not style. `faster_whisper` is an optional extra —
+    CTranslate2 and onnxruntime, some ninety megabytes of wheels before a single
+    model weight is fetched — and this module is imported by the composition
+    root, which is imported by most of the test suite. A module-level import
+    here would make the default run, the one that exists specifically to need
+    none of that, uninstallable without it.
+
+    Everything expensive still happens at `resolve()`, which is exactly where it
+    should: the model loads before the job starts rather than three hours in.
+    """
+
+    def build() -> TranscriptionPort:
+        from onevoicecut.adapters.asr.local.faster_whisper_adapter import (
+            FasterWhisperTranscriber,
+        )
+
+        return FasterWhisperTranscriber(
+            model_size, device=device, compute_type=compute_type
+        )
+
+    return build
+
+
+def production_factories(
+    *, local_model_size: str
+) -> dict[EngineChoice, TranscriberFactory]:
+    """What this build can actually run. Cloud joins it in slice 8a.
+
+    `local_model_size` has no default, mirroring the adapter's own refusal to
+    invent one: it decides both transcript quality and hours of runtime, and it
+    is persisted on every chunk result as provenance. A default would make that
+    choice invisible at the one place it is made.
+
+    An engine absent from this map is not silently downgraded to one that is
+    present — `resolve` raises. A job that asked for the local engine because
+    its material is private must never quietly reach a third party instead.
+    """
+    return {EngineChoice.LOCAL: local_transcriber(local_model_size)}
