@@ -28,6 +28,7 @@ class FakeTranscriptStoragePort:
         self._artifacts: dict[JobId, GenerationResult] = {}
         self._export_paths: dict[JobId, Path] = {}
         self._cancelled: dict[JobId, bool] = {}
+        self._heartbeats: dict[JobId, float] = {}
         self._media: dict[JobId, SourceMedia] = {}
         self.calls: list[str] = []
         self._states: dict[JobId, list[JobState]] = {}
@@ -131,6 +132,20 @@ class FakeTranscriptStoragePort:
 
     def load_export_path(self, job_id: JobId) -> Path | None:
         return self._export_paths.get(job_id)
+
+    def write_heartbeat(self, job_id: JobId, *, at_s: float) -> None:
+        # Recorded because the single-writer claim is about *who* writes this:
+        # the web process, the gate and reconcile must never appear here.
+        self.calls.append("write_heartbeat")
+        self._heartbeats[job_id] = at_s
+
+    def heartbeat_is_fresh(
+        self, job_id: JobId, *, now_s: float, stale_after_s: float
+    ) -> bool:
+        written_at = self._heartbeats.get(job_id)
+        if written_at is None:
+            return False
+        return now_s - written_at <= stale_after_s
 
     def request_cancellation(self, job_id: JobId, *, requested: bool = True) -> None:
         # Recorded, because cancellation's central claim is about *who writes

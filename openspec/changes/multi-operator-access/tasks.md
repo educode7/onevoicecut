@@ -552,14 +552,14 @@ Rollback boundary: `ports/transcript_storage.py` (two methods), `adapters/storag
 (boundary writes), `runtime/app.py` (`worker_is_alive`, extended reconcile, drain rewire, docstring), new tests.
 Runtime harness: N/A — injected clock/liveness per design §8; no wall-clock sleeps in the default run.
 
-- [ ] 6.1 RED: `tests/unit/adapters/storage/test_heartbeat.py` (new) — the two new port methods (structural
+- [x] 6.1 RED: `tests/unit/adapters/storage/test_heartbeat.py` (new) — the two new port methods (structural
       `Protocol`, no ABC): `write_heartbeat(job_id, *, at_s)` and `heartbeat_is_fresh(job_id, *, now_s,
       stale_after_s) -> bool`; filesystem implementation: `HEARTBEAT` layout constant joins
       `FilesystemTranscriptStorage`'s layout, atomic write (`.tmp` + fsync + `os.replace`) — a torn heartbeat
       must not read as fresh; content is one epoch float; fresh ⇔ file exists ∧ parseable ∧
       `now - value <= stale_after_s` (boundary equality is fresh); absent file → not fresh; unparseable
       content → not fresh (fail closed). Fakes implement both methods and record calls.
-- [ ] 6.2 GREEN: `ports/transcript_storage.py`, `adapters/storage/filesystem_transcript_storage.py`,
+- [x] 6.2 GREEN: `ports/transcript_storage.py`, `adapters/storage/filesystem_transcript_storage.py`,
       `tests/fakes/transcript_storage.py`.
 - [ ] 6.3 RED: `tests/unit/runtime/test_worker_heartbeat.py` + `tests/unit/usecases/test_transcribe_job.py`
       extensions — HARD-01: `run_job` writes a fresh heartbeat immediately after claiming the job (injected

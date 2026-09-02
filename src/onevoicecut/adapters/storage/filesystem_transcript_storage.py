@@ -45,6 +45,7 @@ from onevoicecut.domain.transcript import Transcript
 JOBS_DIRNAME = "jobs"
 JOB_RECORD = "job.json"
 CONTROL = "control.json"
+HEARTBEAT = "heartbeat"
 MEDIA = "media.json"
 CHUNK_PLAN = "plan.json"
 SOURCE = "source"
@@ -192,6 +193,44 @@ class FilesystemTranscriptStorage:
         path = self._writable(job_id) / TRANSCRIPT_TEXT
         self._write(path, text)
         return path
+
+    def write_heartbeat(self, job_id: JobId, *, at_s: float) -> None:
+        """The worker saying it is still working, not merely still running.
+
+        Written through the same atomic path as everything else: a torn
+        heartbeat that read as fresh would vouch for a worker using bytes that
+        were never fully written.
+
+        Nobody ever removes this file. After a job finishes it is inert —
+        liveness is only ever asked about worker-bound states — and removal
+        would buy a writer-and-cleaner pair for no correctness gain.
+        """
+        self._write(self._writable(job_id) / HEARTBEAT, repr(float(at_s)))
+
+    def heartbeat_is_fresh(
+        self, job_id: JobId, *, now_s: float, stale_after_s: float
+    ) -> bool:
+        """Fails closed on absent, torn, or unreadable content.
+
+        The asymmetry is deliberate. Wrongly believing a worker is alive orphans
+        the job forever — nothing reconciles a record it thinks is healthy.
+        Wrongly believing it is dead costs a re-run that resumes from the chunks
+        already committed. So anything short of a readable number is "not
+        fresh".
+
+        A timestamp from the future reads as fresh: the difference goes negative,
+        which is under any positive bound. Clock skew should not orphan a job
+        that is plainly working, and the pid check is what establishes the
+        process exists at all.
+        """
+        raw = self._read_optional(self.job_dir(job_id) / HEARTBEAT)
+        if raw is None:
+            return False
+        try:
+            written_at = float(raw)
+        except ValueError:
+            return False
+        return now_s - written_at <= stale_after_s
 
     def request_cancellation(self, job_id: JobId, *, requested: bool = True) -> None:
         """The web process's only way to influence a running job.

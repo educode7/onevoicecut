@@ -81,6 +81,27 @@ class TranscriptStoragePort(Protocol):
 
     def export_text(self, job_id: JobId, text: str) -> Path: ...
 
+    def write_heartbeat(self, job_id: JobId, *, at_s: float) -> None:
+        """Written by the worker, and by nothing else.
+
+        A pid says a process exists; this says it is still doing the work. The
+        two failures it covers are ordinary rather than exotic on a machine that
+        runs multi-hour jobs: a worker that hangs keeps its pid, and a recycled
+        pid makes a dead worker's number belong to somebody else.
+        """
+        ...
+
+    def heartbeat_is_fresh(
+        self, job_id: JobId, *, now_s: float, stale_after_s: float
+    ) -> bool:
+        """MUST fail closed: absent or unreadable is not fresh.
+
+        Believing a dead worker is alive orphans its job permanently, because
+        nothing reconciles a record that looks healthy. Believing a live worker
+        is dead costs a re-run that resumes from the committed chunks.
+        """
+        ...
+
     def request_cancellation(self, job_id: JobId, *, requested: bool = True) -> None:
         """Written by the web process, never by the worker."""
         ...
