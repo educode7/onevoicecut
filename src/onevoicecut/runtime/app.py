@@ -7,10 +7,11 @@ processes meet. Everything below it takes what it needs as an argument, which is
 why the whole system can be driven by tests without an environment.
 """
 
+import asyncio
 import os
 import subprocess
 import sys
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -29,6 +30,11 @@ from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.runtime.settings import Settings
 
 WORKER_MODULE = "onevoicecut.runtime.worker"
+
+# Five seconds between sweeps. That is the worst-case delay between an upload
+# finishing and its worker starting on an idle machine — noise against a
+# three-hour job, and QUEUED is an honest status to show meanwhile.
+DRAIN_SWEEP_INTERVAL_S = 5.0
 
 LivenessProbe = Callable[[int], bool]
 
@@ -194,6 +200,48 @@ def drain_once(
         active += 1
 
     return tuple(launched)
+
+
+async def drain_supervisor(
+    storage: TranscriptStoragePort,
+    *,
+    max_concurrent_jobs: int,
+    launch: Callable[[JobId], None],
+    is_alive: LivenessProbe = process_is_alive,
+    interval_s: float = DRAIN_SWEEP_INTERVAL_S,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> None:
+    """Sweep forever, and survive a bad sweep.
+
+    Running on a timer rather than on request is what makes the queue drain at
+    three in the morning, when a multi-hour job finishes and frees the slot the
+    next one has been waiting for. A request-triggered drain would leave that
+    slot cold until somebody opened the page.
+
+    A sweep that raises is reported and the loop continues. The alternative is a
+    supervisor that dies on one unreadable record while the web process keeps
+    accepting uploads and answering 204 — every queued job on the machine
+    stranded, and nothing saying so. The queue on disk is the truth; the next
+    sweep retries against it.
+
+    `CancelledError` is deliberately not caught: it is shutdown, not a failing
+    sweep, and swallowing it would leave a task the event loop cannot stop.
+    """
+    spawned: set[JobId] = set()
+    while True:
+        try:
+            drain_once(
+                storage,
+                max_concurrent_jobs=max_concurrent_jobs,
+                launch=launch,
+                spawned=spawned,
+                is_alive=is_alive,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # noqa: BLE001 - a bad sweep must not end the loop
+            print(f"drain: sweep failed: {error}", file=sys.stderr)
+        await sleep(interval_s)
 
 
 def build_dependencies(settings: Settings) -> WebDependencies:
