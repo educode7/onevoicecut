@@ -601,24 +601,50 @@ Docs-only unit: no behavior changes to test-drive; verification is that BOTH def
 green with zero source changes in the diff, and that every falsified premise below is updated. Rollback
 boundary: `README.md`, `CLAUDE.md` only.
 
-- [ ] 6.10 DOCS: `README.md` premise — line 9 "Single operator, runs locally." → several operators against
+- [x] 6.10 DOCS: `README.md` premise — line 9 "Single operator, runs locally." → several operators against
       ONE shared server (proposal §11.1).
-- [ ] 6.11 DOCS: `README.md` "Running it" — operator-token configuration via `ONEVOICECUT_OPERATOR_TOKENS`
+- [x] 6.11 DOCS: `README.md` "Running it" — operator-token configuration via `ONEVOICECUT_OPERATOR_TOKENS`
       (`name:token;name:token` grammar, `secrets.token_urlsafe(32)` for generation, rotation = edit +
       restart); `ONEVOICECUT_MAX_CONCURRENT_JOBS` (default 1); the `Authorization: Bearer <token>` header in
       every example request; the two new routes (`GET /api/jobs`, `POST /api/jobs/{id}/cancel`) with 401/403
       semantics; QUEUED semantics — upload queues, the drain supervisor spawns FIFO, and the mandatory
       drain-or-move step before any rollback to a pre-change build (CAP-13/14 operational halves, proposal
       §10) (proposal §11.2).
-- [ ] 6.12 DOCS: `CLAUDE.md` — intro "A single-operator local app" → shared-server multi-operator (§11.3);
+- [x] 6.12 DOCS: `CLAUDE.md` — intro "A single-operator local app" → shared-server multi-operator (§11.3);
       HTTP surface "Three HTTP routes exist" → five, with the auth/authz invariants in the security section:
       401 on every route, owner-only mutation (403), deny-by-default enforced by the route-table test (§11.4);
       review-budget drift fixed: "400 lines per slice" → 800 per `openspec/config.yaml` (raised 2026-08-31)
       (§11.5).
-- [ ] 6.13 DONE-CHANGE (final): both definition-of-done commands green over the full stack; confirm
+- [x] 6.13 DONE-CHANGE (final): both definition-of-done commands green over the full stack; confirm
       `tests/test_architecture.py` unchanged; confirm no default-run test called a paid API or loaded model
       weights (marker exclusions intact); measure the final cumulative diff; the coverage cross-check below
       shows 68/68 scenarios closed.
+
+### DONE-CHANGE measurement
+
+Both commands green: **866 passed, 5 deselected** (`paid` + `localmodel` — the exclusions are intact,
+so no default-run test touched a billed API or loaded weights); **mypy clean over 144 files**.
+`tests/test_architecture.py` is untouched by this change — its last commits are the original bootstrap
+and the package rename, both predating it.
+
+Cumulative diff for the whole change: **7,461 lines** (7,033 added, 428 removed) against a planned
+~3,600 — **2.1x**, delivered as **17 work units** rather than the 9 the plan forecast.
+
+| | Planned | Actual |
+| --- | --- | --- |
+| Lines | ~3,600 | 7,461 |
+| Work units | 9 | 17 |
+| Test share | 56% | **82%** (6,139 of 7,461; `src` is 973) |
+
+The overrun is entirely test code, again, and at 82% it is above even the 61–81% band the earlier
+slices established. The planning ratio of 56% has now been wrong on every measured slice in this
+repository; it should be retired rather than carried into the next change.
+
+**Splitting, not estimating, was the fixable error.** Every slice from S4 onward was split beyond its
+pre-declared seam, and once split the units landed on target: 412, 272, 423, 270, 390, 478, 210, 251,
+254, 289, 274, 269, 183, 286, 121. One unit exceeded 400 (`drain_once` at 478, recorded above with its
+reasoning); the rest sat inside it. The right rule for the next change is to divide the estimate by the
+budget *after* multiplying by 2.5, and pre-declare that many seams rather than one.
 
 ---
 

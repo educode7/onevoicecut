@@ -6,7 +6,9 @@ focused on spreading the Everlasting Gospel and the Three Angels' Message
 (Revelation 14), aligned with the principles of the Seventh-day Adventist Church,
 unifying the prophetic message in a single digital voice.
 
-Single operator, runs locally.
+Several operators, one shared server. Everyone can see every job on the board;
+only the operator who created a job can change it. The server runs on one machine
+and processes a bounded number of jobs at a time — the rest wait in a queue.
 
 ## Setup
 
@@ -84,23 +86,73 @@ Run one file, or one test:
 
 ```powershell
 $env:ONEVOICECUT_DATA_DIR = ".\data"
+$env:ONEVOICECUT_OPERATOR_TOKENS = "maria:<token>;jose:<token>"
 $env:PYTHONPATH = "src"
 .venv\Scripts\python.exe -m uvicorn onevoicecut.runtime.app:get_app --factory
 ```
 
-Then, against the running server:
+### Operator tokens
+
+`ONEVOICECUT_OPERATOR_TOKENS` is `name:token;name:token`. Names are
+`[a-z0-9_-]`, up to 64 characters. Generate tokens with real entropy:
+
+```powershell
+.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+**The server refuses to boot without it.** An absent, empty, malformed, or
+duplicated map is a startup error naming the problem — never a server that comes
+up with authentication off. Rotation is editing the variable and restarting;
+tokens are not stored anywhere else, and no token value ever reaches a job
+record, a log line, or a worker's argv.
+
+### Configuration
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `ONEVOICECUT_DATA_DIR` | *(none — required)* | Where jobs live. No default on purpose: multi-hour sermons should not go somewhere you did not choose. |
+| `ONEVOICECUT_OPERATOR_TOKENS` | *(none — required)* | The operator/token map above. |
+| `ONEVOICECUT_MAX_CONCURRENT_JOBS` | `1` | How many jobs transcribe at once. Local ASR saturates a machine by itself, so two mostly time-slice and make both slower. Raise it only against a measurement. Must be ≥ 1; `0` is a queue with no exit and is refused at boot. |
+
+### The routes
+
+Every request needs `Authorization: Bearer <token>`. There is no anonymous route.
 
 | Step | Request |
 | --- | --- |
 | Create a job | `POST /api/jobs` with `{"engine": "local"}` |
 | Upload the sermon | `PUT /api/jobs/{id}/media`, raw body, filename percent-encoded in `X-Filename` |
-| Watch it | `GET /api/jobs/{id}` — chunk-level progress, ETA once a chunk has finished |
+| See the board | `GET /api/jobs` — every job with its owner; `?mine=true` narrows to yours |
+| Watch one | `GET /api/jobs/{id}` — chunk-level progress, ETA once a chunk has finished |
+| Stop one | `POST /api/jobs/{id}/cancel` |
 
-The upload spawns one worker process for that job. `transcript.txt` and
-`transcript.json` land in `data\jobs\{id}\` when it finishes.
+```powershell
+curl -H "Authorization: Bearer $token" http://localhost:8000/api/jobs
+```
 
-`ONEVOICECUT_DATA_DIR` has no default on purpose: multi-hour sermons should not go
-somewhere you did not choose.
+Reading is shared, changing is not: **401** if the token is missing or unknown,
+**403** if you are not the job's owner, **404** if the id is unknown *or*
+malformed — the two are deliberately indistinguishable.
+
+### What happens after an upload
+
+The upload does not start a worker. It stores the file, records the media, and
+sets the job to **QUEUED**; a supervisor inside the server sweeps every five
+seconds and starts queued jobs oldest-first, up to
+`ONEVOICECUT_MAX_CONCURRENT_JOBS`. So a job can sit at QUEUED for a few seconds on
+an idle machine, or much longer on a busy one — that is the queue doing its job
+rather than a failure. `transcript.txt` and `transcript.json` land in
+`data\jobs\{id}\` when it finishes.
+
+### Rolling back to a pre-queue build
+
+**Drain the queue first.** A build that predates the capacity gate has no
+`queued` state and will refuse to read those records — loudly, by design, rather
+than guessing at them. Before downgrading, either let the queue empty, or move
+the QUEUED job directories out of `data\jobs\` and put them back afterwards.
+
+Everything else survives a rollback untouched: the `owner` field is simply a key
+an older build does not read.
 
 ### Running a job directly
 

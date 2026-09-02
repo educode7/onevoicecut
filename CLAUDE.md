@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A single-operator local app that turns multi-hour Spanish source video into a structured transcript,
+A shared-server app — several operators, one machine — that turns multi-hour Spanish source video into a structured transcript,
 then into a summary plus timestamped clip candidates with short scripts. Video rendering/publishing is
 an explicit non-goal — the script artifact is the stopping point.
 
@@ -122,6 +122,19 @@ change, not a refactor.
   Use cases stay engine-agnostic.
 - **Secrets** are read at adapter construction in the resolver, so a missing key fails fast before a
   three-hour run starts. They never enter `JobRecord`, logs, or worker argv.
+- **One spawn decision point.** Upload queues; only `drain_once`, driven by the lifespan supervisor,
+  starts a worker. `WebDependencies` carries no launcher at all, which is what makes "never exceed the
+  cap" a property of the wiring rather than of two code paths agreeing. Two spawn points meant two
+  concurrent uploads could each decide a slot was free.
+- **Concurrency is derived, never counted** — every sweep lists the store and re-asks the OS, exactly
+  like progress. A counter would be correct until the first crash, and crashes are the designed-for case.
+- **Liveness is a live pid *and* a fresh heartbeat**, defined once in `worker_is_alive` and consumed by
+  both reconcile and the capacity derivation. A bare pid check cannot see a hung worker and believes a
+  recycled pid; either one orphans a job forever. The worker is the sole writer of the heartbeat, at
+  claim time and every chunk boundary — liveness has to be a side effect of doing work, not of being
+  loaded into memory.
+- **State-set membership lives in `domain/jobs.py`** (`WORKER_BOUND_STATES`, `TERMINAL_STATES`), because
+  reconcile, the capacity gate and cancel classification all branch on it and three derivations drift.
 
 ### Security invariants (already specified, tested per slice)
 
@@ -149,17 +162,21 @@ This repo runs **Spec-Driven Development** (`openspec/`) with **strict TDD** (`s
 - **Measure the diff before committing a slice, not after.** Nine measured slices have overrun their
   estimate by **3.2x to 5.1x, mean ≈ 4.0x, with none under 3.2x** — a fixed multiplier, not noise. The
   excess is test code every time (test share 61–81%, never the 56% the plan assumed). Split units the
-  moment the measurement exceeds 400 lines; slice 1 did not and needed an exception, every slice since
+  moment the measurement exceeds the budget; slice 1 did not and needed an exception, every slice since
   has split instead. Treat every remaining estimate in `tasks.md` as `estimate × 4`.
+- **The budget is 800 lines**, not 400 — `openspec/config.yaml` `review.budget_lines` was raised on
+  2026-08-31 and this file said 400 for months afterwards. Units in `multi-operator-access` were still
+  sized against 400, deliberately: the smaller target is what forced the four-way splits that finally
+  landed units on estimate instead of 4x over.
 
 ### Current state
 
 Two changes are in flight. `video-transcription-pipeline` is green through slice 7a-i;
-`multi-operator-access` is green through its slice 3. Together: **665 tests, 5 deselected (`paid` +
-`localmodel`), mypy clean over 127 files**.
+`multi-operator-access` is **complete** (all six slices). Together: **866 tests, 5 deselected (`paid` +
+`localmodel`), mypy clean over 144 files**.
 
 On disk today are `domain/`, `ports/`, the use cases (`ingest_media`, `admit_job`, `plan_chunks`,
-`stitch_transcript`, `transcribe_job`, `resume_job`, `ownership`, plus the uncalled
+`stitch_transcript`, `transcribe_job`, `resume_job`, `ownership`, `cancel_job`, plus the uncalled
 `purge_job_artifacts` seam), `adapters/ffmpeg/`, `adapters/storage/`, `adapters/web/` (including
 `auth.py`), `adapters/asr/local/faster_whisper_adapter.py`, `runtime/` (`app`, `settings`,
 `engine_resolver`, `worker`), and `tests/fakes/`. Still missing: the cloud ASR adapter, diarization,
@@ -173,17 +190,30 @@ $env:ONEVOICECUT_DATA_DIR = ".\data"; $env:PYTHONPATH = "src"
 .venv\Scripts\python.exe -m uvicorn onevoicecut.runtime.app:get_app --factory
 ```
 
-`POST /api/jobs` → `PUT /api/jobs/{id}/media` → the web process spawns a worker → `GET /api/jobs/{id}`
+`POST /api/jobs` → `PUT /api/jobs/{id}/media` → the record goes **QUEUED** → the drain supervisor
+starts a worker within one five-second sweep → `GET /api/jobs/{id}`
 reports chunk progress → `transcript.txt` lands in the job directory. The faster-whisper adapter exists
 but **`engine_resolver.py` still registers no real engine** (that is task 7.4, slice 7a-ii), so a
 spawned worker exits 3 ("nothing usable to run"); `tests/integration/test_ingest_to_transcript.py`
 drives the same path with a fake engine and gets a transcript.
 
-Four HTTP routes exist, **all of them authenticated** — a bearer token parsed from
+Five HTTP routes exist, **all of them authenticated** — a bearer token parsed from
 `ONEVOICECUT_OPERATOR_TOKENS`, fail-closed at boot: `POST /api/jobs` (admit), `GET /api/jobs` (shared
 listing with owner attribution and a server-side `?mine=true` filter), `GET /api/jobs/{id}`
-(chunk-level progress; read-only, and a test enforces that it writes nothing) and
-`PUT /api/jobs/{id}/media` (raw-body streaming upload). Mutations are additionally gated on ownership.
+(chunk-level progress; read-only, and a test enforces that it writes nothing),
+`PUT /api/jobs/{id}/media` (raw-body streaming upload) and `POST /api/jobs/{id}/cancel`.
+
+Three authorization invariants, each enforced by a test rather than by review:
+
+- **Deny by default.** `WebDependencies` cannot be constructed without an authenticator, and the 401
+  check is generated from `app.routes` — a route added later joins it automatically and fails the
+  default run the day it is written without auth wiring.
+- **Reading is shared, mutating is owner-only.** The 403 check is likewise generated from the route
+  table, over every mutating route that names a job. `owner=None` (a legacy record) matches nobody:
+  visible to all, mutable by none, with no special case in the authorization code.
+- **Precedence is 401 → 404 → 403.** An unauthenticated caller never learns whether an id exists; a
+  malformed id and an unknown one are indistinguishable.
+
 Four things about the upload path are load-bearing and easy to undo by accident:
 
 - The filename travels **percent-encoded** in an `X-Filename` header. HTTP header values are ASCII and
@@ -198,10 +228,9 @@ Four things about the upload path are load-bearing and easy to undo by accident:
 ffmpeg 9.0.1 is installed (winget, `Gyan.FFmpeg`), so the `integration`-marked tests run rather than
 skip — the flag set in `adapters/ffmpeg/argv.py` is verified against the real binaries, not just argued.
 
-Next up is **`multi-operator-access` slice 4**: the cancel route — `JobState.QUEUED`, the
-`cancel_job` use case, `POST /api/jobs/{id}/cancel`, and the upload-path state guard. The remaining
-units of that change are the capacity gate (5a/5b), the worker heartbeat and reconcile widening (6a),
-and the docs pass (6b) that finally rewrites this file's single-operator premise.
+Next up is **`video-transcription-pipeline` slice 7a-ii**: registering the faster-whisper adapter in
+`runtime/engine_resolver.py` so a spawned worker can actually transcribe, plus the shared contract-test
+module. `multi-operator-access` is done and ready to archive.
 
 The proposal is at **rev 4**: rendering vertical clips is now in scope, which adds slices 11-13 after
 10b and modifies `transcript-artifacts` (word-level timing) and `MediaProbe` (frame dimensions). Those
