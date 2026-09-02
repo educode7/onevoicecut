@@ -29,6 +29,7 @@ honour it here would be a timeout that never fires.
 
 import math
 
+import numpy as np
 from faster_whisper import WhisperModel, decode_audio
 from faster_whisper.transcribe import Segment
 from faster_whisper.vad import VadOptions, get_speech_timestamps
@@ -75,6 +76,16 @@ _LOOP_PUNCTUATION = ",.;:!?¡¿-—…\"'"
 
 _Range = tuple[float, float]
 
+# Named in the refusal below, so the message carries its own remedy. Defined here
+# rather than imported from `runtime/` because an adapter must not depend on the
+# composition root; the worker reads the variable, this only knows its name.
+LOCAL_DEVICE_ENV = "ONEVOICECUT_LOCAL_DEVICE"
+
+# One second of silence. Enough to force a full encoder pass — Whisper pads any
+# input to its thirty-second window — and short enough that the proof costs
+# milliseconds against a job measured in hours.
+_PROOF_SECONDS = 1
+
 
 class FasterWhisperTranscriber:
     """A local, offline Whisper decode. Nothing leaves the machine."""
@@ -106,6 +117,40 @@ class FasterWhisperTranscriber:
                 f"the local {ENGINE_NAME} engine could not load model "
                 f"{model_size!r}: {error}. Engine choice is per job and is never "
                 f"substituted."
+            ) from error
+        self._prove(device)
+
+    def _prove(self, device: str) -> None:
+        """Decode one second of silence, to find out whether this device works.
+
+        Loading the weights is not proof. CTranslate2 allocates the model on the
+        selected device and returns happily, then resolves its compute libraries
+        lazily on the first `encode()` — so a machine with a GPU but no usable
+        cuBLAS constructs fine and dies on the first chunk. That failure is
+        content-dependent, which is what makes it dangerous: a chunk the
+        voice-activity filter rejects never reaches the encoder and therefore
+        "succeeds", so the same build transcribes music and dies on a sermon.
+
+        This is what the constructor already claimed to do. Now it does it.
+
+        It never falls back to CPU. That would be the same job twenty times
+        slower, chosen by nobody — the identical silent substitution the resolver
+        refuses between engines, and the message says which knob to turn instead.
+        """
+        try:
+            segments, _info = self._model.transcribe(
+                np.zeros(SAMPLE_RATE * _PROOF_SECONDS, dtype=np.float32)
+            )
+            # The generator is where the encode actually happens; leaving it
+            # undrained would prove nothing at all.
+            tuple(segments)
+        except Exception as error:
+            raise EngineUnavailable(
+                f"the local {ENGINE_NAME} engine loaded model "
+                f"{self._model_size!r} on device {device!r} but cannot compute "
+                f"with it: {error}. Set {LOCAL_DEVICE_ENV}=cpu to run on the "
+                f"processor, or install the CUDA runtime this device needs. The "
+                f"engine is never silently substituted."
             ) from error
 
     def capabilities(self) -> TranscriptionCapabilities:

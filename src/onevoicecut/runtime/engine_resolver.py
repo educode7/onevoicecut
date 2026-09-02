@@ -78,7 +78,7 @@ def local_transcriber(
 
 
 def production_factories(
-    *, local_model_size: str
+    *, local_model_size: str | None, local_device: str = "auto"
 ) -> dict[EngineChoice, TranscriberFactory]:
     """What this build can actually run. Cloud joins it in slice 8a.
 
@@ -87,8 +87,18 @@ def production_factories(
     is persisted on every chunk result as provenance. A default would make that
     choice invisible at the one place it is made.
 
+    `None` therefore registers *nothing* rather than falling back to a size
+    nobody picked. An install that has not chosen cannot run the local engine,
+    and the resolver's refusal names it — which is the same no-substitution rule
+    applied one level out: a build that quietly ran `tiny` because nobody said
+    otherwise would hand back a transcript whose quality nobody chose.
+
     An engine absent from this map is not silently downgraded to one that is
     present — `resolve` raises. A job that asked for the local engine because
     its material is private must never quietly reach a third party instead.
     """
-    return {EngineChoice.LOCAL: local_transcriber(local_model_size)}
+    if local_model_size is None:
+        return {}
+    return {
+        EngineChoice.LOCAL: local_transcriber(local_model_size, device=local_device)
+    }

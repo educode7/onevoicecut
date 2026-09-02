@@ -28,10 +28,24 @@ from onevoicecut.domain.errors import DomainError
 from onevoicecut.domain.ids import InvalidIdError, JobId, make_job_id
 from onevoicecut.domain.jobs import TERMINAL_STATES, JobRecord, JobState
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
-from onevoicecut.runtime.engine_resolver import EngineResolver
+from onevoicecut.runtime.engine_resolver import EngineResolver, production_factories
 from onevoicecut.usecases.transcribe_job import transcribe_job
 
 ExtractorFactory = Callable[[Path, JobId], AudioExtractorPort]
+
+# Read here rather than passed on argv. The supervisor spawns this process with
+# a job id and a data dir and nothing else, deliberately — argv is visible to
+# every user on a shared machine, which is why secrets travel the same way. The
+# environment is inherited from the web process, so one export configures both.
+LOCAL_MODEL_SIZE_ENV = "ONEVOICECUT_LOCAL_MODEL_SIZE"
+
+# `auto` keeps CTranslate2's own choice, which prefers a GPU when one is present.
+# It stays the default because the operator who has a working GPU should not have
+# to ask for it — and the adapter now proves the chosen device can actually
+# compute before a job starts, so `auto` picking an unusable one is an error at
+# resolution rather than a job that dies on its first chunk with speech in it.
+LOCAL_DEVICE_ENV = "ONEVOICECUT_LOCAL_DEVICE"
+DEFAULT_LOCAL_DEVICE = "auto"
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -97,6 +111,27 @@ def run_job(
     )
 
 
+def configured_resolver() -> EngineResolver | None:
+    """The engines this machine is configured to run, or `None` for none of them.
+
+    This process is a composition root in its own right — it is where the real
+    adapters are constructed — so reading its own environment here is the same
+    act `runtime/app.py` performs for the web process, not a use case reaching
+    for configuration.
+
+    A blank value is treated as absent rather than passed through. An
+    exported-but-empty variable is the shape a half-written `.env` or a shell
+    typo takes, and forwarding `""` would reach the adapter, which would then
+    fail trying to load a model named nothing — an error about the wrong thing.
+    """
+    chosen = os.environ.get(LOCAL_MODEL_SIZE_ENV, "").strip()
+    device = os.environ.get(LOCAL_DEVICE_ENV, "").strip() or DEFAULT_LOCAL_DEVICE
+    factories = production_factories(
+        local_model_size=chosen or None, local_device=device
+    )
+    return EngineResolver(factories) if factories else None
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -119,11 +154,18 @@ def main(
         print(f"transcribe-worker: {error}", file=sys.stderr)
         return EXIT_UNUSABLE
 
+    # An injected resolver wins: the E2E harness drives this entrypoint with a
+    # fake engine, and reading the environment anyway would let the machine's
+    # configuration leak into a run that supplied its own.
+    resolver = resolver if resolver is not None else configured_resolver()
     if resolver is None:
-        # Real engines land in slices 7a/8a. Until then nothing can be resolved,
-        # and saying so beats failing later with a KeyError.
+        # Before the record is touched. A worker that claimed the job, wrote its
+        # pid and then exited would leave the drain counting a slot as busy for a
+        # process that is already gone.
         print(
-            "transcribe-worker: no ASR engine is configured in this build",
+            f"transcribe-worker: no ASR engine is configured; set "
+            f"{LOCAL_MODEL_SIZE_ENV} to a faster-whisper model size "
+            f"(tiny | base | small | medium | large-v3)",
             file=sys.stderr,
         )
         return EXIT_UNUSABLE

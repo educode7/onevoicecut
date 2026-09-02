@@ -1051,6 +1051,65 @@ same way task 4.20 discovered it had nothing to extract).
 - [ ] 7.7 REFACTOR: extract adapter-construction/secret-read logic shared with the cloud adapter (slice 8a)
       into a resolver helper; suite green.
 
+## Slice 7c: Runtime Wiring (~500 lines) — NEW IN THIS REVISION
+
+Closes no new spec scenario. It closes two **orphaned deviations** instead: work that earlier units
+deliberately deferred and that no task anywhere in this document then owned. A search of all 215 open tasks
+found nothing covering either, and both leave the delivered system unable to do the thing it is for.
+
+- 7a-ii's deviation: "the worker still passes `resolver=None` and exits 3, so nothing constructs it in
+  production yet. Wiring `runtime/worker.py` to build a real resolver needs a model-size setting that no task
+  has specified." The setting still did not exist.
+- 7b-i's deviation: the watchdog sweep ships as a seam, unwired. Slice 5c's own note had already punted the
+  watchdog to "slice 7b", and 7b turned out to be the core (7b-i) plus an adapter refactor (7b-ii) — neither
+  of which wires anything.
+
+- [x] 7.8 RED: worker-entrypoint test — with no injected resolver, `main` builds one from its environment;
+      with nothing configured it exits 3 naming the variable, before the job record is touched.
+- [x] 7.9 GREEN: `LOCAL_MODEL_SIZE_ENV` + `configured_resolver()` in `runtime/worker.py`;
+      `production_factories(local_model_size=None)` registers nothing rather than defaulting a size.
+- [x] 7.10 RED **(defect found end-to-end)**: construction-time device-proof test — an engine that loads but
+      cannot compute must fail as `EngineUnavailable` at construction, not as `TranscriptionFailed` on the
+      first chunk.
+- [x] 7.11 GREEN: `FasterWhisperTranscriber._prove` decodes one second of silence in the constructor;
+      `ONEVOICECUT_LOCAL_DEVICE` selects the device and is named in the refusal.
+- [ ] 7.12 RED: lifespan test — the watchdog sweeps on a timer for the app's lifetime and is cancelled with it.
+- [ ] 7.13 GREEN: `WatchdogConfig` + a second supervised task in `runtime/app.py`'s lifespan.
+
+### The defect the wiring exposed, which no unit test could have
+
+Measured **431 lines** for 7.8–7.11 against the ~500 estimate (**0.86x**), test share 76%.
+
+Wiring the worker was ten lines. What it bought was the first real end-to-end run — real HTTP, real ffmpeg,
+real faster-whisper — and that run **hung**, then left the job stuck in TRANSCRIBING with a dead pid and an
+empty `results/`.
+
+The cause is a promise the adapter's own docstring made and did not keep: *"The engine loads in the
+constructor, not on the first chunk … so a missing resource is an error before the run starts."* Loading the
+weights is not proof. CTranslate2 allocates the model on the selected device and returns happily, then
+resolves its compute libraries lazily on the first `encode()`. This machine has a GPU and no usable cuBLAS,
+so `device="auto"` picked CUDA, construction succeeded, and `Library cublas64_12.dll is not found` surfaced
+inside inference.
+
+**The reason it is worth a task rather than a note: the failure is content-dependent.** A chunk the
+voice-activity filter rejects never reaches the encoder, so it "succeeds". The first smoke run — a two-tone
+chord, no speech — completed green on the broken device. The second, over audio with voice activity in it,
+died. The same build transcribes music and dies on a sermon, and which one an operator meets first is luck.
+
+`_prove` decodes one second of silence in the constructor. It never falls back to CPU: that is the same job
+twenty times slower, chosen by nobody, and the identical silent substitution the resolver already refuses
+between engines. The refusal names `ONEVOICECUT_LOCAL_DEVICE` so the message carries its own remedy.
+
+Verified end to end after the fix, both branches: `auto` on this machine refuses at engine resolution with
+the job left QUEUED and never claimed; `cpu` completes, and the transcript carries two UNCERTAIN segments
+covering 100% of the window with the decoder's `"No, no, no…"` loop stripped — 7a-iii and 7a-iv holding
+through the real pipeline rather than only against fixtures.
+
+**Flagged, not fixed.** An unusable engine leaves the job QUEUED with no operator-visible reason: the
+worker's exit code 3 and its message go to the server's stderr, and `_popen` neither waits for the child nor
+reads its status. Pre-existing — exit 3 was already unread before this unit — but it is now the difference
+between "the operator sees why" and "the job sits there".
+
 ---
 
 ## Slice 8a-i: Cloud Adapter Construction (~450 lines)
