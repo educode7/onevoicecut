@@ -154,12 +154,17 @@ This repo runs **Spec-Driven Development** (`openspec/`) with **strict TDD** (`s
 
 ### Current state
 
-Slices 1 through 5c are complete and green: **511 tests, 0 skipped, mypy clean over 104 files**. On disk
-today are `domain/`, `ports/`, the use cases (`ingest_media`, `admit_job`, `plan_chunks`,
-`stitch_transcript`, `transcribe_job`, `resume_job`, plus the uncalled `purge_job_artifacts` seam),
-`adapters/ffmpeg/`, `adapters/storage/`, `adapters/web/`, `runtime/` (`app`, `settings`,
-`engine_resolver`, `worker`), and `tests/fakes/`. Still missing: any ASR or LLM adapter, script
-generation, and the browser UI — the HTTP surface exists but nothing renders it.
+Two changes are in flight. `video-transcription-pipeline` is green through slice 7a-i;
+`multi-operator-access` is green through its slice 3. Together: **665 tests, 5 deselected (`paid` +
+`localmodel`), mypy clean over 127 files**.
+
+On disk today are `domain/`, `ports/`, the use cases (`ingest_media`, `admit_job`, `plan_chunks`,
+`stitch_transcript`, `transcribe_job`, `resume_job`, `ownership`, plus the uncalled
+`purge_job_artifacts` seam), `adapters/ffmpeg/`, `adapters/storage/`, `adapters/web/` (including
+`auth.py`), `adapters/asr/local/faster_whisper_adapter.py`, `runtime/` (`app`, `settings`,
+`engine_resolver`, `worker`), and `tests/fakes/`. Still missing: the cloud ASR adapter, diarization,
+any LLM adapter, script generation, clip rendering, and the browser UI — the HTTP surface exists but
+nothing renders it.
 
 The pipeline runs end to end today with a fake ASR engine — real HTTP, real filesystem, real ffmpeg:
 
@@ -169,13 +174,17 @@ $env:ONEVOICECUT_DATA_DIR = ".\data"; $env:PYTHONPATH = "src"
 ```
 
 `POST /api/jobs` → `PUT /api/jobs/{id}/media` → the web process spawns a worker → `GET /api/jobs/{id}`
-reports chunk progress → `transcript.txt` lands in the job directory. **No real ASR engine is wired**, so
-a spawned worker exits 3 ("nothing usable to run"); `tests/integration/test_ingest_to_transcript.py`
+reports chunk progress → `transcript.txt` lands in the job directory. The faster-whisper adapter exists
+but **`engine_resolver.py` still registers no real engine** (that is task 7.4, slice 7a-ii), so a
+spawned worker exits 3 ("nothing usable to run"); `tests/integration/test_ingest_to_transcript.py`
 drives the same path with a fake engine and gets a transcript.
 
-Three HTTP routes exist: `POST /api/jobs` (admit), `PUT /api/jobs/{id}/media` (raw-body streaming
-upload) and `GET /api/jobs/{id}` (chunk-level progress; read-only, and a test enforces that it writes
-nothing). Four things about the upload path are load-bearing and easy to undo by accident:
+Four HTTP routes exist, **all of them authenticated** — a bearer token parsed from
+`ONEVOICECUT_OPERATOR_TOKENS`, fail-closed at boot: `POST /api/jobs` (admit), `GET /api/jobs` (shared
+listing with owner attribution and a server-side `?mine=true` filter), `GET /api/jobs/{id}`
+(chunk-level progress; read-only, and a test enforces that it writes nothing) and
+`PUT /api/jobs/{id}/media` (raw-body streaming upload). Mutations are additionally gated on ownership.
+Four things about the upload path are load-bearing and easy to undo by accident:
 
 - The filename travels **percent-encoded** in an `X-Filename` header. HTTP header values are ASCII and
   Spanish filenames are the normal case here, not an edge case.
@@ -189,9 +198,10 @@ nothing). Four things about the upload path are load-bearing and easy to undo by
 ffmpeg 9.0.1 is installed (winget, `Gyan.FFmpeg`), so the `integration`-marked tests run rather than
 skip — the flag set in `adapters/ffmpeg/argv.py` is verified against the real binaries, not just argued.
 
-Next up is **Slice 6**: per-job speaker mode and engine selection end to end, plus the diarization
-rejection path — an adapter that cannot diarize must reject a speaker-mode job rather than return
-unlabelled segments.
+Next up is **`multi-operator-access` slice 4**: the cancel route — `JobState.QUEUED`, the
+`cancel_job` use case, `POST /api/jobs/{id}/cancel`, and the upload-path state guard. The remaining
+units of that change are the capacity gate (5a/5b), the worker heartbeat and reconcile widening (6a),
+and the docs pass (6b) that finally rewrites this file's single-operator premise.
 
 The proposal is at **rev 4**: rendering vertical clips is now in scope, which adds slices 11-13 after
 10b and modifies `transcript-artifacts` (word-level timing) and `MediaProbe` (frame dimensions). Those
