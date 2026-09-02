@@ -72,7 +72,6 @@ async def test_no_emitted_line_carries_a_token_value(
                 {OPERATOR_A: TOKEN_A, make_operator_id("jose"): TOKEN_B}
             ),
             extractor_for=accepting_extractor,
-            start_job=spawn_worker(tmp_path, launch=launched.append),
         )
     )
     async with AsyncClient(
@@ -111,7 +110,6 @@ async def test_the_worker_argv_carries_no_token_and_no_identity(
                 {OPERATOR_A: TOKEN_A, make_operator_id("jose"): TOKEN_B}
             ),
             extractor_for=accepting_extractor,
-            start_job=spawn_worker(tmp_path, launch=launched.append),
         )
     )
     async with AsyncClient(

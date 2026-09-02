@@ -488,7 +488,7 @@ supervisor does; the integration test gained an explicit drain step between uplo
 Rollback boundary: `runtime/app.py` (supervisor + lifespan wiring), `runtime/settings.py` field consumption,
 new tests. Runtime harness: N/A — asyncio supervisor driven by injected interval/clock; no real `Popen`.
 
-- [ ] 5.10 RED: `tests/unit/runtime/test_drain_supervisor.py` (new) — the lifespan supervisor (D7):
+- [x] 5.10 RED: `tests/unit/runtime/test_drain_supervisor.py` (new) — the lifespan supervisor (D7):
       `build_app`'s lifespan runs `require_binaries()` → reconcile → supervisor start, in that order
       (reconcile-before-drain: a restart after a crash hands reclaimed slots to queued work on the first
       sweep); sweeps at `DRAIN_SWEEP_INTERVAL_S = 5.0` (test injects a short interval or drives `drain_once`
@@ -496,7 +496,7 @@ new tests. Runtime harness: N/A — asyncio supervisor driven by injected interv
       and the loop CONTINUES (a dead supervisor would silently strand the queue); shutdown cancels the task;
       `WebDependencies.start_job` / `no_job_starter` removal verified (the supervisor is the only code that
       calls the launcher).
-- [ ] 5.11 GREEN: `runtime/app.py` — `drain_supervisor` lifespan task; `build_dependencies` wires the real
+- [x] 5.11 GREEN: `runtime/app.py` — `drain_supervisor` lifespan task; `build_dependencies` wires the real
       `spawn_worker` launcher + `max_concurrent_jobs` from Settings; the retired `start_job` field and its
       refusing default are removed from `adapters/web/app.py`.
 - [ ] 5.12 RED: restart semantics — CAP-05: a fresh app+storage instance over the same `tmp_path`

@@ -26,7 +26,6 @@ from tests.unit.adapters.web.conftest import (
     accepting_extractor,
     auth_headers,
     fake_authenticate,
-    unstarted,
 )
 
 FORBIDDEN_HELPERS = {"UploadFile", "File", "Form"}
@@ -47,7 +46,6 @@ async def client(storage: FakeTranscriptStoragePort) -> AsyncIterator[AsyncClien
             # The route probes what it stored. Whether ffprobe agrees is a
             # separate claim, proven in the integration tests.
             extractor_for=accepting_extractor,
-            start_job=unstarted,
         )
     )
     async with AsyncClient(

@@ -34,21 +34,16 @@ def storage(tmp_path: Path) -> FakeTranscriptStoragePort:
     return FakeTranscriptStoragePort(tmp_path)
 
 
-@pytest.fixture
-def started() -> list[JobId]:
-    return []
-
 
 @pytest.fixture
 async def client(
-    storage: FakeTranscriptStoragePort, started: list[JobId]
+    storage: FakeTranscriptStoragePort
 ) -> AsyncIterator[AsyncClient]:
     app = create_app(
         WebDependencies(
             storage=storage,
             authenticate=fake_authenticate,
             extractor_for=accepting_extractor,
-            start_job=started.append,
         )
     )
     async with AsyncClient(
@@ -65,7 +60,7 @@ async def admitted(client: AsyncClient) -> JobId:
 
 
 async def test_owner_upload_succeeds_with_the_mechanics_unchanged(
-    client: AsyncClient, storage: FakeTranscriptStoragePort, started: list[JobId]
+    client: AsyncClient, storage: FakeTranscriptStoragePort
 ) -> None:
     """OWN-03 / OWN-10: authorization wraps the upload path — commit-by-rename
     from the sibling partial file, extensionless stored source, content type
@@ -87,11 +82,10 @@ async def test_owner_upload_succeeds_with_the_mechanics_unchanged(
     assert media.container == "mov,mp4,m4a"
     # Queued rather than started: the supervisor owns the spawn decision now.
     assert storage.load_job(job_id).state is JobState.QUEUED
-    assert started == []
 
 
 async def test_non_owner_upload_is_denied_with_nothing_touched(
-    client: AsyncClient, storage: FakeTranscriptStoragePort, started: list[JobId]
+    client: AsyncClient, storage: FakeTranscriptStoragePort
 ) -> None:
     """OWN-04: operator B's attempt answers 403 and leaves the job exactly as
     found — prior media intact, record unchanged, no partial file, no worker."""
@@ -114,7 +108,6 @@ async def test_non_owner_upload_is_denied_with_nothing_touched(
     assert storage.source_path(job_id).read_bytes() == b"first upload"
     assert storage.load_job(job_id) == record_before
     assert not list(storage.job_dir(job_id).glob("*.part"))
-    assert started == []
 
 
 async def test_a_known_foreign_id_is_denied_by_ownership_not_secrecy(

@@ -40,21 +40,16 @@ def storage(tmp_path: Path) -> FakeTranscriptStoragePort:
     return FakeTranscriptStoragePort(tmp_path)
 
 
-@pytest.fixture
-def started() -> list[JobId]:
-    return []
-
 
 @pytest.fixture
 async def client(
-    storage: FakeTranscriptStoragePort, started: list[JobId]
+    storage: FakeTranscriptStoragePort
 ) -> AsyncIterator[AsyncClient]:
     app = create_app(
         WebDependencies(
             storage=storage,
             authenticate=fake_authenticate,
             extractor_for=accepting_extractor,
-            start_job=started.append,
         )
     )
     async with AsyncClient(
@@ -97,7 +92,6 @@ def nothing_on_disk(storage: FakeTranscriptStoragePort, job_id: JobId) -> bool:
 async def test_upload_to_a_job_that_left_pending_is_refused_early(
     client: AsyncClient,
     storage: FakeTranscriptStoragePort,
-    started: list[JobId],
     state: JobState,
 ) -> None:
     """409 before the writer exists, so no byte is ever accepted.
@@ -117,7 +111,6 @@ async def test_upload_to_a_job_that_left_pending_is_refused_early(
     assert response.status_code == 409
     assert nothing_on_disk(storage, job_id)
     assert storage.calls == []
-    assert started == []
 
 
 async def test_the_refusal_names_the_state_that_caused_it(
@@ -137,7 +130,7 @@ async def test_the_refusal_names_the_state_that_caused_it(
 
 
 async def test_a_job_cancelled_mid_stream_has_its_bytes_discarded(
-    client: AsyncClient, storage: FakeTranscriptStoragePort, started: list[JobId]
+    client: AsyncClient, storage: FakeTranscriptStoragePort
 ) -> None:
     """The late re-read: the state changed while the body was in flight.
 
@@ -162,7 +155,6 @@ async def test_a_job_cancelled_mid_stream_has_its_bytes_discarded(
 
     assert response.status_code == 409
     assert nothing_on_disk(storage, job_id)
-    assert started == []
 
 
 async def test_a_job_cancelled_mid_stream_records_no_media(
@@ -191,7 +183,7 @@ async def test_a_job_cancelled_mid_stream_records_no_media(
 
 
 async def test_the_ordinary_pending_upload_still_works(
-    client: AsyncClient, storage: FakeTranscriptStoragePort, started: list[JobId]
+    client: AsyncClient, storage: FakeTranscriptStoragePort
 ) -> None:
     """The guard must refuse the illegal cases without closing the legal one.
 

@@ -40,15 +40,6 @@ def accepting_extractor(
     return FakeAudioExtractorPort(job_id)
 
 
-def unstarted(job_id: JobId) -> None:
-    """A starter that does nothing, for tests about everything except starting.
-
-    Needed explicitly because the production default refuses: an app that
-    accepted uploads and never transcribed them would report success at every
-    step. Tests that care about the handoff record it instead — see
-    `test_job_start.py`.
-    """
-
 
 def web_dependencies(
     root: Path, *, max_upload_bytes: int = 1024**2
@@ -60,7 +51,6 @@ def web_dependencies(
             authenticate=fake_authenticate,
             max_upload_bytes=max_upload_bytes,
             extractor_for=accepting_extractor,
-            start_job=unstarted,
         ),
         storage,
     )

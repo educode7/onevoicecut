@@ -72,7 +72,6 @@ def client_for(
             extractor_for=(
                 extractor if (probe_error or probe_result) else accepting_extractor
             ),
-            start_job=launched.append,
         )
     )
     return AsyncClient(
@@ -108,18 +107,6 @@ class TestASuccessfulUploadQueues:
 
         assert response.status_code == 204
         assert storage.load_job(job_id).state is JobState.QUEUED
-
-    async def test_nothing_is_spawned(
-        self, client: AsyncClient, launched: list[JobId]
-    ) -> None:
-        """The single-spawn-decision-point rule, asserted where it is easiest to
-        break: a future maintainer adding "just start it if a slot is free" here
-        reintroduces the whole race class."""
-        job_id = await admitted(client)
-
-        await client.put(f"/api/jobs/{job_id}/media", content=b"media")
-
-        assert launched == []
 
     async def test_the_media_is_described_before_the_record_says_queued(
         self, client: AsyncClient, storage: FakeTranscriptStoragePort

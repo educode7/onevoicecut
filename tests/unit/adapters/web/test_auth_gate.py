@@ -66,14 +66,10 @@ def test_the_route_table_is_not_empty() -> None:
     assert ROUTE_CASES
 
 
-@pytest.fixture
-def started() -> list[JobId]:
-    return []
-
 
 @pytest.fixture
 async def gate(
-    tmp_path: Path, started: list[JobId]
+    tmp_path: Path
 ) -> AsyncIterator[tuple[AsyncClient, FakeTranscriptStoragePort]]:
     storage = FakeTranscriptStoragePort(tmp_path)
     app = create_app(
@@ -81,7 +77,6 @@ async def gate(
             storage=storage,
             authenticate=fake_authenticate,
             extractor_for=accepting_extractor,
-            start_job=started.append,
         )
     )
     async with AsyncClient(
@@ -97,7 +92,6 @@ async def gate(
 )
 async def test_every_route_refuses_unauthenticated_requests_with_one_shape(
     gate: tuple[AsyncClient, FakeTranscriptStoragePort],
-    started: list[JobId],
     tmp_path: Path,
     method: str,
     path: str,
@@ -120,7 +114,6 @@ async def test_every_route_refuses_unauthenticated_requests_with_one_shape(
 
     assert storage.list_jobs() == ()
     assert storage.calls == []
-    assert started == []
     assert list(tmp_path.rglob("*")) == []
 
 

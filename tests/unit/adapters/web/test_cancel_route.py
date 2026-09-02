@@ -23,7 +23,6 @@ from tests.unit.adapters.web.conftest import (
     accepting_extractor,
     auth_headers,
     fake_authenticate,
-    unstarted,
 )
 
 OWNERSHIP_BODY = b'{"detail":"not the owner of this job"}'
@@ -41,7 +40,6 @@ async def client(storage: FakeTranscriptStoragePort) -> AsyncIterator[AsyncClien
             storage=storage,
             authenticate=fake_authenticate,
             extractor_for=accepting_extractor,
-            start_job=unstarted,
         )
     )
     async with AsyncClient(

@@ -12,8 +12,8 @@ import os
 import subprocess
 import sys
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
-from dataclasses import replace
+from contextlib import asynccontextmanager, suppress
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -244,6 +244,22 @@ async def drain_supervisor(
         await sleep(interval_s)
 
 
+@dataclass(frozen=True, slots=True)
+class DrainConfig:
+    """Everything the supervisor needs, kept off `WebDependencies` on purpose.
+
+    The web adapter no longer knows how to start work, and that is the point of
+    the capacity gate — so the launcher must not sit on the object every route
+    handler receives. A handler that can reach a launcher is one refactor away
+    from calling it.
+    """
+
+    launch: Callable[[JobId], None]
+    max_concurrent_jobs: int
+    is_alive: LivenessProbe = process_is_alive
+    interval_s: float = DRAIN_SWEEP_INTERVAL_S
+
+
 def build_dependencies(settings: Settings) -> WebDependencies:
     # Parsing the token map is the composition root's one authentication act.
     # It refuses an empty or malformed map before anything can serve a request —
@@ -253,20 +269,51 @@ def build_dependencies(settings: Settings) -> WebDependencies:
         storage=FilesystemTranscriptStorage(settings.data_dir),
         authenticate=authenticate,
         max_upload_bytes=settings.max_upload_bytes,
-        start_job=spawn_worker(settings.data_dir),
     )
 
 
-def build_app(deps: WebDependencies) -> FastAPI:
+def build_app(deps: WebDependencies, *, drain: DrainConfig | None = None) -> FastAPI:
+    """`drain=None` builds an app that serves routes and starts nothing.
+
+    That is what route tests want, and it is explicit rather than implied by a
+    forgotten argument — the composition root always supplies one, and a test
+    asserts that it does.
+    """
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        # Both checks happen before the first request rather than at first use.
-        # A missing ffmpeg discovered an hour into a job, or a stale TRANSCRIBING
+        # These happen before the first request rather than at first use. A
+        # missing ffmpeg discovered an hour into a job, or a stale TRANSCRIBING
         # left by yesterday's crash, are both things the operator should learn
         # about at boot.
         require_binaries()
+        # Before the drain, always: reconcile turns records left by dead workers
+        # into INTERRUPTED, which is what frees their derived slots. Sweeping
+        # first would count processes that no longer exist and make queued work
+        # wait behind them.
         reconcile_interrupted_jobs(deps.storage, now=deps.now)
-        yield
+
+        if drain is None:
+            yield
+            return
+
+        supervisor = asyncio.create_task(
+            drain_supervisor(
+                deps.storage,
+                max_concurrent_jobs=drain.max_concurrent_jobs,
+                launch=drain.launch,
+                is_alive=drain.is_alive,
+                interval_s=drain.interval_s,
+            )
+        )
+        try:
+            yield
+        finally:
+            # A task outliving its app would keep spawning workers against a
+            # data directory this process is finished with.
+            supervisor.cancel()
+            with suppress(asyncio.CancelledError):
+                await supervisor
 
     return create_app(deps, lifespan=lifespan)
 
@@ -278,4 +325,11 @@ def get_app() -> FastAPI:
     it starts the server; a module-level app would read it whenever anything
     imported this module, including a test collecting it.
     """
-    return build_app(build_dependencies(Settings()))  # type: ignore[call-arg]
+    settings = Settings()  # type: ignore[call-arg]
+    return build_app(
+        build_dependencies(settings),
+        drain=DrainConfig(
+            launch=spawn_worker(settings.data_dir),
+            max_concurrent_jobs=settings.max_concurrent_jobs,
+        ),
+    )

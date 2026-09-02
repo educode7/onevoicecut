@@ -28,10 +28,6 @@ from tests.unit.adapters.web.conftest import auth_headers, fake_authenticate
 pytestmark = pytest.mark.integration
 
 
-def unstarted(job_id: JobId) -> None:
-    """No worker here. These tests are about what ffprobe decides, and spawning a
-    process would make them about something else."""
-
 
 @pytest.fixture
 def storage(tmp_path: Path) -> FilesystemTranscriptStorage:
@@ -45,7 +41,7 @@ async def client(
     """No fake extractor: this is the point of the file."""
     app = create_app(
         WebDependencies(
-            storage=storage, authenticate=fake_authenticate, start_job=unstarted
+            storage=storage, authenticate=fake_authenticate
         )
     )
     async with AsyncClient(

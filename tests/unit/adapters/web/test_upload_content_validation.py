@@ -27,7 +27,6 @@ from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.unit.adapters.web.conftest import (
     auth_headers,
     fake_authenticate,
-    unstarted,
 )
 
 
@@ -52,7 +51,6 @@ def client_for(
             storage=storage,
             authenticate=fake_authenticate,
             extractor_for=extractor,
-            start_job=unstarted,
         )
     )
     return AsyncClient(

@@ -38,23 +38,7 @@ DEFAULT_MAX_UPLOAD_BYTES = 16 * 1024**3
 
 MediaSourceFactory = Callable[[TranscriptStoragePort, JobId], MediaSourcePort]
 ExtractorFactory = Callable[[TranscriptStoragePort, JobId], AudioExtractorPort]
-JobStarter = Callable[[JobId], None]
 Authenticator = Callable[[str | None], OperatorId]
-
-
-def no_job_starter(job_id: JobId) -> None:
-    """The default, and it fails loudly on purpose.
-
-    An app that accepted uploads and quietly never transcribed them would look
-    like it worked — the operator gets a 204, a job id, and a status that says
-    PENDING forever. Refusing at the moment of use turns a silent dead end into
-    an error naming the missing wiring. The composition root supplies the real
-    starter; a test supplies its own.
-    """
-    raise RuntimeError(
-        f"job {job_id} was uploaded but this app has no job starter configured, "
-        f"so nothing would ever transcribe it"
-    )
 
 
 def filesystem_media_source(
@@ -88,7 +72,9 @@ class WebDependencies:
     new_media_id: Callable[[], MediaId] = field(default=generate_media_id)
     media_source_for: MediaSourceFactory = field(default=filesystem_media_source)
     extractor_for: ExtractorFactory = field(default=ffmpeg_extractor)
-    start_job: JobStarter = field(default=no_job_starter)
+    # No launcher, deliberately. Upload queues; the drain supervisor is the only
+    # code that starts a worker. A launcher reachable from a route handler is one
+    # refactor away from a second spawn decision point and the race it brings.
     capabilities: Callable[[EngineChoice], TranscriptionCapabilities] | None = None
 
 
