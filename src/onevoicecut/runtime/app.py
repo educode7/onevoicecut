@@ -25,7 +25,7 @@ from onevoicecut.adapters.storage.filesystem_transcript_storage import (
 from onevoicecut.adapters.web.app import WebDependencies, create_app
 from onevoicecut.adapters.web.auth import build_authenticator, parse_operator_tokens
 from onevoicecut.domain.ids import JobId
-from onevoicecut.domain.jobs import WORKER_BOUND_STATES, JobState
+from onevoicecut.domain.jobs import WORKER_BOUND_STATES, JobRecord, JobState
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.runtime.settings import Settings
 
@@ -35,6 +35,14 @@ WORKER_MODULE = "onevoicecut.runtime.worker"
 # finishing and its worker starting on an idle machine — noise against a
 # three-hour job, and QUEUED is an honest status to show meanwhile.
 DRAIN_SWEEP_INTERVAL_S = 5.0
+
+# Two hours. Sized from the longest gap the loop can produce between heartbeats:
+# one chunk retried up to three times under the thirty-minute per-chunk timeout,
+# or the extraction phase that precedes the first boundary on multi-hour input.
+# It is a constant rather than a setting because it is a property of the liveness
+# rule — lower it and healthy jobs get orphaned, raise it and it stops meaning
+# anything. Neither is a knob worth handing an operator.
+HEARTBEAT_STALE_AFTER_S = 7200.0
 
 LivenessProbe = Callable[[int], bool]
 
@@ -128,6 +136,37 @@ def reconcile_interrupted_jobs(
         )
         reconciled.append(job.job_id)
     return tuple(reconciled)
+
+
+def worker_is_alive(
+    job: JobRecord,
+    storage: TranscriptStoragePort,
+    *,
+    is_alive: LivenessProbe = process_is_alive,
+    now: float,
+) -> bool:
+    """The one definition, shared by reconcile and the capacity derivation.
+
+    Both of them ask this question, and if they answered it differently the
+    system would deadlock quietly: the gate would hold a slot for a worker
+    reconcile had already declared dead, and the queue behind it would never
+    move.
+
+    Three facts, and any of them alone is enough to say no:
+
+    - **No pid.** The claim never happened; there is nothing to be alive.
+    - **Dead pid.** The heartbeat is a record of the past, and the past does not
+      keep a process running.
+    - **Stale heartbeat.** This is the pid-reuse veto, and it is why a bare
+      `os.kill(pid, 0)` was never sufficient: the number now belongs to some
+      other process, which answers the probe perfectly well. It also catches a
+      worker that is running and stuck, which the pid check cannot see at all.
+    """
+    if job.worker_pid is None or not is_alive(job.worker_pid):
+        return False
+    return storage.heartbeat_is_fresh(
+        job.job_id, now_s=now, stale_after_s=HEARTBEAT_STALE_AFTER_S
+    )
 
 
 def drain_once(

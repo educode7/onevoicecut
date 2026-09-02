@@ -570,12 +570,12 @@ Runtime harness: N/A — injected clock/liveness per design §8; no wall-clock s
       records keep their owner through every heartbeat-era transition (OWN-02 final lock).
 - [x] 6.4 GREEN: `runtime/worker.py` start write; `usecases/transcribe_job.py` boundary writes through an
       injected `now` callable with `time.time` default (`WebDependencies.now` precedent; design §8 seam).
-- [ ] 6.5 RED: `tests/unit/runtime/test_worker_is_alive.py` (new) — the SINGLE liveness definition (D5/D6):
+- [x] 6.5 RED: `tests/unit/runtime/test_worker_is_alive.py` (new) — the SINGLE liveness definition (D5/D6):
       `worker_is_alive(job, storage, *, is_alive, now)` — live pid ∧ fresh heartbeat → alive (HARD-04); live
       pid ∧ STALE heartbeat → NOT alive (HARD-05: the pid-reuse veto — a stale heartbeat vetoes a live pid);
       dead pid ∧ fresh heartbeat → NOT alive (HARD-06: a dead pid vetoes any freshness); missing
       `worker_pid` → not alive; `HEARTBEAT_STALE_AFTER_S = 7200` is a named constant, not configuration.
-- [ ] 6.6 GREEN: `runtime/app.py` — `worker_is_alive` + `HEARTBEAT_STALE_AFTER_S`.
+- [x] 6.6 GREEN: `runtime/app.py` — `worker_is_alive` + `HEARTBEAT_STALE_AFTER_S`.
 - [ ] 6.7 RED: `tests/unit/runtime/test_reconcile_extended.py` (new) — reconcile covers ALL worker-bound
       states, parametrized over the five `WORKER_BOUND_STATES`: dead worker per combined liveness →
       INTERRUPTED (HARD-07); live workers per combined liveness untouched, records unchanged (HARD-08);
