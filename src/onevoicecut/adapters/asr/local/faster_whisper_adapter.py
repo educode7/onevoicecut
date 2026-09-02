@@ -6,10 +6,19 @@ run starts; a lazily-loaded model would move "these weights are not on this
 machine" three hours into a multi-hour job, after the operator walked away. It
 costs one eager load per job, which is the same load the first chunk would pay.
 
-Two capabilities are declared UNSUPPORTED here and stay that way until their own
-slice ships. Diarization lands in 9a, voice-activity classification in 7a-iii.
-Declaring either before it exists is the failure this port's capability axes were
+Diarization is still declared UNSUPPORTED and stays that way until slice 9a.
+Declaring it before it exists is the failure this port's capability axes were
 built to prevent, because the transcript that comes back looks correct.
+
+Content classification, the independent second axis, is now AVAILABLE: a Silero
+voice-activity pass runs over the chunk, and the decode runs behind the same
+filter plus the guards that break Whisper's degenerate repetition loops. The
+filtering is only half of it. Non-speech audio is removed from the *decode*, so
+the decoder has nothing to hallucinate over, and then put *back into the result*
+as MUSIC-classified ranges carrying their timestamps. Dropping it instead would
+satisfy "no fabricated speech" while destroying every musical range the operator
+might cut a clip from — which is why the spec states classification and
+non-discarding as two separate requirements.
 
 `timeout_s` is accepted and deliberately not honoured. CTranslate2 inference is
 uninterruptible from Python once it enters the C++ decode loop, so there is no
@@ -20,7 +29,8 @@ honour it here would be a timeout that never fires.
 
 import math
 
-from faster_whisper import WhisperModel
+from faster_whisper import WhisperModel, decode_audio
+from faster_whisper.vad import VadOptions, get_speech_timestamps
 
 from onevoicecut.domain.chunking import AudioChunk
 from onevoicecut.domain.errors import DomainError, EngineUnavailable, TranscriptionFailed
@@ -34,6 +44,26 @@ from onevoicecut.ports.transcription import TranscriptionRequest
 from onevoicecut.usecases.admit_job import _validate_compatibility
 
 ENGINE_NAME = "faster-whisper"
+
+# The rate Whisper and Silero both work at. Decoding once here and handing the
+# samples to both is what keeps the voice-activity pass and the decode looking at
+# byte-identical audio; two decodes of the same file could disagree at the edges.
+SAMPLE_RATE = 16000
+
+# Whisper's own defaults, restated because they are load-bearing here rather than
+# incidental. `no_speech_prob` above this is the engine saying it heard no speech
+# in a window it nonetheless produced text for — the signal this adapter reads to
+# refuse promoting that text to SPEECH.
+NO_SPEECH_THRESHOLD = 0.6
+# A decode whose text compresses better than this is the degenerate repetition
+# loop ("gracias por ver el video" a hundred times), not a transcript.
+COMPRESSION_RATIO_THRESHOLD = 2.4
+
+# Below this, a hole between two decoded segments is boundary rounding, not audio
+# that went missing. Reporting those as ranges would bury the real ones.
+MIN_REPORTED_GAP_S = 0.5
+
+_Range = tuple[float, float]
 
 
 class FasterWhisperTranscriber:
@@ -72,7 +102,7 @@ class FasterWhisperTranscriber:
         return TranscriptionCapabilities(
             engine_id=f"{ENGINE_NAME}:{self._model_size}",
             diarization=DiarizationSupport.UNSUPPORTED,
-            non_speech_classification=ClassificationSupport.UNSUPPORTED,
+            non_speech_classification=ClassificationSupport.AVAILABLE,
             # Both None: a local engine imposes no per-request cap the way the
             # cloud API's 25 MB limit does. It is bounded only by the machine,
             # and the planner already bounds stride by target_chunk_seconds.
@@ -85,12 +115,33 @@ class FasterWhisperTranscriber:
     ) -> tuple[TranscriptSegment, ...]:
         _validate_compatibility(self.capabilities().diarization, request.speaker_mode)
         try:
-            segments, _info = self._model.transcribe(
-                str(chunk.path), language=request.language
+            audio = decode_audio(str(chunk.path), sampling_rate=SAMPLE_RATE)
+            # Never longer than the plan says this chunk is: the port promises
+            # chunk-local times bounded by the chunk's own duration, and the last
+            # chunk of a track can be shorter than its planned window.
+            duration_s = min(len(audio) / SAMPLE_RATE, chunk.end_s - chunk.start_s)
+
+            vad_options = VadOptions()
+            speech = tuple(
+                (float(r["start"]) / SAMPLE_RATE, float(r["end"]) / SAMPLE_RATE)
+                for r in get_speech_timestamps(audio, vad_options)
+            )
+
+            decoded, _info = self._model.transcribe(
+                audio,
+                language=request.language,
+                vad_filter=True,
+                vad_parameters=vad_options,
+                no_speech_threshold=NO_SPEECH_THRESHOLD,
+                compression_ratio_threshold=COMPRESSION_RATIO_THRESHOLD,
+                # Whisper conditions each window on the text it just produced. Over
+                # a long musical passage that turns one invented line into a
+                # self-reinforcing loop, so the carry-over is cut here.
+                condition_on_previous_text=False,
             )
             # The engine returns a generator; decode failures surface while it is
             # being drained, so materialise inside the guard, not outside it.
-            return tuple(
+            spoken = tuple(
                 TranscriptSegment(
                     start_s=float(segment.start),
                     end_s=float(segment.end),
@@ -100,13 +151,20 @@ class FasterWhisperTranscriber:
                     # it recovers the geometric mean probability, which is a real
                     # measurement rather than a score invented to fill the field.
                     confidence=math.exp(float(segment.avg_logprob)),
-                    # Never SPEECH while classification is UNSUPPORTED: without a
-                    # voice-activity filter this adapter has established nothing
-                    # about whether the audio was the message or a song.
-                    kind=SegmentKind.UNCERTAIN,
+                    kind=(
+                        SegmentKind.SPEECH
+                        if float(segment.no_speech_prob) <= NO_SPEECH_THRESHOLD
+                        # Text the engine produced while reporting it heard no
+                        # speech. Keeping it UNCERTAIN rather than MUSIC is
+                        # deliberate: MUSIC is dropped outright by every
+                        # message-facing consumer, so a misjudged sentence would
+                        # vanish; UNCERTAIN survives, marked.
+                        else SegmentKind.UNCERTAIN
+                    ),
                 )
-                for segment in segments
+                for segment in decoded
             )
+            return _tile(spoken, speech, duration_s)
         except DomainError:
             raise
         except Exception as error:
@@ -114,3 +172,53 @@ class FasterWhisperTranscriber:
                 f"the local {ENGINE_NAME} engine failed on chunk {chunk.index}: "
                 f"{error}"
             ) from error
+
+
+def _tile(
+    spoken: tuple[TranscriptSegment, ...],
+    speech: tuple[_Range, ...],
+    duration_s: float,
+) -> tuple[TranscriptSegment, ...]:
+    """Fill every hole the decode left, so the chunk comes back whole.
+
+    The voice-activity filter keeps music out of the decoder, which is what stops
+    the hallucination — but it also means the decoder returns nothing at all for
+    those ranges, and a chunk of worship music would come back as an empty tuple.
+    That range still exists in the source footage and still has to be addressable,
+    so it is restored here with empty text and its real timestamps.
+
+    A hole is MUSIC when the voice-activity pass found no voice in it, and
+    UNCERTAIN when it did but the decoder produced no text for it anyway. The
+    second case is a real disagreement between two detectors; claiming to know
+    which one was right is the silent degradation this axis exists to prevent.
+    """
+    ordered = sorted(spoken, key=lambda s: s.start_s)
+    tiled: list[TranscriptSegment] = []
+    cursor = 0.0
+
+    for segment in (*ordered, None):
+        boundary = duration_s if segment is None else min(segment.start_s, duration_s)
+        if boundary - cursor >= MIN_REPORTED_GAP_S:
+            tiled.append(
+                TranscriptSegment(
+                    start_s=cursor,
+                    end_s=boundary,
+                    text="",
+                    speaker=None,
+                    confidence=None,
+                    kind=(
+                        SegmentKind.UNCERTAIN
+                        if _overlaps(cursor, boundary, speech)
+                        else SegmentKind.MUSIC
+                    ),
+                )
+            )
+        if segment is not None:
+            tiled.append(segment)
+            cursor = max(cursor, segment.end_s)
+
+    return tuple(tiled)
+
+
+def _overlaps(start_s: float, end_s: float, ranges: tuple[_Range, ...]) -> bool:
+    return any(r_start < end_s and start_s < r_end for r_start, r_end in ranges)

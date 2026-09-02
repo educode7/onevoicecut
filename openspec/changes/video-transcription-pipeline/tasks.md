@@ -911,11 +911,36 @@ Closes: `speech-transcription` Non-Speech Segment Classification (local real-eng
 mirrors the capability-axis calibration slice 1b established (~450–500 lines per axis; this unit is narrower
 because the domain/port/fake scaffolding for the axis already shipped in 1b — only real-engine wiring is new).
 
-- [ ] 7.4a RED: `localmodel`-marked classification test — the local adapter declares
+- [x] 7.4a RED: `localmodel`-marked classification test — the local adapter declares
       `non_speech_classification=AVAILABLE` and marks a music-only fixture segment as `MUSIC`, not `SPEECH`.
-- [ ] 7.4b GREEN: enable the engine's voice-activity filter and the decoder guards that break degenerate
+- [x] 7.4b GREEN: enable the engine's voice-activity filter and the decoder guards that break degenerate
       repetition loops (`no_speech_threshold`, `compression_ratio_threshold`, `condition_on_previous_text`
       disabled); map their output onto `SegmentKind`.
+
+### Measured on estimate, and the filter's second half
+
+Measured **315 lines** against the ~250 estimate (**1.26x**) — the first unit in this change to land
+inside its raw nominal estimate, and the fourth in a row to land inside the 800-line budget since the
+smaller-target discipline started. Test share 57% (181 of 315), against the 65–80% the slice-7 forecast
+expected: the adapter half was larger than usual here because the tiling below is production logic, not
+scaffolding.
+
+**Filtering non-speech is only half of the task, and the RED proved it.** Before this unit the chord
+fixture came back as an **empty tuple** — Whisper's own `no_speech`/`logprob` guard had already discarded
+the whole musical range, and `vad_filter=True` alone would have made that worse, not better. That
+satisfies "no fabricated `SPEECH`" while violating the spec's separate *"Classification never discards
+audio"* scenario, and it would have silently removed exactly the ranges slice 11's clip rendering has to
+aim at. So the voice-activity pass runs twice over the same decoded samples: once inside the decode, to
+starve the hallucination, and once alongside it (`get_speech_timestamps`), to restore the filtered ranges
+to the result with their timestamps. `_tile` fills every remaining hole so the chunk always comes back
+whole.
+
+**Two non-speech kinds, decided by which detector said what.** A hole the voice-activity pass found no
+voice in is `MUSIC`. A hole it *did* find voice in, but the decoder produced no text for, is `UNCERTAIN`
+— a real disagreement between two detectors, and claiming to know which was right is the silent
+degradation this axis exists to stop. The same reasoning sets the kind for decoded text carrying a high
+`no_speech_prob`: `UNCERTAIN`, not `MUSIC`, because `without_music` drops `MUSIC` outright for every
+message-facing consumer, so a misjudged sentence would vanish from the export rather than arrive marked.
 
 ## Slice 7a-iv: Hallucination Containment (~250 lines)
 

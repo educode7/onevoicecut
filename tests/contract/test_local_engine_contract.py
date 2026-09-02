@@ -51,12 +51,13 @@ class TestFasterWhisperLocalEngine(TranscriptionPortContract):
 
     @pytest.fixture
     def chunk(self, tmp_path: Path, ffmpeg_available: None) -> AudioChunk:
-        """A 440 Hz sine, not speech — and that is the point at this stage.
+        """A 440 Hz sine, not speech — and that is the point.
 
-        With no voice-activity filter yet the engine is free to hallucinate over
-        tonal audio. The contract does not forbid that; it forbids calling the
-        invention SPEECH, which is the assertion that actually protects the
-        export and the LLM windows downstream.
+        The engine is free to hallucinate over tonal audio, and the shared
+        contract does not forbid that. What it forbids is calling the invention
+        SPEECH, which is the assertion that actually protects the export and the
+        LLM windows downstream — held against whatever `capabilities()` declares,
+        so this body stayed correct when 7a-iii flipped that declaration.
         """
         path = tmp_path / "chunk.wav"
         subprocess.run(
