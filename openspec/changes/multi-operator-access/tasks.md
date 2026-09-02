@@ -499,22 +499,47 @@ new tests. Runtime harness: N/A — asyncio supervisor driven by injected interv
 - [x] 5.11 GREEN: `runtime/app.py` — `drain_supervisor` lifespan task; `build_dependencies` wires the real
       `spawn_worker` launcher + `max_concurrent_jobs` from Settings; the retired `start_job` field and its
       refusing default are removed from `adapters/web/app.py`.
-- [ ] 5.12 RED: restart semantics — CAP-05: a fresh app+storage instance over the same `tmp_path`
+- [x] 5.12 RED: restart semantics — CAP-05: a fresh app+storage instance over the same `tmp_path`
       (simulated web restart) with worker-bound records and live pids derives the active count from disk; no
       counter survives because none exists; CAP-08: persisted QUEUED jobs drain as slots free after the
       restart — none lost, none re-admitted; CAP-06 reinforcement through the supervisor loop (a dead worker's
       slot reaches a queued job within one sweep).
-- [ ] 5.13 GREEN: expected largely green from 5.6/5.11 wiring — record as characterization; any real gap
+- [x] 5.13 GREEN: expected largely green from 5.6/5.11 wiring — record as characterization; any real gap
       fixed here.
-- [ ] 5.14 RED: `tests/unit/adapters/storage/test_rollback_codec.py` (new) — CAP-13/14 codec halves: a
+- [x] 5.14 RED: `tests/unit/adapters/storage/test_rollback_codec.py` (new) — CAP-13/14 codec halves: a
       simulated pre-change decode (field-explicit pre-change field set, state mapped through the pre-change
       enum set WITHOUT `"queued"`) reads a post-change record carrying `owner` and a terminal state cleanly,
       ignoring the unknown owner key (LEG-08 reinforcement, CAP-13); the same decode of a QUEUED record raises
       `CorruptedRecord` — fail closed (CAP-14: THIS is why the queue must drain, or QUEUED directories move
       out, before any rollback; the operational procedure is documented in 6.12).
-- [ ] 5.15 GREEN: expected green from the S1 codec shape — regression lock; note the operational remainder
+- [x] 5.15 GREEN: expected green from the S1 codec shape — regression lock; note the operational remainder
       lands in S6b.
-- [ ] 5.16 DONE-UNIT: both definition-of-done commands green; measure.
+- [x] 5.16 DONE-UNIT: both definition-of-done commands green; measure.
+
+### Split taken (S5b)
+
+Split into **three** units against the pre-declared one, same reasoning as S4 and S5a.
+
+| Unit | Tasks | Lines |
+| --- | --- | --- |
+| S5b-i — `drain_supervisor` loop | 5.10 (loop half) | 251 |
+| S5b-ii — lifespan wiring + `start_job` retirement | 5.10 (ordering half), 5.11 | 254 added / 95 removed |
+| S5b-iii — restart semantics + rollback codec locks | 5.12–5.15 | 289 |
+
+**Deviation: where the launcher lives.** 5.11 says `build_dependencies` wires the launcher, but the same
+task removes `start_job` from `WebDependencies` — which is what `build_dependencies` returns. The launcher
+therefore moved to a new `DrainConfig` passed to `build_app`, and `WebDependencies` carries nothing capable
+of starting a process. That is stronger than the task text intended: a handler that cannot reach a launcher
+cannot become a second spawn decision point.
+
+**Where the `no_job_starter` guarantee went.** Its job was to make "uploads accepted, nothing transcribed"
+loud. Upload no longer starts anything, so a refusing default there is meaningless; the guarantee is now
+two tests in `test_lifespan_wiring.py` — one structural (no launcher field exists), one on the composition
+root (`get_app` always supplies a real drain with the configured cap).
+
+5.13 and 5.15 were both green on first run, as predicted. Recorded as characterization; the rollback
+decoder is a deliberate reconstruction of the pre-change codec rather than an import, since importing
+today's decoder would have asserted nothing.
 
 ## Slice 6 — Hardening + docs (Units S6a + S6b, PR 8 + PR 9)
 
