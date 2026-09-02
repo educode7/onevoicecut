@@ -444,15 +444,44 @@ web tests rewritten for the new upload contract. Runtime harness: N/A — fakes 
       `owner` through unchanged (OWN-02 lock).
 - [x] 5.6 GREEN: `runtime/app.py` — `drain_once` per the mechanics above (re-read via `load_job`, FIFO via
       the ULID-sorted `list_jobs()`, dedup `set[JobId]` passed in, injectable launcher/liveness/clock).
-- [ ] 5.7 RED: `tests/unit/runtime/test_worker_terminal_guard.py` (new) — CAP-10's containment: `run_job` on
+- [x] 5.7 RED: `tests/unit/runtime/test_worker_terminal_guard.py` (new) — CAP-10's containment: `run_job` on
       a record already in a terminal state (the spawn-wins race: cancelled while the worker started) exits
       immediately — no claim write (`worker_pid` NOT written), zero extractor/transcriber calls, returns the
       record unchanged; end-to-end race shape with fakes: spawn wins → worker observes the cancellation before
       the first chunk → zero chunks transcribed (combines the guard with the 4.7 boundary poll; CXL-05
       reinforcement).
-- [ ] 5.8 GREEN: `runtime/worker.py` — the terminal-state guard after `load_job`, before the claim.
-- [ ] 5.9 DONE-UNIT: both definition-of-done commands green; measure; pre-declared split seam if exceeded
+- [x] 5.8 GREEN: `runtime/worker.py` — the terminal-state guard after `load_job`, before the claim.
+- [x] 5.9 DONE-UNIT: both definition-of-done commands green; measure; pre-declared split seam if exceeded
       (not expected): settings+upload-QUEUED (5.1–5.4) vs drain_once+guard (5.5–5.8).
+
+### Split taken, and one deliberate overrun
+
+Split into **three** units against the pre-declared two, on the same reasoning S4 recorded: the two-way
+seam would have put 5.5–5.8 in one unit of ~690 lines.
+
+| Unit | Tasks | Lines | vs 400 budget |
+| --- | --- | --- | --- |
+| S5a-i — capacity setting + upload queues | 5.1–5.4 | 390 added / 250 removed | +/− (209 removed lines are one retired file) |
+| S5a-ii — `drain_once` | 5.5–5.6 | 478 | **+78, accepted** |
+| S5a-iii — worker terminal guard | 5.7–5.8 | 210 | −190 |
+
+**Why S5a-ii shipped 78 lines over.** The only available seam inside it was to ship `drain_once` without
+the spawned-set logic and add it after. That would either land untested code in the first commit or churn
+the function signature between two commits, and the dedup set is not separable from the cap arithmetic —
+it exists because a launched-but-unclaimed record still reads QUEUED. A worse-factored pair of commits is
+not a better review than one 20%-over commit for a single function and its contract. Recorded rather than
+hidden.
+
+**Contract fix found on the way.** `TranscriptStoragePort.list_jobs` promised nothing about ordering, yet
+the drain's FIFO fairness depends on it and the real adapter has always sorted by id. The fake did not, so
+an ordering bug would have passed every unit test and only appeared against a real directory. The guarantee
+now lives on the port and the fake honours it.
+
+**Contract flip, deliberately breaking six test files.** Upload no longer spawns, so
+`tests/unit/adapters/web/test_job_start.py` was retired whole — its premise ("the upload is the trigger",
+"there is no benign default") is exactly what this slice removes — and replaced by `test_upload_queues.py`.
+The argv assertions in `test_secret_discipline.py` now call the launcher directly, which is what the
+supervisor does; the integration test gained an explicit drain step between upload and assertion.
 
 ### Unit S5b (PR 7, expected ~240) — supervisor, restart semantics, rollback codec locks
 

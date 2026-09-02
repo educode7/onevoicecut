@@ -25,7 +25,7 @@ from onevoicecut.adapters.storage.filesystem_transcript_storage import (
 )
 from onevoicecut.domain.errors import DomainError
 from onevoicecut.domain.ids import InvalidIdError, JobId, make_job_id
-from onevoicecut.domain.jobs import JobRecord, JobState
+from onevoicecut.domain.jobs import TERMINAL_STATES, JobRecord, JobState
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
 from onevoicecut.runtime.engine_resolver import EngineResolver
 from onevoicecut.usecases.transcribe_job import transcribe_job
@@ -62,6 +62,17 @@ def run_job(
     """
     storage = FilesystemTranscriptStorage(data_dir)
     job = storage.load_job(job_id)
+
+    # Already finished: leave without touching anything. This is the losing half
+    # of the spawn-versus-cancel race — the drain re-read said QUEUED, and the
+    # cancel landed in the moment between that read and this process starting.
+    #
+    # Returning *before* the claim is the point. A `worker_pid` written onto a
+    # cancelled record would make it read as worker-bound to the next drain
+    # sweep, so a job nobody wants would hold the machine's only slot until
+    # something noticed the process was gone.
+    if job.state in TERMINAL_STATES:
+        return job
 
     # Claim the job by writing this process's pid, before any work starts.
     # Startup reconciliation reads it to tell a worker that died from one that is
