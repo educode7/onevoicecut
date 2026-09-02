@@ -39,6 +39,10 @@ NEWEST = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCA3")
 LIVE_PID = 4812
 DEAD_PID = 9999
 
+# Liveness is now a live pid AND a fresh heartbeat, so a record that is meant to
+# read as "a worker is on this" has to carry both.
+NOW = 1_700_000_000.0
+
 
 def all_alive(pid: int) -> bool:
     return True
@@ -74,6 +78,18 @@ def storage(tmp_path: Path) -> FakeTranscriptStoragePort:
     return FakeTranscriptStoragePort(tmp_path)
 
 
+def working(storage: FakeTranscriptStoragePort, job: JobRecord) -> None:
+    """Store a record and, when it claims a worker, the heartbeat that proves it.
+
+    Splitting these would let a test say "a worker is running this" while the
+    liveness rule disagreed — which is the very confusion the combined rule
+    exists to prevent.
+    """
+    storage.create_job(job)
+    if job.worker_pid is not None:
+        storage.write_heartbeat(job.job_id, at_s=NOW)
+
+
 @pytest.fixture
 def launched() -> list[JobId]:
     return []
@@ -93,6 +109,7 @@ def sweep(
         launch=launched.append,
         is_alive=is_alive,
         spawned=set() if spawned is None else spawned,
+        now=lambda: NOW,
     )
 
 
@@ -107,7 +124,7 @@ class TestTheActiveCountIsDerived:
         sweep would reach a different answer from the same disk.
         """
         storage.create_job(a_job(OLDEST, JobState.QUEUED))
-        storage.create_job(a_job(MIDDLE, JobState.TRANSCRIBING, pid=LIVE_PID))
+        working(storage, a_job(MIDDLE, JobState.TRANSCRIBING, pid=LIVE_PID))
 
         first: list[JobId] = []
         second: list[JobId] = []
@@ -123,7 +140,7 @@ class TestTheActiveCountIsDerived:
         """Extraction and stitching hold the machine as surely as transcription
         does. Counting only TRANSCRIBING would let a second job start while the
         first was still using ffmpeg."""
-        storage.create_job(a_job(OLDEST, state, pid=LIVE_PID))
+        working(storage, a_job(OLDEST, state, pid=LIVE_PID))
         storage.create_job(a_job(NEWEST, JobState.QUEUED))
 
         sweep(storage, launched, cap=1)
@@ -135,7 +152,7 @@ class TestTheActiveCountIsDerived:
     ) -> None:
         """CAP-06: the record is a lie left by a crash, and the queue should not
         wait on a process that no longer exists."""
-        storage.create_job(a_job(OLDEST, JobState.TRANSCRIBING, pid=DEAD_PID))
+        working(storage, a_job(OLDEST, JobState.TRANSCRIBING, pid=DEAD_PID))
         storage.create_job(a_job(NEWEST, JobState.QUEUED))
 
         sweep(storage, launched, cap=1, is_alive=none_alive)
@@ -174,7 +191,7 @@ class TestTheCap:
         """CAP-03: the (N+1)th job stays QUEUED and derived active stays N."""
         running = [OLDEST, MIDDLE, NEWEST][:active]
         for job_id in running:
-            storage.create_job(a_job(job_id, JobState.TRANSCRIBING, pid=LIVE_PID))
+            working(storage, a_job(job_id, JobState.TRANSCRIBING, pid=LIVE_PID))
         waiting = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCA9")
         storage.create_job(a_job(waiting, JobState.QUEUED))
 
@@ -186,7 +203,7 @@ class TestTheCap:
     def test_free_slots_are_filled_up_to_the_cap_and_no_further(
         self, storage: FakeTranscriptStoragePort, launched: list[JobId]
     ) -> None:
-        storage.create_job(a_job(OLDEST, JobState.TRANSCRIBING, pid=LIVE_PID))
+        working(storage, a_job(OLDEST, JobState.TRANSCRIBING, pid=LIVE_PID))
         storage.create_job(a_job(MIDDLE, JobState.QUEUED))
         storage.create_job(a_job(NEWEST, JobState.QUEUED))
 

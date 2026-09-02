@@ -11,6 +11,7 @@ import asyncio
 import os
 import subprocess
 import sys
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, replace
@@ -56,9 +57,15 @@ def process_is_alive(pid: int) -> bool:
     on the same platform kills with exit code 9, so the special case is real and
     worth naming.
 
-    A recycled pid reads as alive. On a single-operator machine, within the window
-    between a crash and the next startup, that is a risk worth taking against the
-    alternative of a stronger liveness check nobody maintains.
+    A recycled pid reads as alive, and this probe cannot tell the difference.
+    That used to be an accepted risk on a single-operator machine; it is not one
+    on a shared server, where the orphaned job is somebody else's and sits on the
+    board in a state nobody can clear. It is also blind to a worker that is
+    running and stuck, which is the more common failure on multi-hour work.
+
+    Both holes are closed one level up: `worker_is_alive` pairs this with the
+    heartbeat, and a stale heartbeat vetoes whatever this says. Nothing outside
+    that helper should call this directly.
     """
     try:
         os.kill(pid, 0)
@@ -124,16 +131,22 @@ def reconcile_interrupted_jobs(
     INTERRUPTED rather than FAILED: nothing went wrong with the work. Every
     committed chunk is still on disk, and re-running the job resumes from the
     first one that is not.
+
+    Scoped to every state a worker can own, not just TRANSCRIBING. The narrower
+    rule left a job whose worker died during extraction or stitching stuck in
+    that state permanently — and under the capacity gate it also held a slot
+    permanently, so one crash at the wrong moment could retire the machine's
+    only slot. PENDING awaits an upload, QUEUED belongs to the drain, and
+    terminal states are done: none of them has a worker to be dead.
     """
+    at = now()
     reconciled: list[JobId] = []
     for job in storage.list_jobs():
-        if job.state is not JobState.TRANSCRIBING:
+        if job.state not in WORKER_BOUND_STATES:
             continue
-        if job.worker_pid is not None and is_alive(job.worker_pid):
+        if worker_is_alive(job, storage, is_alive=is_alive, now=at):
             continue
-        storage.update_job(
-            replace(job, state=JobState.INTERRUPTED, updated_at=now())
-        )
+        storage.update_job(replace(job, state=JobState.INTERRUPTED, updated_at=at))
         reconciled.append(job.job_id)
     return tuple(reconciled)
 
@@ -176,6 +189,7 @@ def drain_once(
     launch: Callable[[JobId], None],
     spawned: set[JobId],
     is_alive: LivenessProbe = process_is_alive,
+    now: Callable[[], float] = time.time,
 ) -> tuple[JobId, ...]:
     """One sweep of the gate: start queued work up to the cap, and nothing else.
 
@@ -206,12 +220,16 @@ def drain_once(
     """
     records = storage.list_jobs()
 
+    # The same `worker_is_alive` reconcile uses, deliberately. Two derivations
+    # of "is this worker running" would eventually disagree, and the failure is
+    # silent: the gate holds a slot for a worker reconcile already buried, and
+    # the queue behind it stops moving with nothing reporting why.
+    at = now()
     active = sum(
         1
         for job in records
         if job.state in WORKER_BOUND_STATES
-        and job.worker_pid is not None
-        and is_alive(job.worker_pid)
+        and worker_is_alive(job, storage, is_alive=is_alive, now=at)
     )
 
     # Drop ids the records have moved past, so a long-lived process does not

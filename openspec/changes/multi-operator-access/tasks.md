@@ -576,7 +576,7 @@ Runtime harness: N/A — injected clock/liveness per design §8; no wall-clock s
       dead pid ∧ fresh heartbeat → NOT alive (HARD-06: a dead pid vetoes any freshness); missing
       `worker_pid` → not alive; `HEARTBEAT_STALE_AFTER_S = 7200` is a named constant, not configuration.
 - [x] 6.6 GREEN: `runtime/app.py` — `worker_is_alive` + `HEARTBEAT_STALE_AFTER_S`.
-- [ ] 6.7 RED: `tests/unit/runtime/test_reconcile_extended.py` (new) — reconcile covers ALL worker-bound
+- [x] 6.7 RED: `tests/unit/runtime/test_reconcile_extended.py` (new) — reconcile covers ALL worker-bound
       states, parametrized over the five `WORKER_BOUND_STATES`: dead worker per combined liveness →
       INTERRUPTED (HARD-07); live workers per combined liveness untouched, records unchanged (HARD-08);
       PENDING/QUEUED/terminal states untouched (HARD-09 — CAP-12 preserved under the extension); stale
@@ -584,14 +584,14 @@ Runtime harness: N/A — injected clock/liveness per design §8; no wall-clock s
       records processed alike, owner preserved (LEG-06 reinforcement); heartbeat files left in place — nobody
       removes them (D5); a job directory containing heartbeat and control files lists exactly as before —
       files inside a job directory are never enumerated as jobs (LEG-09 listing half).
-- [ ] 6.8 GREEN: `runtime/app.py` — `reconcile_interrupted_jobs` scoped to `WORKER_BOUND_STATES` with
+- [x] 6.8 GREEN: `runtime/app.py` — `reconcile_interrupted_jobs` scoped to `WORKER_BOUND_STATES` with
       `worker_is_alive` as the liveness rule; `drain_once` rewired from the bare pid probe to the SAME
       `worker_is_alive` helper (single definition — reconcile and capacity derivation cannot drift);
       `process_is_alive` docstring rationale rewritten (its "single-operator machine" premise is now false;
       the heartbeat closes the reuse window it accepted); LEG-09 control-file half: the existing control-file
       poll remains the cancellation signal regardless of which build wrote it (locked by the 4.7 tests,
       re-asserted here).
-- [ ] 6.9 DONE-UNIT: both definition-of-done commands green; measure; pre-declared split seam if exceeded
+- [x] 6.9 DONE-UNIT: both definition-of-done commands green; measure; pre-declared split seam if exceeded
       (not expected): heartbeat port/adapter/worker writes (6.1–6.4) vs liveness rule + reconcile extension
       (6.5–6.8).
 

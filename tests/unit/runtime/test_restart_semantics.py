@@ -13,6 +13,7 @@ happened to still be in memory.
 """
 
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -53,6 +54,9 @@ def before_restart(tmp_path: Path) -> FilesystemTranscriptStorage:
     """One job being transcribed by a process that really exists, two queued."""
     storage = FilesystemTranscriptStorage(tmp_path)
     storage.create_job(a_job(RUNNING_JOB, JobState.TRANSCRIBING, pid=os.getpid()))
+    # A live pid alone no longer reads as alive: the heartbeat is the other half
+    # of the rule, and a worker that survived the restart has been writing one.
+    storage.write_heartbeat(RUNNING_JOB, at_s=time.time())
     storage.create_job(a_job(QUEUED_FIRST, JobState.QUEUED))
     storage.create_job(a_job(QUEUED_SECOND, JobState.QUEUED))
     return storage

@@ -158,8 +158,14 @@ def test_a_job_whose_worker_is_still_running_is_left_alone(
 ) -> None:
     """The check that keeps the single-writer rule intact. Workers are separate
     processes and routinely outlive the web app that started them; overwriting
-    their record would be the second writer the design exists to prevent."""
+    their record would be the second writer the design exists to prevent.
+
+    A live pid is no longer sufficient on its own — a fresh heartbeat is the
+    other half of the rule, and a worker that is genuinely running has written
+    one.
+    """
     storage.create_job(a_job(worker_pid=LIVE_PID))
+    storage.write_heartbeat(JOB_ID, at_s=NOW)
 
     reconciled = reconcile_interrupted_jobs(
         storage, now=lambda: NOW, is_alive=only_one_pid_is_alive
@@ -210,6 +216,7 @@ def test_reconciliation_touches_only_the_dead_ones(
 ) -> None:
     storage.create_job(a_job(JOB_ID, worker_pid=DEAD_PID))
     storage.create_job(a_job(OTHER_JOB_ID, worker_pid=LIVE_PID))
+    storage.write_heartbeat(OTHER_JOB_ID, at_s=NOW)
 
     reconcile_interrupted_jobs(
         storage, now=lambda: NOW, is_alive=only_one_pid_is_alive
