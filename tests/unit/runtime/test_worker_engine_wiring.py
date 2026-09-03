@@ -184,6 +184,10 @@ def _spy(received: list[EngineResolver]) -> Callable[..., JobRecord]:
         *,
         resolver: EngineResolver,
         extractor_factory: object = None,
+        # Accepted and ignored: this spy exists to capture the resolver, and a
+        # signature that refused the entrypoint's other arguments would break
+        # every time one is added rather than when this test's subject changes.
+        chunk_timeout_s: float = 0.0,
     ) -> JobRecord:
         received.append(resolver)
         return _completed()

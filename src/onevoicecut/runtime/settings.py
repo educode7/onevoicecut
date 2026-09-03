@@ -15,6 +15,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from onevoicecut.adapters.web.app import DEFAULT_MAX_UPLOAD_BYTES
 
 
+# Two processes enforce the per-chunk timeout — the web process's watchdog from
+# outside, the worker's in-call budget from inside — and they are separate
+# programs reading separate environments. The names live here so a spelling
+# cannot drift between them into a setting that silently applies to one and not
+# the other, which is the failure the alias below was already added to prevent.
+# Documented name first: that is also the precedence `AliasChoices` gives it.
+CHUNK_TIMEOUT_ENV_NAMES = (
+    "ONEVOICECUT_CHUNK_TIMEOUT_SECONDS",
+    "ONEVOICECUT_CHUNK_TIMEOUT_S",
+)
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ONEVOICECUT_", extra="ignore")
 
@@ -39,9 +51,12 @@ class Settings(BaseSettings):
 
     # Thirty minutes per chunk, and an operator's to set — unlike the two-hour
     # liveness bound, which is a property of the rule rather than of the machine.
-    # This one depends on the hardware, the model size and the chunk length, and
-    # the same value is passed to adapters that can honour a timeout in-call.
+    # This one depends on the hardware, the model size and the chunk length.
     # `gt=0` because zero would kill every worker on its first sweep.
+    #
+    # This value reaches the *watchdog*. The worker reads the same variables for
+    # itself, through `CHUNK_TIMEOUT_ENV_NAMES` above, because it is a separate
+    # process — it cannot be handed a value the web process parsed.
     #
     # Aliased because the derived name would be `ONEVOICECUT_CHUNK_TIMEOUT_S`,
     # and design.md documents `..._SECONDS`. An operator setting the documented
@@ -49,7 +64,5 @@ class Settings(BaseSettings):
     chunk_timeout_s: float = Field(
         default=1800.0,
         gt=0,
-        validation_alias=AliasChoices(
-            "ONEVOICECUT_CHUNK_TIMEOUT_SECONDS", "ONEVOICECUT_CHUNK_TIMEOUT_S"
-        ),
+        validation_alias=AliasChoices(*CHUNK_TIMEOUT_ENV_NAMES),
     )

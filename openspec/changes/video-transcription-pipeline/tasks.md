@@ -1565,7 +1565,64 @@ use case that already owned the loop, which is what makes it revertible on its o
 
 Closes: no new spec scenario — pure refactor. Depends on 8b-i and slice 8a's adapter existing.
 
-- [ ] 8.8 REFACTOR: unify in-call-timeout construction between local/cloud resolver branches; suite green.
+- [x] 8.8 REFACTOR: unify in-call-timeout construction between local/cloud resolver branches; suite green.
+      **The branches had nothing to unify — but looking for it found a defect.**
+
+### There is no per-branch timeout construction, and there never was
+
+8.8 assumed each resolver branch builds its adapter with a timeout. Neither does.
+`local_transcriber` takes a model size and a device; `cloud_transcriber` takes a key and a model name. The
+budget does not travel through construction at all — it arrives per call on `TranscriptionRequest.timeout_s`,
+which `transcribe_job` fills in. Nothing to extract, for the same reason as 4.20, 7.7 and 8.3a: the
+abstraction the plan anticipated was avoided rather than built.
+
+What the task pointed at was real anyway, one layer down.
+
+### The defect: the operator's timeout reached the watchdog and stopped there
+
+`settings.py` said of `chunk_timeout_s`: *"the same value is passed to adapters that can honour a timeout
+in-call."* **It was not.** It reached `WatchdogConfig` and nowhere else. The worker is a separate process that
+reads its own environment — model size, device, API key — and this was the one setting it never read, so
+`transcribe_job` ran on its hardcoded `DEFAULT_CHUNK_TIMEOUT_S` whatever the operator had configured.
+
+The consequence is specific. An operator setting six minutes got a watchdog that kills a stalled worker at
+six minutes and a cloud adapter that went on waiting thirty — so the in-call budget slice 8a-i added
+*precisely so the watchdog would stop being the only backstop* could never fire first. The external kill
+still happens, and it is the blunter of the two: it takes down the whole process, loses the chunk in flight,
+and leaves INTERRUPTED for somebody to resume.
+
+Worth noting how it hid. Both enforcement paths worked, and the configured value was honoured by the one an
+operator would think to test. Only the *interaction* was wrong, and nothing observes an interaction between
+two processes.
+
+### The unification that did exist: the variable's name
+
+`chunk_timeout_s` is read under two spellings, because the derived name (`..._CHUNK_TIMEOUT_S`) is not the
+documented one (`..._CHUNK_TIMEOUT_SECONDS`) — `settings.py` already carried an `AliasChoices` and a comment
+saying an operator setting the documented variable and watching it do nothing is the worst of both.
+
+Two *programs* now read that variable. A third spelling drifting into the worker would be a setting that
+silently applies to one enforcement path and not the other — the same failure the alias was added to prevent,
+one level up. So the names live once, in `CHUNK_TIMEOUT_ENV_NAMES`, consumed by both `AliasChoices` and the
+worker, with a test asserting the two readers agree on a value. **That is the whole of what 8.8 asked for that
+turned out to exist.**
+
+The worker refuses a bad value rather than defaulting (`EXIT_UNUSABLE`, naming the variable, before the
+record is touched). The web process already declines to boot on one via `gt=0`; silently substituting thirty
+minutes in the worker would enforce a budget nobody asked for, in the one process where it actually applies.
+Precedence matches `AliasChoices` — documented name wins — because two enforcement paths disagreeing about
+which spelling wins would be worse than either default.
+
+### Measured cost
+
+**330 lines against the ~150 estimate (2.2x)** — `src` 76, tests 254. The estimate covered a refactor that did
+not exist; what was delivered is a defect fix with the wiring test that proves it, which is a different and
+larger thing. Test share 77%.
+
+---
+
+**Slice 8 is closed.** 8a-i, 8a-ii, 8a-iii, 8a-iv, 8b-i, 8b-ii — cloud adapter, registration, byte-cap
+validation, classification evidence, split-and-retry, timeout wiring.
 
 ---
 

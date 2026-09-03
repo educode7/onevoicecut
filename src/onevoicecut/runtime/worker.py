@@ -31,7 +31,8 @@ from onevoicecut.domain.jobs import TERMINAL_STATES, JobRecord, JobState
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
 from onevoicecut.ports.transcription import TranscriptionPort
 from onevoicecut.runtime.engine_resolver import EngineResolver, production_factories
-from onevoicecut.usecases.transcribe_job import transcribe_job
+from onevoicecut.runtime.settings import CHUNK_TIMEOUT_ENV_NAMES
+from onevoicecut.usecases.transcribe_job import DEFAULT_CHUNK_TIMEOUT_S, transcribe_job
 
 ExtractorFactory = Callable[[Path, JobId], AudioExtractorPort]
 
@@ -78,6 +79,7 @@ def run_job(
     resolver: EngineResolver,
     extractor_factory: ExtractorFactory = _ffmpeg_extractor,
     now: Callable[[], float] = time.time,
+    chunk_timeout_s: float = DEFAULT_CHUNK_TIMEOUT_S,
 ) -> JobRecord:
     """Wire the adapters for one job and run it.
 
@@ -123,6 +125,7 @@ def run_job(
             transcriber=transcriber,
             storage=storage,
             now=now,
+            chunk_timeout_s=chunk_timeout_s,
         )
     finally:
         _release(transcriber)
@@ -170,6 +173,50 @@ def configured_resolver() -> EngineResolver | None:
         cloud_api_key=_configured(CLOUD_API_KEY_ENV),
     )
     return EngineResolver(factories) if factories else None
+
+
+class BadTimeout(ValueError):
+    """A configured per-chunk budget this process cannot use.
+
+    Its own type rather than a bare `ValueError` so `main` can refuse before the
+    job is touched, which is where the distinction matters: a worker that
+    claimed the record and then exited would leave the drain counting a slot as
+    busy for a process that is already gone.
+    """
+
+
+def configured_chunk_timeout_s() -> float:
+    """The per-chunk budget the adapters are given, from this process's own
+    environment.
+
+    The web process reads these same variables into `Settings` for the watchdog.
+    This is a separate program: it cannot be handed that value, so it reads them
+    again — under the shared names, in the shared precedence — and the two
+    enforcement paths agree because they are reading the same thing rather than
+    because someone remembered to keep them in step.
+
+    A bad value refuses instead of falling back. The web process already declines
+    to boot on one (`gt=0`), so silently substituting thirty minutes here would
+    enforce a budget the operator did not ask for, in the one process where it
+    actually applies.
+    """
+    for name in CHUNK_TIMEOUT_ENV_NAMES:
+        raw = _configured(name)
+        if raw is None:
+            continue
+        try:
+            seconds = float(raw)
+        except ValueError as error:
+            raise BadTimeout(
+                f"{name}={raw!r} is not a number of seconds"
+            ) from error
+        if seconds <= 0:
+            # Same bound the web process enforces. Zero is not "no timeout", it
+            # is a budget every chunk breaches on its first second.
+            raise BadTimeout(f"{name}={raw!r} must be greater than zero")
+        return seconds
+
+    return DEFAULT_CHUNK_TIMEOUT_S
 
 
 def _configured(name: str) -> str | None:
@@ -231,11 +278,21 @@ def main(
         return EXIT_UNUSABLE
 
     try:
+        # Before the record is touched, for the same reason the engine check is:
+        # a worker that claimed the job and then exited would hold a slot for a
+        # process that is already gone.
+        chunk_timeout_s = configured_chunk_timeout_s()
+    except BadTimeout as error:
+        print(f"transcribe-worker: {error}", file=sys.stderr)
+        return EXIT_UNUSABLE
+
+    try:
         job = run_job(
             job_id,
             args.data_dir,
             resolver=resolver,
             extractor_factory=extractor_factory,
+            chunk_timeout_s=chunk_timeout_s,
         )
     except DomainError as error:
         # Every failure crossing a port is already a domain error, so the worker
