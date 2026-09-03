@@ -2014,12 +2014,57 @@ across 19 files, tests 331 new.
 
 Closes: `script-generation` Map-Reduce Summarization (REDUCE half). Depends on 10a-i.
 
-- [ ] 10.5 RED: segment-id-rejection test — a model response referencing an id absent from its window is
+- [x] 10.5 RED: segment-id-rejection test — a model response referencing an id absent from its window is
       rejected.
-- [ ] 10.6 GREEN: id-validation against the real `Transcript`.
-- [ ] 10.7 RED: REDUCE test — partial summaries fold sequentially into one final summary without a single
+- [x] 10.6 GREEN: id-validation against the real `Transcript`.
+- [x] 10.7 RED: REDUCE test — partial summaries fold sequentially into one final summary without a single
       call exceeding practical context.
-- [ ] 10.8 GREEN: REDUCE phase.
+- [x] 10.8 GREEN: REDUCE phase.
+
+### Checked against the window, never against the transcript
+
+The obvious implementation validates a cited id against the whole `Transcript`, and it is wrong. A model could
+then cite a moment it was never shown — from a different window, or from the far end of the sermon — and the
+citation would validate. Each response is checked against **the window that produced it**, which is why
+`MapWindow` has carried its `segment_ids` since 10a-i.
+
+**One bad id refuses the whole response**, rather than being dropped while the prose is kept. A model that
+fabricated a reference may well have fabricated the sentence around it, and summary text is not checkable the
+way an id is. Discarding the one piece of evidence and keeping the unverifiable part is the worse of the two
+failures, and it is the shape of silent degradation this project refuses everywhere else.
+
+Four malformed-answer cases are refused as `GenerationFailed` rather than escaping as something a caller
+cannot catch: prose instead of JSON, a missing `summary`, non-integer ids (`"s0001"` is what a model returns
+when it echoes the rendered form back), and an invented id. The refusal names the id, because an operator
+debugging a refused job needs to know the model made up `s0099`.
+
+### The fold is sequential, and refuses before it spends
+
+Eighty-seven partials do not fit in a context window any more than the transcript did, so folding everything
+in one call would re-create the problem windowing was invented to solve. They fold two at a time — running
+summary plus the next partial — and the running summary stays bounded because the model is asked for at most
+`max_output_tokens` each time.
+
+A single partial is returned untouched: nothing to reconcile, and paying a model to rephrase one summary buys
+nothing. An oversized fold raises **before** the call rather than after it — spending a billed request to be
+told what the estimate already knew is the one avoidable cost here, and 10a-iv turns that refusal into a
+halving retry.
+
+### The prompts are the one Spanish thing in the module
+
+`_MAP_INSTRUCTION` and `_FOLD_INSTRUCTION` are in Spanish because the source material is. Everything else
+here — names, docstrings, the response shape — stays English, and the prompts are the single place the
+material's language legitimately shows through.
+
+### A test fixture was wrong, and the code was right
+
+The first `test_one_call_per_window` scripted a reply citing id `0` and reused it across three windows. The
+second window refused it, correctly: an id from another window is exactly what the validation exists to catch.
+The fixture now cites nothing.
+
+### Measured cost
+
+**404 lines against the ~400 estimate (1.01x)** — `src` 147, tests 257. Test share 64%.
 
 ## Slice 10a-iv: Context-Length Retry + Token-Estimation Refactor (~300 lines)
 

@@ -25,10 +25,13 @@ provider-specific one at that — out of the core, and it makes the estimate the
 same for every provider.
 """
 
+import json
 import math
 from dataclasses import dataclass
 
+from onevoicecut.domain.errors import GenerationFailed
 from onevoicecut.domain.transcript import TranscriptSegment, is_speech
+from onevoicecut.ports.text_generation import TextGenerationPort
 
 # From design.md. A silent change to either is a change in what the model is
 # asked to reason about, and nothing downstream would report it.
@@ -37,6 +40,22 @@ DEFAULT_MAP_OVERLAP_TOKENS = 200
 
 # Deliberately crude, deliberately conservative. See the module docstring.
 CHARS_PER_TOKEN = 4
+
+# Named in every refusal, so a message about a malformed answer says what was
+# expected instead of only what arrived.
+RESPONSE_SHAPE = 'JSON: {"summary": str, "segment_ids": [int]}'
+
+# Spanish, because the source is. The prompts are the one place in this module
+# where the material's language shows through.
+_MAP_INSTRUCTION = (
+    "Resume el siguiente fragmento de una predicacion. Cita los momentos "
+    "destacados unicamente por su identificador de segmento, nunca por tiempo. "
+    f"Responde en {RESPONSE_SHAPE}."
+)
+_FOLD_INSTRUCTION = (
+    "Combina los dos resumenes parciales siguientes en uno solo, sin repetir "
+    "ideas y sin agregar nada que no este en ellos."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,3 +230,131 @@ def _next_start(costs: list[int], start: int, end: int, overlap_tokens: int) -> 
         rewound -= 1
         carried += cost
     return rewound
+
+
+@dataclass(frozen=True, slots=True)
+class MapPartial:
+    """One window's answer: prose to fold, and the moments it pointed at.
+
+    The ids are kept separate from the prose because they are the only part that
+    can be checked. Summary text is not verifiable against anything; a segment id
+    either was in the window or was invented, and that is the whole reason the
+    model is asked for ids instead of timestamps.
+    """
+
+    summary: str
+    cited_ids: tuple[int, ...]
+
+
+def parse_map_response(raw: str, window: MapWindow) -> MapPartial:
+    """Read one window's answer, refusing anything it made up.
+
+    Checked against **the window that produced it**, never against the transcript
+    as a whole. Otherwise a model could cite a moment it was never shown and the
+    citation would validate — which is exactly the fabrication the id scheme
+    exists to catch.
+
+    One bad id refuses the whole response rather than being dropped. A model that
+    fabricated a reference may well have fabricated the sentence around it, and
+    the prose is not checkable the way an id is; silently discarding the evidence
+    while keeping the text is the worse of the two failures.
+    """
+    try:
+        payload = json.loads(raw)
+    except ValueError as error:
+        raise GenerationFailed(
+            f"the model did not answer with {RESPONSE_SHAPE}: {error}"
+        ) from error
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("summary"), str):
+        raise GenerationFailed(
+            f"the model's answer carried no summary; expected {RESPONSE_SHAPE}"
+        )
+
+    raw_ids = payload.get("segment_ids", [])
+    if not isinstance(raw_ids, list) or any(
+        not isinstance(value, int) or isinstance(value, bool) for value in raw_ids
+    ):
+        # `"s0001"` is what a model returns when it echoes the rendered form
+        # instead of the number, and coercing it would hide the disagreement.
+        raise GenerationFailed(
+            f"the model's segment_ids were not integers: {raw_ids!r}"
+        )
+
+    allowed = set(window.segment_ids)
+    invented = sorted(value for value in raw_ids if value not in allowed)
+    if invented:
+        raise GenerationFailed(
+            f"the model cited segment id(s) {invented} that its window did not "
+            f"contain; a fabricated reference points at the wrong moment of the "
+            f"recording while looking correct"
+        )
+
+    return MapPartial(summary=payload["summary"], cited_ids=tuple(raw_ids))
+
+
+def run_map(
+    windows: tuple[MapWindow, ...],
+    *,
+    generate: TextGenerationPort,
+    max_output_tokens: int,
+) -> tuple[MapPartial, ...]:
+    """One call per window, each answer checked against its own window."""
+    return tuple(
+        parse_map_response(
+            generate.complete(
+                _map_prompt(window), max_output_tokens=max_output_tokens
+            ),
+            window,
+        )
+        for window in windows
+    )
+
+
+def reduce_summaries(
+    partials: tuple[MapPartial, ...],
+    *,
+    generate: TextGenerationPort,
+    max_output_tokens: int,
+    budget_tokens: int = DEFAULT_MAP_WINDOW_TOKENS,
+) -> str:
+    """Fold partial summaries into one, two at a time.
+
+    Sequential rather than all-at-once because eighty-seven partials do not fit
+    in a context window any more than the transcript did — folding everything in
+    one call would re-create the problem windowing was invented to solve.
+
+    A single partial is returned untouched: there is nothing to reconcile, and
+    paying a model to rephrase one summary buys nothing.
+
+    An oversized fold is refused before it is sent. Spending a billed call to be
+    told what the estimate already knew is the one avoidable cost here; 10a-iv
+    turns this refusal into a halving retry.
+    """
+    if not partials:
+        # Reached only if every window was filtered away, which admission now
+        # refuses up front. This is the floor underneath that guard.
+        return ""
+
+    running = partials[0].summary
+    for partial in partials[1:]:
+        prompt = _fold_prompt(running, partial.summary)
+        if estimate_tokens(prompt) > budget_tokens:
+            raise GenerationFailed(
+                f"folding the running summary with the next partial would need "
+                f"{estimate_tokens(prompt)} tokens against a {budget_tokens} "
+                f"budget"
+            )
+        running = generate.complete(prompt, max_output_tokens=max_output_tokens)
+
+    return running
+
+
+def _map_prompt(window: MapWindow) -> str:
+    return (
+        f"{_MAP_INSTRUCTION}\n\n{window.text}"
+    )
+
+
+def _fold_prompt(running: str, partial: str) -> str:
+    return f"{_FOLD_INSTRUCTION}\n\nA:\n{running}\n\nB:\n{partial}"
