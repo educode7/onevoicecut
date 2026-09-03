@@ -50,7 +50,11 @@ class EngineResolver:
 
 
 def local_transcriber(
-    model_size: str, *, device: str = "auto", compute_type: str = "default"
+    model_size: str,
+    *,
+    device: str = "auto",
+    compute_type: str = "default",
+    hf_token: str | None = None,
 ) -> TranscriberFactory:
     """A factory that imports the engine when called, never at import time.
 
@@ -71,7 +75,10 @@ def local_transcriber(
         )
 
         return FasterWhisperTranscriber(
-            model_size, device=device, compute_type=compute_type
+            model_size,
+            device=device,
+            compute_type=compute_type,
+            hf_token=hf_token,
         )
 
     return build
@@ -108,6 +115,7 @@ def production_factories(
     local_model_size: str | None,
     local_device: str = "auto",
     cloud_api_key: str | None = None,
+    hf_token: str | None = None,
 ) -> dict[EngineChoice, TranscriberFactory]:
     """What this build can actually run.
 
@@ -132,7 +140,7 @@ def production_factories(
     factories: dict[EngineChoice, TranscriberFactory] = {}
     if local_model_size is not None:
         factories[EngineChoice.LOCAL] = local_transcriber(
-            local_model_size, device=local_device
+            local_model_size, device=local_device, hf_token=hf_token
         )
     if cloud_api_key is not None:
         factories[EngineChoice.CLOUD] = cloud_transcriber(cloud_api_key)

@@ -1632,10 +1632,85 @@ Closes: `speech-transcription` Contract Parity and Declared Divergence (diarizat
 half). Flips the local adapter's declaration from `UNSUPPORTED`/`REQUIRES_SETUP` toward `AVAILABLE`. No new
 domain dataclasses (`TranscriptSegment.speaker` already exists from slice 1).
 
-- [ ] 9.1 RED: `localmodel`-marked test — local adapter declares `AVAILABLE` when `pyannote.audio`/WhisperX
+- [x] 9.1 RED: `localmodel`-marked test — local adapter declares `AVAILABLE` when `pyannote.audio`/WhisperX
       is installed and the licence accepted, `REQUIRES_SETUP` otherwise.
-- [ ] 9.2 GREEN: extend `faster_whisper_adapter.capabilities()` to probe install state; add diarization
-      sub-adapter.
+- [x] 9.2 GREEN: extend `faster_whisper_adapter.capabilities()` to probe install state; add diarization
+      sub-adapter. **The probe module landed; the pipeline sub-adapter belongs to 9a-ii.**
+
+### `REQUIRES_SETUP` is the value this unit is actually about
+
+The local adapter has declared `UNSUPPORTED` since slice 7a, which was true as a statement about the build and
+false as a statement about the engine. `UNSUPPORTED` means *never* — it is what the cloud adapter declares,
+permanently, because OpenAI's API returns no speaker labels and offers no way to ask for them. The local engine
+can diarize; this machine simply is not set up for it. An operator told `unsupported` goes looking for a
+different engine, and the only other engine in this system is the one that genuinely cannot.
+
+Both values still refuse a speaker-mode job — `_validate_compatibility` admits only `AVAILABLE` — so nothing
+about the dangerous failure changes. What changes is that the refusal now points at a package instead of at a
+dead end.
+
+### The probe is in its own module, and not for tidiness
+
+`faster_whisper_adapter` imports the engine at module level, so anything living there can only be *read* on a
+machine carrying the optional ASR extras. This is a question about which extras a machine carries — a test of
+it that could only run on a machine already holding half a gigabyte of wheels would be a test of the machine.
+
+`adapters/asr/local/diarization.py` imports nothing heavier than `ports.capabilities`, so its 14 tests run in
+the **true** default suite on any checkout, extras or not. The adapter's own declaration is still asserted
+`localmodel`, because reading `capabilities()` means constructing the adapter, which loads CTranslate2 weights.
+
+### The gotcha the probe exists to contain
+
+`importlib.util.find_spec("pyannote.audio")` **does not return `None`** when `pyannote` is absent. It raises
+`ModuleNotFoundError`, because resolving a dotted name imports the parent package first. Written the obvious
+way, this probe crashes `capabilities()` on precisely the machines it was written to describe — and
+`capabilities()` is read on every planning pass. Measured here, not assumed: it is what the first call on this
+machine actually did.
+
+`find_spec` rather than a `try: import` for a second reason — importing `pyannote.audio` pulls in torch, which
+is hundreds of megabytes and several seconds on a call whose whole purpose is to be cheap enough to make
+before deciding anything. `ValueError` is caught alongside `ImportError`, for a module present in
+`sys.modules` with no spec.
+
+### A probe, not a proof — stated because this project already learned the difference
+
+Slice 7c watched CTranslate2 load happily onto a device it could not compute on, which is why `_prove` now
+decodes a second of silence in the constructor. Install state is the same kind of claim: an importable package
+and a present credential say the setup is *plausible*, not that the pipeline will build.
+
+The proof is deliberately **not** here. Building a pyannote pipeline downloads gated weights, and
+`capabilities()` is read by callers that only wanted the byte cap. It belongs with the diarizing call in
+**9a-ii**, where a job that actually asked for speakers pays for it once — the same shape as `_prove` sitting
+with the decode rather than with the declaration.
+
+### The licence half, and where the token lives
+
+`pyannote.audio`'s models are gated: the package installs freely and the weights refuse to download until
+someone has accepted the terms on their own account. So the probe requires both — a build with the code and no
+credential can no more diarize than one with neither, and declaring `AVAILABLE` on the strength of an import
+would admit a speaker-mode job that dies on its first chunk.
+
+`HUGGING_FACE_TOKEN` is a **constructor argument**, never an environment read inside the adapter. Third time
+this split has been applied (`LOCAL_DEVICE_ENV`, `CLOUD_ASR_API_KEY`, now this): the composition root reads the
+variable, the adapter knows only its *name* so a refusal carries its own remedy. `worker.py` reads it through
+the same `_configured` helper 8a-ii extracted.
+
+### Left as it was, on purpose
+
+`requirements-diarization.txt` is **still empty**. Pinning a version this machine has never installed is how a
+requirements file breaks somebody's checkout; `requirements-local-asr.txt` got its `faster-whisper==1.2.1` from
+a real install, and this one should get its pin the same way — in 9a-ii, from a machine that has actually built
+the pipeline.
+
+Which means the `AVAILABLE` branch is proven only as arithmetic: the decision function is tested both ways in
+the default suite, but no machine here has ever seen the adapter declare it. The `REQUIRES_SETUP` branch is
+this machine's live state and is verified end to end.
+
+### Measured cost
+
+**317 lines against the ~460 estimate (0.69x)** — `src` 127, tests 190. Under, and the reason is the same one
+that kept it verifiable: the pipeline construction the estimate anticipated is 9a-ii's, and pulling the
+decision out into a pure function made most of it testable without any of it.
 
 ## Slice 9a-ii: Diarizing Call + Speaker Labels (~460 lines)
 

@@ -21,6 +21,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
+from onevoicecut.adapters.asr.local.diarization import HF_TOKEN_ENV
 from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
@@ -171,6 +172,10 @@ def configured_resolver() -> EngineResolver | None:
         local_model_size=_configured(LOCAL_MODEL_SIZE_ENV),
         local_device=_configured(LOCAL_DEVICE_ENV) or DEFAULT_LOCAL_DEVICE,
         cloud_api_key=_configured(CLOUD_API_KEY_ENV),
+        # The diarization licence credential. Absent is the normal case — the
+        # local engine then declares REQUIRES_SETUP and a speaker-mode job is
+        # refused up front rather than delivered unlabelled.
+        hf_token=_configured(HF_TOKEN_ENV),
     )
     return EngineResolver(factories) if factories else None
 

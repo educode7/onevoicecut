@@ -95,9 +95,13 @@ def test_declares_capabilities_naming_the_model_that_produced_them(
     # is unanswerable afterwards if the id collapses every size into one name.
     assert TEST_MODEL in caps.engine_id
 
-    # Diarization lands in slice 9a. Until then the adapter must say it cannot,
-    # so a speaker-mode job is refused instead of silently unlabelled.
-    assert caps.diarization is DiarizationSupport.UNSUPPORTED
+    # Slice 9a-i replaced the blanket UNSUPPORTED with a probe of this install.
+    # REQUIRES_SETUP is the honest answer on a machine without `pyannote.audio`
+    # or a licence token: the local engine *can* diarize, this build cannot yet.
+    # UNSUPPORTED would send an operator looking for a different engine when
+    # what they need is a package. Either way a speaker-mode job is still
+    # refused rather than silently unlabelled — only AVAILABLE admits one.
+    assert caps.diarization is DiarizationSupport.REQUIRES_SETUP
 
     # The voice-activity filter landed in 7a-iii, so the honest answer flipped
     # with it. What the axis forbids is declaring AVAILABLE before the filter

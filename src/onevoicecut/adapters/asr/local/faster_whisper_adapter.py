@@ -6,9 +6,13 @@ run starts; a lazily-loaded model would move "these weights are not on this
 machine" three hours into a multi-hour job, after the operator walked away. It
 costs one eager load per job, which is the same load the first chunk would pay.
 
-Diarization is still declared UNSUPPORTED and stays that way until slice 9a.
-Declaring it before it exists is the failure this port's capability axes were
-built to prevent, because the transcript that comes back looks correct.
+Diarization is no longer a flat UNSUPPORTED: `diarization.py` probes what this
+install can actually support, and the answer is REQUIRES_SETUP until the package
+and a licence token are both present. UNSUPPORTED would be a claim about the
+engine rather than about the machine, and the engine is not the problem. The
+weaker claim still refuses a speaker-mode job — only AVAILABLE admits one — which
+is the failure this axis was built to prevent, because the transcript that comes
+back from a silently unlabelled run looks correct.
 
 Content classification, the independent second axis, is now AVAILABLE: a Silero
 voice-activity pass runs over the chunk, and the decode runs behind the same
@@ -34,6 +38,10 @@ from faster_whisper import WhisperModel, decode_audio
 from faster_whisper.transcribe import Segment
 from faster_whisper.vad import VadOptions, get_speech_timestamps
 
+from onevoicecut.adapters.asr.local.diarization import (
+    diarization_support,
+    is_installed,
+)
 from onevoicecut.domain.chunking import AudioChunk
 from onevoicecut.domain.errors import DomainError, EngineUnavailable, TranscriptionFailed
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
@@ -97,6 +105,7 @@ class FasterWhisperTranscriber:
         device: str = "auto",
         compute_type: str = "default",
         download_root: str | None = None,
+        hf_token: str | None = None,
     ) -> None:
         """`model_size` has no default on purpose.
 
@@ -105,6 +114,11 @@ class FasterWhisperTranscriber:
         that choice invisible at the one place it is actually made.
         """
         self._model_size = model_size
+        # Held, never read from the environment: the composition root reads it
+        # and this only knows the variable's name, for the refusal. Not verified
+        # here either — see `diarization.py` on why install state is a probe and
+        # not a proof.
+        self._hf_token = hf_token
         try:
             self._model = WhisperModel(
                 model_size,
@@ -156,7 +170,9 @@ class FasterWhisperTranscriber:
     def capabilities(self) -> TranscriptionCapabilities:
         return TranscriptionCapabilities(
             engine_id=f"{ENGINE_NAME}:{self._model_size}",
-            diarization=DiarizationSupport.UNSUPPORTED,
+            diarization=diarization_support(
+                installed=is_installed(), token=self._hf_token
+            ),
             non_speech_classification=ClassificationSupport.AVAILABLE,
             # Both None: a local engine imposes no per-request cap the way the
             # cloud API's 25 MB limit does. It is bounded only by the machine,
