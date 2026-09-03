@@ -1048,8 +1048,31 @@ Closes: no new spec scenario — pure refactor. Depends on 7b-i (and, per the ta
 the cloud adapter that lands in slice 8a; the apply phase may need to defer this unit until 8a is merged, the
 same way task 4.20 discovered it had nothing to extract).
 
-- [ ] 7.7 REFACTOR: extract adapter-construction/secret-read logic shared with the cloud adapter (slice 8a)
-      into a resolver helper; suite green.
+- [x] 7.7 REFACTOR: **not applicable at this point in the chain** — nothing shared exists to extract yet
+      (see below). Re-open as part of slice 8a-ii, where the second factory first appears.
+
+### Task 7.7 has nothing to extract either, and the note it carried is already closed
+
+Two separate things were parked on this unit, and neither survives inspection.
+
+**The adapter-construction/secret-read helper has no second caller.** `runtime/engine_resolver.py` reads no
+environment at all — not one `os.environ`, no API key, no secret. Construction inputs arrive as arguments
+(`production_factories(local_model_size=..., local_device=...)`), and the env reads that produce them live in
+`runtime/worker.py` and `runtime/settings.py`, which is where a composition root's own environment belongs.
+There is exactly one factory, `local_transcriber`. Extracting a helper shared with the cloud adapter cannot be
+done before the cloud adapter exists, and doing it against a single caller would invent the abstraction rather
+than discover it — the same trap 4.20 avoided. The work belongs to **8a-ii**, the unit that registers the
+second factory and therefore is the first point at which "shared" means anything.
+
+**The liveness note is already done, closed by slice 7c-ii rather than deferred.** 7b-i noted that
+`supervisor.py` imported `process_is_alive` and `LivenessProbe` from `app.py`, which was backwards. They now
+live in `supervisor.py` (`supervisor.py:64` and `:67`), and `app.py` re-exports `LivenessProbe` for its own
+signatures. 7c-ii's wiring forced the move: `app.py`'s lifespan needed the watchdog sweep, and the sweep
+needed the probe, so the cycle had to be broken to wire anything at all.
+
+That leaves 7b-ii with an empty body. Marking it complete is the honest record — the alternative, leaving one
+open checkbox in slice 7 for a refactor whose subject lands two slices later, reads as unfinished work rather
+than as a decision.
 
 ## Slice 7c: Runtime Wiring (~500 lines) — NEW IN THIS REVISION
 
@@ -1197,6 +1220,10 @@ Closes: `speech-transcription` Contract Parity and Declared Divergence (cloud ha
 8a-i.
 
 - [ ] 8.3 GREEN: register in `engine_resolver.py` for `EngineChoice.CLOUD`.
+- [ ] 8.3a REFACTOR **(inherited from 7.7)**: with a second factory finally present, extract whatever
+      construction/secret-read shape the two branches actually share — and extract nothing if they share
+      nothing. `local_transcriber` takes a model size and a device; the cloud factory takes a key and an
+      endpoint, so a common helper is a hypothesis to test here, not a conclusion. Suite green.
 
 ## Slice 8a-iii: Real Byte-Cap Validation (~300 lines)
 
