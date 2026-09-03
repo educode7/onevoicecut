@@ -77,28 +77,63 @@ def local_transcriber(
     return build
 
 
+def cloud_transcriber(api_key: str, *, model: str | None = None) -> TranscriberFactory:
+    """A factory that imports the adapter when called, like its local sibling.
+
+    The reason differs, and saying so matters because the local one documents
+    laziness as "not style". `httpx` is a core dependency, so there is no weight
+    to defer here. What is deferred is the same thing: a composition root names
+    the adapters this build has, it does not carry them — so replacing this
+    provider with one that ships a heavy SDK cannot change what importing this
+    module costs.
+
+    The key is *not* validated here. Registration must stay cheap, and judging
+    it belongs to the adapter's constructor, which `resolve()` calls — which is
+    what puts a bad key before the job rather than on the first cloud call.
+    """
+
+    def build() -> TranscriptionPort:
+        from onevoicecut.adapters.asr.cloud.openai_whisper_adapter import (
+            DEFAULT_MODEL,
+            OpenAiWhisperTranscriber,
+        )
+
+        return OpenAiWhisperTranscriber(api_key, model=model or DEFAULT_MODEL)
+
+    return build
+
+
 def production_factories(
-    *, local_model_size: str | None, local_device: str = "auto"
+    *,
+    local_model_size: str | None,
+    local_device: str = "auto",
+    cloud_api_key: str | None = None,
 ) -> dict[EngineChoice, TranscriberFactory]:
-    """What this build can actually run. Cloud joins it in slice 8a.
+    """What this build can actually run.
 
-    `local_model_size` has no default, mirroring the adapter's own refusal to
-    invent one: it decides both transcript quality and hours of runtime, and it
-    is persisted on every chunk result as provenance. A default would make that
-    choice invisible at the one place it is made.
+    One rule, applied per engine: **a missing required value registers no
+    engine, rather than a broken one.** An unset model size does not become
+    `tiny`; an unset API key does not become an adapter that discovers the
+    problem on its first request. Both absences are visible at resolution, by
+    name, before a three-hour job starts.
 
-    `None` therefore registers *nothing* rather than falling back to a size
-    nobody picked. An install that has not chosen cannot run the local engine,
-    and the resolver's refusal names it — which is the same no-substitution rule
-    applied one level out: a build that quietly ran `tiny` because nobody said
-    otherwise would hand back a transcript whose quality nobody chose.
+    `local_model_size` has no default because it decides both transcript quality
+    and hours of runtime, and it is persisted on every chunk result as
+    provenance — a default would make that choice invisible at the one place it
+    is made. `cloud_api_key` may default to `None` because its absence is
+    unambiguous: there is no quality dimension a forgotten key silently picks.
 
     An engine absent from this map is not silently downgraded to one that is
     present — `resolve` raises. A job that asked for the local engine because
-    its material is private must never quietly reach a third party instead.
+    its material is private must never quietly reach a third party instead, and
+    now that both engines can be configured on one machine that refusal is doing
+    real work rather than describing a hypothetical.
     """
-    if local_model_size is None:
-        return {}
-    return {
-        EngineChoice.LOCAL: local_transcriber(local_model_size, device=local_device)
-    }
+    factories: dict[EngineChoice, TranscriberFactory] = {}
+    if local_model_size is not None:
+        factories[EngineChoice.LOCAL] = local_transcriber(
+            local_model_size, device=local_device
+        )
+    if cloud_api_key is not None:
+        factories[EngineChoice.CLOUD] = cloud_transcriber(cloud_api_key)
+    return factories

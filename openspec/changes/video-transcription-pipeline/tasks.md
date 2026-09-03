@@ -1288,11 +1288,66 @@ pool outlives the job that opened it — a real leak, but wiring the lifetime be
 Closes: `speech-transcription` Contract Parity and Declared Divergence (cloud half, registration). Depends on
 8a-i.
 
-- [ ] 8.3 GREEN: register in `engine_resolver.py` for `EngineChoice.CLOUD`.
-- [ ] 8.3a REFACTOR **(inherited from 7.7)**: with a second factory finally present, extract whatever
+- [x] 8.3 GREEN: register in `engine_resolver.py` for `EngineChoice.CLOUD`.
+- [x] 8.3a REFACTOR **(inherited from 7.7)**: with a second factory finally present, extract whatever
       construction/secret-read shape the two branches actually share — and extract nothing if they share
       nothing. `local_transcriber` takes a model size and a device; the cloud factory takes a key and an
       endpoint, so a common helper is a hypothesis to test here, not a conclusion. Suite green.
+
+### 8.3a: the hypothesis was wrong, and something smaller was right
+
+7.7 imagined "adapter-construction/secret-read logic shared with the cloud adapter". With both factories
+finally visible, **that helper still does not exist**. The two construct from disjoint inputs —
+`local_transcriber` takes a model size and a device and defers a heavy optional import;
+`cloud_transcriber` takes a key and a model name and defers nothing heavy at all — and neither reads a
+secret, because the read is a composition-root act that happens in `worker.py`. A helper over those two
+would have been parameter plumbing wearing a function's name.
+
+What *is* shared is a **rule**, not code: a missing required value registers no engine rather than a broken
+one. It is now stated once in `production_factories`' docstring and applied per engine in three lines. Naming
+a rule is not the same as extracting a function, and this is the third refactor task in this change to end
+that way (4.20, 7.7, now 8.3a).
+
+The extraction that did survive is one 7.7 never mentioned: **`_configured(name)` in `worker.py`** — read an
+environment variable, treat blank as absent. Three call sites, discovered rather than invented, and it
+carries a reason that only became visible in 8a-i: stripping is not tidiness. A key read out of a file
+carries a newline, and a newline in an HTTP header value is header injection that the client rejects
+outright.
+
+### Three things this wiring changed that 8.3 did not ask for
+
+- **The unconfigured-build refusal now names both variables.** It predates the cloud engine and told every
+  operator to set a faster-whisper model size — including one holding an API key with no intention of ever
+  running a local model, who was sent to fix the wrong thing with complete confidence. A message whose whole
+  job is carrying its own remedy has to carry the right one.
+- **`run_job` resolves the engine before it builds the extractor**, which is what its docstring already
+  claimed ("the engine is resolved *before* any work starts"). Keyword arguments evaluate left to right, so
+  the extractor was in fact being built first, and an extraction failure could preempt the engine's own
+  refusal — the refusal that costs a model load, a device proof or a key check to obtain.
+- **`run_job` releases the adapter in a `finally`.** 8a-i flagged the unclosed connection pool as a leak;
+  that was overstated. One worker process builds one adapter and exits, so the pool dies with the process
+  either way. What it actually is: the difference between releasing a socket deliberately and leaving it to
+  interpreter shutdown, and the failure path is where it earns its keep. `TranscriptionPort` still declares
+  no `close` — the local engine holds nothing releasable and would implement one empty — so a
+  `runtime_checkable` protocol finds it on adapters that have one.
+
+### The variable keeps the task list's name, against the project's own convention
+
+`CLOUD_ASR_API_KEY` has no `ONEVOICECUT_` prefix, and every other variable in this system does
+(`ONEVOICECUT_DATA_DIR`, `ONEVOICECUT_LOCAL_MODEL_SIZE`, `ONEVOICECUT_LOCAL_DEVICE`,
+`ONEVOICECUT_OPERATOR_TOKENS`, `ONEVOICECUT_CHUNK_TIMEOUT_SECONDS`). It is kept because 8.2 named it and the
+adapter ships it in its own refusal, so the two have to agree — but an unprefixed secret name on a shared
+machine is likelier to collide with something else's, and renaming it is a one-line change in two files if
+that is ever preferred.
+
+### Measured cost
+
+**449 lines against the ~150 estimate (3.0x)** — `src` 128, tests 321. Well inside the 800 budget, so one
+unit. The overrun is scope, not sprawl: the estimate covered task 8.3 alone, and this unit also closed 8.3a,
+the refusal message, the resolution ordering and the release path. Test share 72%.
+
+Cloud-only and local-only builds are both now first-class: `configured_resolver` returns a resolver when
+*either* engine is configured, and only a build with neither can run nothing.
 
 ## Slice 8a-iii: Real Byte-Cap Validation (~300 lines)
 
