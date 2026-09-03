@@ -12,7 +12,9 @@ return as chunk-local.
 """
 
 import re
+from collections.abc import Mapping
 from dataclasses import replace
+from typing import Protocol
 
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, PlannedChunk
 from onevoicecut.domain.transcript import TranscriptSegment
@@ -149,8 +151,49 @@ def _require_complete(plan: ChunkPlan, results: tuple[ChunkResult, ...]) -> None
         raise ValueError(f"cannot stitch: result for unplanned chunk(s) {unplanned}")
 
 
+class SpeakerResolver(Protocol):
+    """Decides which per-chunk speaker labels are the same person.
+
+    Diarization runs per chunk and has to — a three-hour sermon is not held in
+    memory at once — so its labels are namespaced (`c00/S01`) and `S01` in one
+    chunk has no relationship to `S01` in the next. Across 87 chunks the same
+    preacher collects 87 identities, and a transcript labelled that way looks
+    precise while saying nothing.
+
+    Nobody knows yet what should decide it. Voice embeddings are the obvious
+    answer, they are not free, and this project has not measured whether the
+    accuracy is worth the cost on this material. What is knowable now is *where*
+    the answer goes: the stitcher is the first and only place that holds every
+    chunk's labels at once.
+
+    It returns a **mapping between labels**, never segments. It may rename a
+    speaker; it may not move a boundary, drop a phrase or reorder anything.
+    Overlap reconciliation took a slice of its own to get right, and a seam that
+    let a future speaker-identity experiment reach into it would put that at risk
+    to answer an unrelated question. Labels it omits pass through unchanged, so a
+    resolver confident about the preacher and unsure about a guest can say so
+    instead of guessing to stay well-formed.
+
+    Defined here rather than in `ports/` deliberately. The five ports are
+    adapters this system already knows it needs; this is a seam whose
+    implementation nobody has designed, and promoting it before one exists would
+    be committing to a boundary shape on no evidence.
+    """
+
+    def __call__(self, labels: tuple[str, ...]) -> Mapping[str, str]: ...
+
+
+def _keep_every_label(labels: tuple[str, ...]) -> Mapping[str, str]:
+    """Today's behaviour, expressed as a default rather than as an absence —
+    which is what makes the seam provably free until someone fills it."""
+    return {}
+
+
 def stitch_transcript(
-    plan: ChunkPlan, results: tuple[ChunkResult, ...]
+    plan: ChunkPlan,
+    results: tuple[ChunkResult, ...],
+    *,
+    resolve_speakers: SpeakerResolver = _keep_every_label,
 ) -> tuple[TranscriptSegment, ...]:
     _require_complete(plan, results)
 
@@ -185,4 +228,30 @@ def stitch_transcript(
         accumulator = _clip_before(accumulator, cut) + _clip_after(segments, cut)
         previous = chunk
 
-    return tuple(accumulator)
+    return _resolve_speakers(tuple(accumulator), resolve_speakers)
+
+
+def _resolve_speakers(
+    segments: tuple[TranscriptSegment, ...], resolve: SpeakerResolver
+) -> tuple[TranscriptSegment, ...]:
+    """Apply the resolver's renaming, after reconciliation and nothing else.
+
+    Asked once, with every label the finished transcript carries — not per chunk,
+    which could not answer a cross-chunk question, and not per segment, because a
+    resolver paying for voice embeddings should pay once.
+
+    Not asked at all when nothing is labelled. Every single-speaker job produces
+    `speaker=None` throughout, which is most jobs, and on the implementation
+    everyone expects the cost of being asked is a model load.
+    """
+    labels = tuple(dict.fromkeys(s.speaker for s in segments if s.speaker is not None))
+    if not labels:
+        return segments
+
+    mapping = resolve(labels)
+    return tuple(
+        segment
+        if segment.speaker is None or segment.speaker not in mapping
+        else replace(segment, speaker=mapping[segment.speaker])
+        for segment in segments
+    )

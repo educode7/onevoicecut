@@ -1721,6 +1721,26 @@ rejection path itself was already proven in slice 6. Depends on 9a-i.
       label per segment, namespaced `c{chunk_index:02d}/S{speaker:02d}`.
 - [ ] 9.4 GREEN: implement the diarization call + namespaced label assignment.
 
+### Blocked, and not on anything that can be written
+
+`pyannote.audio`'s models are gated on Hugging Face: the weights do not download until a **human accepts the
+terms on their own account**. That is not a dependency an implementer can install past — no token exists to
+configure until someone has clicked through, and no amount of code substitutes for it.
+
+Writing the pipeline blind was considered and rejected. 8a-iv already ships assertions that have never
+executed, which is defensible for a handful of declarations checked against a documented API; a diarization
+integration is a different proposition — several hundred lines against a library whose call shape, return type
+and failure modes could not be run once. It would look finished and be unverified in every detail that
+matters, which is the failure mode this project spends its docstrings warning about.
+
+**9b-ii runs ahead of it instead**, which is legitimate: the seam is a use-case change with no dependency on
+the local adapter at all. Slice 9a-i already flipped the declaration to `REQUIRES_SETUP`, so the honest
+refusal an operator meets today is in place.
+
+**To unblock**: accept the `pyannote/speaker-diarization-3.1` terms on a Hugging Face account, install
+`pyannote.audio`, set `HUGGING_FACE_TOKEN`, then pin `requirements-diarization.txt` from that real install the
+way `requirements-local-asr.txt` was pinned.
+
 ---
 
 ## Slice 9b-i: Cloud Diarization Declared Divergence (~350 lines)
@@ -1728,19 +1748,77 @@ rejection path itself was already proven in slice 6. Depends on 9a-i.
 Closes: `speech-transcription` Contract Parity and Declared Divergence (diarization scenario, cloud half).
 Independently revertible from the local adapter's diarization support (slice 9a).
 
-- [ ] 9.5 RED: cloud diarization test (`paid`-marked) — asserts the declared divergence per provider
+- [x] 9.5 RED: cloud diarization test (`paid`-marked) — asserts the declared divergence per provider
       (e.g. flips to `AVAILABLE`, or a Whisper-API-based adapter stays `UNSUPPORTED` and still refuses).
-- [ ] 9.6 GREEN: implement or explicitly document the divergence for the chosen cloud provider.
+- [x] 9.6 GREEN: implement or explicitly document the divergence for the chosen cloud provider.
+
+### Already closed by 8a-i, for the third time in this change
+
+The shared contract body asserts each adapter against **its own declaration** —
+`test_it_honours_its_own_diarization_declaration` requires `DiarizationUnsupported` from anything not
+declaring `AVAILABLE`. The `paid`-marked cloud contract module runs that body, so 9.5 has been executing since
+8a-i and 9.6 was implemented in the same commit.
+
+Same shape as 8.5b and 7.7: the plan anticipated a seam the contract's design forbids. A cloud adapter cannot
+be built at all without answering the diarization axis, because the contract tests the relationship rather
+than the value.
+
+**The divergence, stated once for the record**: OpenAI's transcription API returns no speaker labels and
+exposes no way to request them, so the cloud adapter declares `UNSUPPORTED` — *never*, not "not yet". The
+local adapter now declares `REQUIRES_SETUP` (9a-i), which is the point of having three values rather than a
+boolean: the two engines are unavailable for genuinely different reasons, and only one is fixable by
+installing something.
 
 ## Slice 9b-ii: `SpeakerResolver` Seam (~300 lines)
 
 Closes: cross-chunk speaker identity (discovered-risk seam, see Open-Question Tracking). Introduces the
 `SpeakerResolver` seam the design flagged as a discovered risk.
 
-- [ ] 9.7 RED: `SpeakerResolver` seam test — stitcher accepts a no-op default resolver passing namespaced
+- [x] 9.7 RED: `SpeakerResolver` seam test — stitcher accepts a no-op default resolver passing namespaced
       labels through unchanged; a stub resolver substitutes without touching the stitching algorithm.
-- [ ] 9.8 GREEN: `usecases/stitch_transcript.py` — inject `SpeakerResolver` protocol, default no-op impl.
+- [x] 9.8 GREEN: `usecases/stitch_transcript.py` — inject `SpeakerResolver` protocol, default no-op impl.
       **Answers the new cross-chunk speaker identity question later**.
+
+### The problem the seam holds open
+
+Diarization runs per chunk and has to — a three-hour sermon is not held in memory at once — so its labels are
+namespaced, and `S01` in chunk 0 has no relationship to `S01` in chunk 1 beyond both being the second voice
+their own chunk happened to notice. Across 87 chunks the same preacher collects 87 identities. A transcript
+labelled that way **looks precise while saying nothing**, which is this project's recurring worst case rather
+than a new one.
+
+Nobody knows yet what should decide it. Voice embeddings are the obvious answer, they are not free, and no
+measurement exists of whether the accuracy is worth the cost on this material. What *is* knowable now is where
+the answer goes: the stitcher is the first and only place holding every chunk's labels at once.
+
+### The shape is the decision
+
+A resolver returns a **mapping between labels**, never segments. It may rename a speaker; it may not move a
+boundary, drop a phrase or reorder anything. Overlap reconciliation took a slice of its own to get right, and
+a seam that let a future speaker-identity experiment reach into it would put that at risk to answer an
+unrelated question — two tests assert times and text are identical with and without a substituting resolver,
+one of them over a genuinely contested window.
+
+Three smaller decisions, each with a test:
+
+- **Asked once, with every label the finished transcript carries.** Not per chunk — that could not answer a
+  cross-chunk question by construction — and not per segment, because a resolver paying for voice embeddings
+  should pay once.
+- **Not asked at all when nothing is labelled.** Every single-speaker job produces `speaker=None` throughout,
+  which is most jobs, and on the implementation everyone expects the cost of being asked is a model load.
+- **Labels it omits pass through unchanged.** A partial answer is legitimate: a resolver confident about the
+  preacher and unsure about a guest can say so instead of guessing to stay well-formed. An empty mapping is
+  therefore identical to no resolver, so one that declines to decide degrades to today's behaviour.
+
+`SpeakerResolver` lives in the use case rather than in `ports/`. The five ports are adapters this system
+already knows it needs; this is a seam whose implementation nobody has designed, and promoting it to a sixth
+port before one exists would commit to a boundary shape on no evidence.
+
+### Measured cost
+
+**345 lines against the ~300 estimate (1.15x)** — `src` 71, tests 274. Test share 79%. The default resolver
+renames nothing, so every pre-existing stitcher test passes untouched: the seam is provably free until someone
+fills it.
 
 ## Slice 9b-iii: Admission Coverage + Capability-Probing Refactor (~250 lines)
 
