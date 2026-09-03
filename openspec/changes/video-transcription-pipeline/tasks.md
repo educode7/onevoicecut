@@ -1208,11 +1208,80 @@ Closes: `speech-transcription` TranscriptionPort Contract (cloud, core adapter).
 `paid`-marked, excluded from the default run. First real HTTP-client ASR adapter — calibrated as a
 first-of-its-kind adapter unit, no slice 1 comparable.
 
-- [ ] 8.1 RED: `paid`-marked contract test — real cloud adapter satisfies the shared single-speaker
+- [x] 8.1 RED: `paid`-marked contract test — real cloud adapter satisfies the shared single-speaker
       contract body.
-- [ ] 8.2 GREEN: `adapters/asr/cloud/*_adapter.py` implementing `TranscriptionPort` with an HTTP client +
+- [x] 8.2 GREEN: `adapters/asr/cloud/*_adapter.py` implementing `TranscriptionPort` with an HTTP client +
       in-call timeout; `capabilities()` returns real `max_chunk_bytes=25_000_000` (still
       `DiarizationSupport.UNSUPPORTED`), reads `CLOUD_ASR_API_KEY` at construction.
+
+### The provider the task list had already chosen without naming it
+
+The spec is deliberately provider-neutral, so the choice looked open. It was not: **8.2's own text fixes it**.
+`max_chunk_bytes=25_000_000` is OpenAI's documented per-request cap and nobody else's — Deepgram and
+AssemblyAI accept payloads three orders of magnitude larger — and "still `DiarizationSupport.UNSUPPORTED`"
+matches the proposal's own row, *"OpenAI's Whisper API does not diarize at all"*. Both other candidates
+diarize as a paid add-on, so an adapter built on either would have had to declare `AVAILABLE` and satisfy
+slice 9's speaker path four slices early.
+
+The model is `whisper-1` rather than a newer transcription model, and that is not a cost decision. It is the
+one that still supports `response_format=verbose_json`, which is the only way the API returns **per-segment
+timestamps**. The port's central promise is chunk-local timestamps; a model answering with a bare string
+cannot satisfy it however good the text is.
+
+### Deviations from 8.1/8.2, and why
+
+- **The key is a constructor argument, not an environment read inside the adapter.** 8.2 says the adapter
+  "reads `CLOUD_ASR_API_KEY` at construction". It is *checked* at construction — the refusal is
+  `EngineUnavailable` naming the variable, raised before the job rather than on the first request — but the
+  adapter never touches `os.environ`. It knows only the variable's *name*, for its own message. That is the
+  precedent `LOCAL_DEVICE_ENV` already set in the local adapter, and the reason it exists is that an adapter
+  reading the environment depends on the composition root that wires it. **The read itself lands in 8a-ii**,
+  with the resolver registration, which is where the local half's read already lives.
+- **Unit tests were added beyond the task list, and they are the point.** 8.1's contract test is `paid`, so it
+  is excluded from the default run — leaving the adapter with *zero* executable coverage in the suite that
+  actually gates every commit. `httpx.MockTransport` closes that: a real `httpx.Client`, real request
+  construction, real response parsing, no socket and no bill. 31 tests in the default run, 7 `paid`.
+- **Part of 8a-iv landed here, unavoidably.** Task 8.5a owns the cloud classification declaration, but the
+  shared contract body asserts the *relationship* between the declaration and the behaviour — an adapter
+  declaring `UNSUPPORTED` must be shown to return `UNCERTAIN` segments. 8.1 cannot pass without both halves,
+  so the adapter declares `ClassificationSupport.UNSUPPORTED` and emits `UNCERTAIN` unconditionally now.
+  **8a-iv keeps its real work**: confirming against the live API that the declaration still matches observed
+  behaviour, which is exactly the thing a mock cannot answer.
+- **The byte cap refuses before the upload, which reads like 8a-iii.** It is not: 8a-iii is about the
+  *planner* sizing chunks against the real value. This is the adapter refusing a chunk that arrived oversized
+  anyway. Learning the cap from a 413 costs the whole 25 MB transfer, per chunk, on a job with thousands of
+  them — so the guard is worth its four lines here rather than waiting.
+
+### Two things the code found that the plan did not
+
+**Chunks are FLAC, not WAV.** `adapters/ffmpeg/argv.py` normalizes every chunk to 16 kHz mono FLAC and
+`chunk_path` writes `{index:04d}.flac`. The API infers the codec from the submitted filename, and FLAC is on
+its supported list — so this works, but only as long as the two stay in step. The content type is therefore
+derived from the path suffix rather than hard-coded, and the map is commented as coupled to `argv.py`.
+
+**This is the first adapter that can honour `timeout_s`.** The local one documents that it cannot: CTranslate2's
+decode loop is uninterruptible from Python, so the supervisory watchdog is the only enforcement that exists
+there. An HTTP call has a budget the client enforces itself, so `request.timeout_s` becomes the httpx read
+budget and a breach raises `ChunkTimeout` — the subclass that exists specifically to *not* be retried. The
+watchdog stops being the sole backstop and becomes the second one. A job with no budget still gets a
+`FALLBACK_TIMEOUT_S` ceiling, because `None` would otherwise mean a hung socket holds a worker open until the
+watchdog kills the process minutes later having produced nothing.
+
+### Measured cost, and the split
+
+**909 lines against the ~450 estimate (2.0x)** — adapter 300, unit tests 519, `paid` contract 90. Test share
+67%, in line with the project's measured ratio.
+
+Delivered as **two units** rather than one, because 909 is over the 800 budget: the adapter with its
+default-run proof (819), then the `paid` contract test (90). Both are green alone. The seam was chosen for
+that reason and not by line count — every *other* candidate split leaves a half that ships a stated invariant
+violated. Carving failure translation out, for instance, would have made the first unit leak `httpx`
+exceptions upward for one commit, and "an adapter never leaks a provider exception" is a convention this
+repo enforces rather than suggests.
+
+`close()` exists on the adapter and nothing calls it yet. One adapter is built per job, so its connection
+pool outlives the job that opened it — a real leak, but wiring the lifetime belongs to the resolver in
+**8a-ii**, not here.
 
 ## Slice 8a-ii: Resolver Registration (~150 lines)
 
