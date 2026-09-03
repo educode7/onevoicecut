@@ -57,18 +57,36 @@ def without_music(
     return tuple(s for s in segments if s.kind is not SegmentKind.MUSIC)
 
 
+def is_speech(segment: TranscriptSegment) -> bool:
+    """The single definition of "this is the message".
+
+    Extracted so map-reduce windowing can apply it to *indexed* segments —
+    filtering the transcript there must not renumber it, because segment ids are
+    resolved against the real `Transcript` — without restating the rule. Two
+    definitions of what counts as speech is how the LLM window and the export
+    quietly stop agreeing.
+    """
+    return segment.kind is SegmentKind.SPEECH
+
+
 def speech_segments(
     segments: tuple[TranscriptSegment, ...],
 ) -> tuple[TranscriptSegment, ...]:
     """Strictly confirmed speech: no music, and no unverified audio either.
 
     The selector for consumers that cannot safely absorb unverified text — an
-    LLM will not honour an inline marker the way a human reader does. Whether
-    map-reduce windowing (slice 10a) uses this or the laxer export policy is a
-    decision that belongs to that slice, taken against the empty-summary risk
-    described in `render_message_text`.
+    LLM will not honour an inline marker the way a human reader does.
+
+    **Decided in slice 10a-ii: map-reduce windowing uses this, not the laxer
+    export policy.** The empty-summary risk `render_message_text` describes is
+    real and is no longer hypothetical — the cloud adapter declares
+    `non_speech_classification=UNSUPPORTED` and marks every segment `UNCERTAIN`,
+    so its transcripts filter to nothing here. That is handled by refusing such
+    a job at admission, naming the declaration, rather than by relaxing what the
+    model is allowed to read: a summary built from sung lyrics is worse than no
+    summary, because it is fluent and confident and about the wrong thing.
     """
-    return tuple(s for s in without_music(segments) if s.kind is SegmentKind.SPEECH)
+    return tuple(s for s in without_music(segments) if is_speech(s))
 
 
 def render_message_text(transcript: Transcript) -> str:

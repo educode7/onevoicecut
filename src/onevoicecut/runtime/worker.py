@@ -21,7 +21,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from onevoicecut.adapters.asr.local.diarization import HF_TOKEN_ENV
+from onevoicecut.adapters.asr.local.declarations import HF_TOKEN_ENV
 from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,

@@ -31,7 +31,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.asr.local.diarization import HF_TOKEN_ENV
+from onevoicecut.adapters.asr.local.declarations import HF_TOKEN_ENV
 from onevoicecut.domain.jobs import EngineChoice
 from onevoicecut.ports.capabilities import DiarizationSupport
 from onevoicecut.runtime.app import build_dependencies
@@ -67,7 +67,7 @@ class TestTheCompositionRootSuppliesTheGuard:
         assert answer is not None
 
         for engine in EngineChoice:
-            assert answer(engine) in set(DiarizationSupport)
+            assert answer(engine).diarization in set(DiarizationSupport)
 
     def test_answering_constructs_no_engine(self) -> None:
         """The reason this could not be wired before. Assembling a whole
@@ -81,7 +81,7 @@ class TestTheCompositionRootSuppliesTheGuard:
         answer = build_dependencies(_settings()).capabilities
         assert answer is not None
 
-        assert answer(EngineChoice.LOCAL) is DiarizationSupport.REQUIRES_SETUP
+        assert answer(EngineChoice.LOCAL).diarization is DiarizationSupport.REQUIRES_SETUP
 
 
 class TestWhatEachEngineDeclares:
@@ -116,10 +116,10 @@ class TestWhatEachEngineDeclares:
         admission accepting a job the adapter then refuses three hours later,
         which is the exact defect this unit exists to close.
         """
-        from onevoicecut.adapters.asr.local import diarization
+        from onevoicecut.adapters.asr.local import declarations
 
-        expected = diarization.diarization_support(
-            installed=diarization.is_installed(), token=None
+        expected = declarations.diarization_support(
+            installed=declarations.is_installed(), token=None
         )
 
         assert declared_diarization(EngineChoice.LOCAL, hf_token=None) is expected

@@ -38,18 +38,15 @@ from faster_whisper import WhisperModel, decode_audio
 from faster_whisper.transcribe import Segment
 from faster_whisper.vad import VadOptions, get_speech_timestamps
 
-from onevoicecut.adapters.asr.local.diarization import (
+from onevoicecut.adapters.asr.local.declarations import (
+    CLASSIFICATION,
     diarization_support,
     is_installed,
 )
 from onevoicecut.domain.chunking import AudioChunk
 from onevoicecut.domain.errors import DomainError, EngineUnavailable, TranscriptionFailed
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
-from onevoicecut.ports.capabilities import (
-    ClassificationSupport,
-    DiarizationSupport,
-    TranscriptionCapabilities,
-)
+from onevoicecut.ports.capabilities import TranscriptionCapabilities
 from onevoicecut.ports.transcription import TranscriptionRequest
 from onevoicecut.usecases.admit_job import _validate_compatibility
 
@@ -173,7 +170,7 @@ class FasterWhisperTranscriber:
             diarization=diarization_support(
                 installed=is_installed(), token=self._hf_token
             ),
-            non_speech_classification=ClassificationSupport.AVAILABLE,
+            non_speech_classification=CLASSIFICATION,
             # Both None: a local engine imposes no per-request cap the way the
             # cloud API's 25 MB limit does. It is bounded only by the machine,
             # and the planner already bounds stride by target_chunk_seconds.

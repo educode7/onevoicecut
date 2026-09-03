@@ -1944,12 +1944,71 @@ the marker."* It is no longer a risk. The cloud adapter shipped, so one branch o
 
 Closes: `script-generation` Map-Reduce Summarization (speech-only scenario). Depends on 10a-i.
 
-- [ ] 10.4a RED: speech-only-windowing test — a transcript mixing `SPEECH` and `MUSIC` segments produces MAP
+- [x] 10.4a RED: speech-only-windowing test — a transcript mixing `SPEECH` and `MUSIC` segments produces MAP
       windows containing no `MUSIC` (or `UNCERTAIN`) content, so lyrics never reach the model as message text.
-- [ ] 10.4b GREEN: filter to `kind == SPEECH` **before** windowing, reusing the slice-1b helper so "speech only"
+- [x] 10.4b GREEN: filter to `kind == SPEECH` **before** windowing, reusing the slice-1b helper so "speech only"
       keeps one definition.
-- [ ] 10.4c RED: music-heavy-transcript test — when most of a transcript is non-speech, the summary derives
+- [x] 10.4c RED: music-heavy-transcript test — when most of a transcript is non-speech, the summary derives
       only from the remaining speech and the system does not substitute non-speech content to fill it.
+- [x] 10.4d **NEW — the decision 10.4b forced**: refuse a job at admission when its engine declares
+      `non_speech_classification=UNSUPPORTED`, rather than delivering an empty summary.
+
+### The open question is closed, and the answer needed a second guard
+
+`speech_segments`' docstring had parked it since slice 1b and CLAUDE.md recorded it as undecided: does MAP
+windowing exclude `UNCERTAIN`, or mark it the way the `.txt` export does? **Excluded.** A model will not honour
+an inline marker the way a reader does — hand it a marked chorus and it may summarise the worship set as the
+preacher's argument, fluently and confidently, with nothing in the artifact saying so.
+
+That answer had a consequence the cloud adapter turned from risk into certainty. It declares
+`non_speech_classification=UNSUPPORTED` and marks every segment `UNCERTAIN` — correctly, because it has no
+voice-activity control and `SPEECH` is a claim it has not earned. Measured rather than argued: a 200-segment
+cloud transcript through `speech_segments` yields **0 segments**, and `map_windows` yields **0 windows**.
+
+So excluding alone would have made *every cloud job* finish COMPLETED with a blank summary and nothing saying
+why — which looks like success, and is the silent degradation this project refuses everywhere else. The
+refusal moves to admission instead: `ClassificationUnsupported`, before an id is minted, naming the
+declaration. Same shape as the diarization guard beside it, on the second and independent axis, which is
+exactly what having two axes was for.
+
+**Order between the two guards is a choice.** Speaker mode is something the operator asked for and can
+withdraw; classification is a property of the engine they picked. A job failing both is told about the
+retractable one first, because that is the cheaper fix to try.
+
+**Recorded tension, deliberately not resolved here:** the refusal blocks the whole job, so a cloud transcript
+— which is still useful, since `render_message_text` keeps `UNCERTAIN` marked — becomes unobtainable too. The
+alternative is admitting the job and refusing only the script artifacts. That is a product decision about what
+a job *is*, and the proposal's stated stopping point is the script artifact, so refusing the job matches it.
+Reversible in one place if that reading changes.
+
+### The filter never renumbers
+
+Ids are resolved against the real `Transcript`, music included. A window numbering its own survivors 0,1,2
+would point every citation at the wrong moment of the sermon — the exact failure ids exist to prevent — so
+`_windows_over` works over `(index, segment)` pairs and `speech_windows` filters the pairs rather than the
+segments. A test asserts a transcript of `[MUSIC, MUSIC, SPEECH]` yields the single id `2`, and another
+asserts `speech_windows` and `map_windows` agree exactly on a transcript with nothing to filter — the filter
+is the only difference between them, not a second windowing algorithm.
+
+"Speech only" keeps one definition: `is_speech` was extracted in `domain/transcript.py` and both
+`speech_segments` and the windowing use it.
+
+### `DeclaredSupport`, and why the guard's type grew back
+
+9b-iii narrowed the admission callable from whole capabilities to `DiarizationSupport`, because that was the
+only field read and the wider type could not be answered without constructing an engine. A second field is
+read now, so it returns `DeclaredSupport` — **exactly the two axes both adapters can state from constants and
+a `find_spec`**. The principle is unchanged: depend on what is read, and only on what can be answered cheaply.
+The engine id and the byte caps still need a constructed adapter, and still are not asked for.
+
+`adapters/asr/local/diarization.py` became `declarations.py` in the same move: it now holds both axes, and the
+name should say what it holds. Seven import sites, mechanical.
+
+### Measured cost
+
+**584 lines against the ~300 estimate (1.9x)** — the estimate covered 10.4a–c, and this unit also carried
+10.4d, the module rename, and a second round of churn through slice 6's three admission modules. `src` 253
+across 19 files, tests 331 new.
 
 ## Slice 10a-iii: Segment-ID Validation + REDUCE Fold (~400 lines)
 

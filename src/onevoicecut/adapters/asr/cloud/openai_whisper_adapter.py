@@ -84,6 +84,12 @@ CLOUD_API_KEY_ENV = "CLOUD_ASR_API_KEY"
 # speaker-mode job before extraction rather than three hours into it.
 DIARIZATION = DiarizationSupport.UNSUPPORTED
 
+# The second axis, and the one with teeth: an engine that cannot tell the sermon
+# from the song filters to nothing when MAP windows are built from confirmed
+# speech. Stated here so admission can refuse such a job before three hours of
+# transcription rather than deliver a blank summary afterwards.
+CLASSIFICATION = ClassificationSupport.UNSUPPORTED
+
 # What a chunk gets when the job set no per-chunk budget. `None` would mean a
 # hung socket holds a worker open until the watchdog kills the process minutes
 # later, having produced nothing — a ceiling nobody chose still beats no ceiling.
@@ -148,7 +154,7 @@ class OpenAiWhisperTranscriber:
             # declaration is what makes admission reject a speaker-mode job up
             # front rather than deliver a plausible unlabelled transcript.
             diarization=DIARIZATION,
-            non_speech_classification=ClassificationSupport.UNSUPPORTED,
+            non_speech_classification=CLASSIFICATION,
             max_chunk_bytes=MAX_REQUEST_BYTES,
             # No documented duration cap — the byte cap binds first, and the
             # planner already bounds stride by target_chunk_seconds.

@@ -20,7 +20,7 @@ from typing import Protocol, runtime_checkable
 
 from fastapi import FastAPI
 
-from onevoicecut.adapters.asr.local.diarization import HF_TOKEN_ENV
+from onevoicecut.adapters.asr.local.declarations import HF_TOKEN_ENV
 from onevoicecut.adapters.ffmpeg.extractor import require_binaries
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
@@ -30,7 +30,7 @@ from onevoicecut.adapters.web.auth import build_authenticator, parse_operator_to
 from onevoicecut.domain.ids import JobId
 from onevoicecut.domain.jobs import WORKER_BOUND_STATES, JobRecord, JobState
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
-from onevoicecut.runtime.engine_resolver import declared_diarization
+from onevoicecut.runtime.engine_resolver import declared_support
 from onevoicecut.runtime.settings import Settings
 
 # Re-exported, not merely used: liveness moved to `supervisor.py` when the
@@ -357,7 +357,7 @@ def build_dependencies(settings: Settings) -> WebDependencies:
         # admitted, queued, given a worker, and refused by the adapter on its
         # first chunk — after ffmpeg had extracted three hours of audio that then
         # went in the bin. Cheap here: neither engine is constructed to answer.
-        capabilities=lambda engine: declared_diarization(
+        capabilities=lambda engine: declared_support(
             engine, hf_token=os.environ.get(HF_TOKEN_ENV)
         ),
     )

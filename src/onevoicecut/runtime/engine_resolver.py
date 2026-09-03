@@ -21,7 +21,11 @@ from collections.abc import Callable, Mapping
 
 from onevoicecut.domain.errors import EngineUnavailable
 from onevoicecut.domain.jobs import EngineChoice
-from onevoicecut.ports.capabilities import DiarizationSupport
+from onevoicecut.ports.capabilities import (
+    ClassificationSupport,
+    DeclaredSupport,
+    DiarizationSupport,
+)
 from onevoicecut.ports.transcription import TranscriptionPort
 
 TranscriberFactory = Callable[[], TranscriptionPort]
@@ -174,9 +178,37 @@ def declared_diarization(
 
         return DIARIZATION
 
-    from onevoicecut.adapters.asr.local.diarization import (
+    from onevoicecut.adapters.asr.local.declarations import (
         diarization_support,
         is_installed,
     )
 
     return diarization_support(installed=is_installed(), token=hf_token)
+
+
+def declared_support(
+    engine: EngineChoice, *, hf_token: str | None = None
+) -> DeclaredSupport:
+    """Both axes an install can state without building an engine.
+
+    The admission guard reads both — diarization to refuse a speaker-mode job an
+    engine cannot satisfy, classification to refuse script artifacts an engine
+    that cannot tell the sermon from the song could only fake. Independent by
+    construction, and never inferred from one another: that is what the two axes
+    exist for.
+    """
+    return DeclaredSupport(
+        diarization=declared_diarization(engine, hf_token=hf_token),
+        non_speech_classification=_declared_classification(engine),
+    )
+
+
+def _declared_classification(engine: EngineChoice) -> ClassificationSupport:
+    if engine is EngineChoice.CLOUD:
+        from onevoicecut.adapters.asr.cloud.openai_whisper_adapter import CLASSIFICATION
+
+        return CLASSIFICATION
+
+    from onevoicecut.adapters.asr.local.declarations import CLASSIFICATION
+
+    return CLASSIFICATION

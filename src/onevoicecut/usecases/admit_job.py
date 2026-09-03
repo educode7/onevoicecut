@@ -22,7 +22,12 @@ from onevoicecut.domain.ids import (
     generate_media_id,
 )
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
-from onevoicecut.ports.capabilities import DiarizationSupport
+from onevoicecut.domain.errors import ClassificationUnsupported
+from onevoicecut.ports.capabilities import (
+    ClassificationSupport,
+    DeclaredSupport,
+    DiarizationSupport,
+)
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 
 
@@ -42,13 +47,30 @@ def _validate_compatibility(
         )
 
 
+def _validate_summarizable(classification: ClassificationSupport) -> None:
+    """Reject a job whose engine could only produce a blank summary.
+
+    MAP windows are built from confirmed `SPEECH`, so an engine declaring
+    `UNSUPPORTED` marks every segment `UNCERTAIN` and its transcripts filter to
+    nothing. Admitting that job means three hours of transcription ending
+    COMPLETED with an empty summary and nothing saying why — which looks like
+    success, and is the silent degradation the capability axes exist to stop.
+    """
+    if classification is not ClassificationSupport.AVAILABLE:
+        raise ClassificationUnsupported(
+            f"engine declares non_speech_classification={classification.value}; "
+            f"it cannot tell speech from music, so script artifacts would be "
+            f"generated from nothing. Choose an engine that classifies."
+        )
+
+
 def admit_job(
     *,
     engine: EngineChoice,
     speaker_mode: SpeakerMode,
     operator: OperatorId,
     storage: TranscriptStoragePort,
-    capabilities: Callable[[EngineChoice], DiarizationSupport] | None = None,
+    capabilities: Callable[[EngineChoice], DeclaredSupport] | None = None,
     now: Callable[[], float] = time.time,
     new_job_id: Callable[[], JobId] = generate_job_id,
     new_media_id: Callable[[], MediaId] = generate_media_id,
@@ -73,7 +95,12 @@ def admit_job(
     without constructing an engine, and the web process must not do that.
     """
     if capabilities is not None:
-        _validate_compatibility(capabilities(engine), speaker_mode)
+        declared = capabilities(engine)
+        # Speaker mode first, deliberately: it is something the operator asked
+        # for and can withdraw, while classification is a property of the engine
+        # they picked. Naming the retractable one first offers the cheaper fix.
+        _validate_compatibility(declared.diarization, speaker_mode)
+        _validate_summarizable(declared.non_speech_classification)
 
     job = JobRecord(
         job_id=new_job_id(),

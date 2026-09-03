@@ -22,6 +22,7 @@ from onevoicecut.adapters.web.schemas import (
     ProgressResponse,
 )
 from onevoicecut.domain.errors import (
+    ClassificationUnsupported,
     DiarizationUnsupported,
     JobNotFound,
     JobNotOwned,
@@ -232,7 +233,7 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
                 new_media_id=deps.new_media_id,
                 capabilities=deps.capabilities,
             )
-        except DiarizationUnsupported as error:
+        except (DiarizationUnsupported, ClassificationUnsupported) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         return AdmitJobResponse(job_id=job.job_id, state=job.state)
 

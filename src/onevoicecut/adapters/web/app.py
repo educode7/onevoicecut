@@ -27,7 +27,7 @@ from onevoicecut.domain.ids import (
 )
 from onevoicecut.domain.jobs import EngineChoice
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
-from onevoicecut.ports.capabilities import DiarizationSupport
+from onevoicecut.ports.capabilities import DeclaredSupport
 from onevoicecut.ports.media_source import MediaSourcePort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 
@@ -75,7 +75,7 @@ class WebDependencies:
     # No launcher, deliberately. Upload queues; the drain supervisor is the only
     # code that starts a worker. A launcher reachable from a route handler is one
     # refactor away from a second spawn decision point and the race it brings.
-    capabilities: Callable[[EngineChoice], DiarizationSupport] | None = None
+    capabilities: Callable[[EngineChoice], DeclaredSupport] | None = None
 
 
 def create_app(deps: WebDependencies, *, lifespan: Lifespan = None) -> FastAPI:

@@ -28,7 +28,7 @@ same for every provider.
 import math
 from dataclasses import dataclass
 
-from onevoicecut.domain.transcript import TranscriptSegment
+from onevoicecut.domain.transcript import TranscriptSegment, is_speech
 
 # From design.md. A silent change to either is a change in what the model is
 # asked to reason about, and nothing downstream would report it.
@@ -100,21 +100,71 @@ def map_windows(
             f"makes every window start where the previous one did"
         )
 
-    costs = [estimate_tokens(render_segment(i, s)) for i, s in enumerate(segments)]
+    return _windows_over(
+        tuple(enumerate(segments)),
+        window_tokens=window_tokens,
+        overlap_tokens=overlap_tokens,
+    )
+
+
+def speech_windows(
+    segments: tuple[TranscriptSegment, ...],
+    *,
+    window_tokens: int = DEFAULT_MAP_WINDOW_TOKENS,
+    overlap_tokens: int = DEFAULT_MAP_OVERLAP_TOKENS,
+) -> tuple[MapWindow, ...]:
+    """The same windowing, over confirmed speech only.
+
+    The `.txt` export keeps `UNCERTAIN` and marks it, because a reader seeing
+    `[?]` knows what they are looking at. The model gets the stricter rule, and
+    the difference is the entire reason `speech_segments` and
+    `render_message_text` are two functions: **a model will not honour an inline
+    marker the way a reader does.** Hand it a marked chorus and it may summarise
+    the worship set as the preacher's argument — fluently, confidently, and with
+    nothing in the artifact saying so. `MUSIC` goes for the plainer reason that
+    sung lyrics are not the message.
+
+    **The filter never renumbers.** Ids are resolved against the real
+    `Transcript`, music included, so windows numbering their own survivors 0,1,2
+    would point every citation at the wrong moment of the sermon — the exact
+    failure ids exist to prevent.
+
+    A transcript with no speech produces no windows at all, not one empty one. A
+    model asked to summarise nothing answers anyway, and that answer would become
+    the summary. Reaching that state is not hypothetical: every cloud transcript
+    does, which is why such a job is refused at admission.
+    """
+    return _windows_over(
+        tuple((i, s) for i, s in enumerate(segments) if is_speech(s)),
+        window_tokens=window_tokens,
+        overlap_tokens=overlap_tokens,
+    )
+
+
+def _windows_over(
+    numbered: tuple[tuple[int, TranscriptSegment], ...],
+    *,
+    window_tokens: int,
+    overlap_tokens: int,
+) -> tuple[MapWindow, ...]:
+    """Indexed rather than positional, so a filtered transcript keeps its ids."""
+    costs = [estimate_tokens(render_segment(i, s)) for i, s in numbered]
     windows: list[MapWindow] = []
     start = 0
 
-    while start < len(segments):
+    while start < len(numbered):
         end = start
         budget = 0
         # At least one segment, always. That is what guarantees progress when a
         # single segment exceeds the whole budget.
-        while end < len(segments) and (end == start or budget + costs[end] <= window_tokens):
+        while end < len(numbered) and (
+            end == start or budget + costs[end] <= window_tokens
+        ):
             budget += costs[end]
             end += 1
 
-        windows.append(_window(segments, start, end))
-        if end >= len(segments):
+        windows.append(_window(numbered, start, end))
+        if end >= len(numbered):
             break
         start = _next_start(costs, start, end, overlap_tokens)
 
@@ -122,13 +172,12 @@ def map_windows(
 
 
 def _window(
-    segments: tuple[TranscriptSegment, ...], start: int, end: int
+    numbered: tuple[tuple[int, TranscriptSegment], ...], start: int, end: int
 ) -> MapWindow:
+    chosen = numbered[start:end]
     return MapWindow(
-        segment_ids=tuple(range(start, end)),
-        text="\n".join(
-            render_segment(index, segments[index]) for index in range(start, end)
-        ),
+        segment_ids=tuple(index for index, _ in chosen),
+        text="\n".join(render_segment(index, segment) for index, segment in chosen),
     )
 
 

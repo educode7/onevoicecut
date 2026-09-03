@@ -32,7 +32,7 @@ from onevoicecut.domain.jobs import (
 )
 from onevoicecut.runtime import worker
 from onevoicecut.runtime.engine_resolver import EngineResolver, production_factories
-from onevoicecut.adapters.asr.local.diarization import HF_TOKEN_ENV
+from onevoicecut.adapters.asr.local.declarations import HF_TOKEN_ENV
 from onevoicecut.runtime.worker import (
     EXIT_UNUSABLE,
     LOCAL_MODEL_SIZE_ENV,

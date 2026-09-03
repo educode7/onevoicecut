@@ -23,6 +23,7 @@ from onevoicecut.domain.ids import (
 from onevoicecut.domain.jobs import EngineChoice, SpeakerMode
 from onevoicecut.ports.capabilities import (
     ClassificationSupport,
+    DeclaredSupport,
     DiarizationSupport,
 )
 from onevoicecut.usecases.admit_job import admit_job
@@ -48,7 +49,7 @@ def _client(
         WebDependencies(
             storage=storage,
             authenticate=fake_authenticate,
-            capabilities=lambda _engine: diarization,
+            capabilities=lambda _engine: _declares(diarization),
         )
     )
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
@@ -121,7 +122,7 @@ def test_the_guard_still_runs_before_any_id_is_minted(tmp_path: Path) -> None:
             speaker_mode=SpeakerMode.MULTI,
             operator=OPERATOR_A,
             storage=storage,
-            capabilities=lambda _e: DiarizationSupport.REQUIRES_SETUP,
+            capabilities=lambda _e: _declares(DiarizationSupport.REQUIRES_SETUP),
             new_job_id=recording_job_id,
             new_media_id=recording_media_id,
         )
@@ -129,3 +130,13 @@ def test_the_guard_still_runs_before_any_id_is_minted(tmp_path: Path) -> None:
     assert minted_job_ids == []
     assert minted_media_ids == []
     assert storage.list_jobs() == ()
+
+
+def _declares(diarization: DiarizationSupport) -> DeclaredSupport:
+    """Slice 10a-ii added the classification axis to the admission guard, so the
+    guard now reads a pair. These cases are about diarization, and declare a
+    classifying engine so the other axis never decides the outcome."""
+    return DeclaredSupport(
+        diarization=diarization,
+        non_speech_classification=ClassificationSupport.AVAILABLE,
+    )

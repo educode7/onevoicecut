@@ -22,7 +22,7 @@ before a three-hour job starts.
 
 import pytest
 
-from onevoicecut.adapters.asr.local.diarization import (
+from onevoicecut.adapters.asr.local.declarations import (
     DIARIZATION_PACKAGE,
     HF_TOKEN_ENV,
     diarization_support,

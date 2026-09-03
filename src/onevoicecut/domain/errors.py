@@ -54,6 +54,21 @@ class DiarizationUnsupported(DomainError):
     """Raised when a speaker-mode request reaches a non-diarizing adapter."""
 
 
+class ClassificationUnsupported(DomainError):
+    """Raised when script artifacts are asked of an engine that cannot classify.
+
+    The second capability axis, refused for the same reason as the first. MAP
+    windows are built from confirmed `SPEECH`, so an engine declaring
+    `non_speech_classification=UNSUPPORTED` marks every segment `UNCERTAIN` and
+    its transcripts filter to nothing — a three-hour job finishing COMPLETED
+    with a blank summary and nothing anywhere saying why.
+
+    Distinct from `DiarizationUnsupported` because the remedy is different: one
+    is a request the operator can withdraw, the other is a property of the
+    engine they chose.
+    """
+
+
 class JobNotFound(DomainError):
     """Raised when no job is stored under the requested id.
 

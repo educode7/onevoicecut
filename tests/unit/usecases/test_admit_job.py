@@ -16,6 +16,7 @@ from onevoicecut.domain.ids import JobId, make_operator_id
 from onevoicecut.domain.jobs import EngineChoice, JobState, SpeakerMode
 from onevoicecut.ports.capabilities import (
     ClassificationSupport,
+    DeclaredSupport,
     DiarizationSupport,
 )
 from onevoicecut.ports.transcription import TranscriptionRequest
@@ -78,7 +79,7 @@ class TestAdmitJobCapabilities:
                 speaker_mode=SpeakerMode.MULTI,
                 operator=OPERATOR,
                 storage=storage,
-                capabilities=lambda _e: DiarizationSupport.UNSUPPORTED,
+                capabilities=lambda _e: _declares(DiarizationSupport.UNSUPPORTED),
             )
 
         assert storage.list_jobs() == ()
@@ -95,7 +96,7 @@ class TestAdmitJobCapabilities:
                 speaker_mode=SpeakerMode.MULTI,
                 operator=OPERATOR,
                 storage=storage,
-                capabilities=lambda _e: DiarizationSupport.REQUIRES_SETUP,
+                capabilities=lambda _e: _declares(DiarizationSupport.REQUIRES_SETUP),
             )
 
         assert storage.list_jobs() == ()
@@ -109,7 +110,7 @@ class TestAdmitJobCapabilities:
             speaker_mode=SpeakerMode.MULTI,
             operator=OPERATOR,
             storage=storage,
-            capabilities=lambda _e: DiarizationSupport.AVAILABLE,
+            capabilities=lambda _e: _declares(DiarizationSupport.AVAILABLE),
         )
 
         assert job.speaker_mode is SpeakerMode.MULTI
@@ -146,7 +147,7 @@ class TestAdmitJobCapabilities:
             speaker_mode=SpeakerMode.SINGLE,
             operator=OPERATOR,
             storage=storage,
-            capabilities=lambda _e: diarization,
+            capabilities=lambda _e: _declares(diarization),
         )
 
         assert job.speaker_mode is SpeakerMode.SINGLE
@@ -205,3 +206,13 @@ class TestPortLevelDefense:
         port = NonClassifyingFakeTranscriptionPort()
         result = port.transcribe(_fake_chunk(), _single_request())
         assert len(result) > 0
+
+
+def _declares(diarization: DiarizationSupport) -> DeclaredSupport:
+    """Slice 10a-ii added the classification axis to the admission guard, so the
+    guard now reads a pair. These cases are about diarization, and declare a
+    classifying engine so the other axis never decides the outcome."""
+    return DeclaredSupport(
+        diarization=diarization,
+        non_speech_classification=ClassificationSupport.AVAILABLE,
+    )

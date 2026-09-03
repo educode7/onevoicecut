@@ -38,3 +38,21 @@ class TranscriptionCapabilities:
     non_speech_classification: ClassificationSupport
     max_chunk_bytes: int | None
     max_chunk_duration_s: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class DeclaredSupport:
+    """The capability axes an install can state **without building an engine**.
+
+    Exactly the two the admission guard reads, and exactly the two both adapters
+    can answer from constants and a `find_spec`. The rest of
+    `TranscriptionCapabilities` — the engine id, the byte caps — needs a
+    constructed adapter, and the web process must not construct one inside an
+    HTTP request.
+
+    That distinction is not cosmetic: promising the wider type is what left the
+    admission guard disconnected from the composition root for three slices.
+    """
+
+    diarization: DiarizationSupport
+    non_speech_classification: ClassificationSupport
