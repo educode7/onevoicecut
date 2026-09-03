@@ -126,10 +126,16 @@ def test_non_positive_duration_is_rejected() -> None:
 
 
 def test_byte_cap_shortens_the_stride() -> None:
-    """50 KB/s against a 25 MB cap: floor(25e6 * 0.9 / 50_000) = 450s."""
+    """50 KB/s against a 25 MB cap: floor(25e6 * 0.9 / 50_000 - 30) = 420s.
+
+    The 30 is the reserve for what gets appended after the stride is chosen —
+    the overlap tail, or the absorbed short tail, whichever is larger. It used
+    to be missing, which made the cap a promise about a chunk length no plan
+    ever produced (see slice 8a-iii).
+    """
     track = _track(3600.0, bytes_per_second=50_000)
     plan = plan_chunks(JOB_ID, track, _caps(max_chunk_bytes=25_000_000))
-    assert plan.stride_s == 450.0
+    assert plan.stride_s == 420.0
 
 
 def test_realistic_flac_bitrate_is_not_constrained_by_the_cap() -> None:
@@ -231,8 +237,9 @@ def test_merged_chunk_still_respects_the_byte_cap() -> None:
     """Absorbing the tail must not push the predecessor over the provider limit."""
     bytes_per_second = 50_000
     cap = 25_000_000
-    # 450s stride, so a 900s+tail track leaves a short tail to absorb.
-    track = _track(910.0, bytes_per_second=bytes_per_second)
+    # 420s stride, so an 840s+tail track leaves a tail under min_chunk_s (30s)
+    # for the predecessor to absorb.
+    track = _track(865.0, bytes_per_second=bytes_per_second)
     plan = plan_chunks(JOB_ID, track, _caps(max_chunk_bytes=cap))
     assert len(plan.chunks) == 2
     for chunk in plan.chunks:

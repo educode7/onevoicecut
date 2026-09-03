@@ -1355,9 +1355,89 @@ Closes: `speech-transcription` Cloud Adapter Request-Size Handling (real cap). S
 byte-cap-aware planning formula against a fake `max_chunk_bytes=25_000_000`; this unit supplies the real value
 only. Depends on 8a-i/8a-ii.
 
-- [ ] 8.4 RED: within-limit test — a plan sized against the real 25MB cap never exceeds it on submission.
-- [ ] 8.5 GREEN: `paid`-marked assertion confirming the slice-2a planner logic already holds against the
-      real capability value.
+- [x] 8.4 RED: within-limit test — a plan sized against the real 25MB cap never exceeds it on submission.
+- [x] 8.5 GREEN: ~~`paid`-marked~~ assertion confirming the slice-2a planner logic already holds against the
+      real capability value. **It did not hold.** See below.
+
+### The `paid` marking was wrong, and dropping it is the point
+
+8.5 asked for a `paid`-marked assertion, which assumed the real capability value could only be read from a
+live adapter. It cannot only be read that way — `capabilities()` talks to nobody. The cloud adapter checks its
+key locally at construction and sends nothing until `transcribe`, so the declared cap is free to ask for.
+
+Marking these `paid` would have moved the project's entire byte-cap safety check *out of the run that gates
+every commit*, to buy nothing. They run in the default suite instead, and the ffmpeg half runs `integration`
+— also free, also default.
+
+### What 8.4 was actually for: two numbers nobody had connected to anything
+
+Slice 2a proved the byte-cap formula against a hand-typed `25_000_000` and `FLAC_BYTES_PER_SECOND = 16_000`,
+the latter commented "sits near this rate". Both were reasonable and neither was measured or bound to
+anything. So:
+
+**The literal is now the declaration.** The planner tests read `max_chunk_bytes` off the real adapter. Before,
+the literal in the test and the constant in the adapter were two independent facts that happened to agree —
+the day one moved, the other kept passing while production planned chunks the engine would refuse.
+
+**The bitrate is now measured, and it is three times the assumption.** `tests/integration/test_flac_bitrate.py`
+encodes through `argv.py`'s own `_audio_encoding()` — not a copy of it — and measures. Measured on the real
+extraction path (mp4 with AAC audio → `build_extract_argv`): **48,484 B/s**, at `sample_fmt=s32`,
+`bits_per_raw_sample=24`.
+
+The cause is worth naming: **normalization does not pin the FLAC sample format**, so it follows whatever the
+source decodes to. AAC decodes to float and lands as 24-bit FLAC; a 16-bit source lands as 16-bit and measures
+**15,426 B/s** for the same content. A factor of three, decided by the input.
+
+Nothing is broken by that on its own — a higher bitrate simply shortens the stride, which is the formula
+working. But it does correct a slice-2a claim: `test_realistic_flac_bitrate_is_not_constrained_by_the_cap`
+asserts the 600 s duration target wins, and at its assumed 16 KB/s it does. At the rate the pipeline actually
+produces for incompressible audio, the cap binds instead. Both are true; the difference is entirely the
+bitrate, which is why it is now measured rather than believed.
+
+### The defect: no chunk is one stride long, and the cap was sized as if it were
+
+`_stride_for` computed the byte budget against the **stride**. But every chunk carries the overlap tail, and
+the chunk that absorbs a short final one grows by nearly `min_chunk_s` instead — both appended *after* the
+stride has been chosen. The difference was charged to the 0.9 headroom, and `plan_chunks` said so in a
+comment: "which the byte cap's 0.9 headroom already covers at any realistic bitrate."
+
+It covers it up to about **71 KB/s** — `(cap × 0.1) / (overlap + min_chunk_s)` — a limit stated nowhere and
+enforced by nothing. Above it the guarantee simply fails. The RED found it at 100 KB/s: a plan whose largest
+chunk came to **25.4 MB against a 25 MB cap**.
+
+The fix is arithmetic rather than a bigger headroom: the stride now reserves `max(overlap_s, min_chunk_s)`
+outright. `max`, not the sum — a chunk never pays for both, because one that absorbed a tail clamps to the end
+of the track and carries no overlap past it, and reserving the sum would shorten every stride to buy a case
+that cannot happen.
+
+Today's margin was never breached in production — 48.5 KB/s sits below 71 KB/s — but by a factor of 1.47, on
+a bitrate the pipeline does not pin. That is not a margin anyone chose.
+
+Two consequences, both recorded rather than hidden:
+
+- **`ChunkTooLarge`'s message was corrected.** It said "even for a one-second chunk", which stopped being true
+  once the reserve became mandatory: at 1 MB/s a one-second chunk is 1 MB and fits comfortably. It now names
+  the real floor — the shortest chunk a plan can produce is `appended_s` long before any stride is added.
+- **Two slice-2a expectations moved.** `test_byte_cap_shortens_the_stride` 450 s → 420 s, and
+  `test_merged_chunk_still_respects_the_byte_cap` retuned its track length so a tail under `min_chunk_s` still
+  exists at the new stride. That second test was already aiming at this exact defect and passed only because
+  50 KB/s happens to sit under the 71 KB/s limit.
+
+### Left open deliberately: pinning the sample format
+
+Adding `-sample_fmt s16` to `_audio_encoding()` would halve the worst-case byte rate and, as far as the ASR is
+concerned, lose nothing — Whisper resamples to 16 kHz float, and 24-bit depth on 16 kHz speech carries no
+information it uses. It also halves what every job stores on disk.
+
+Not done here, because it changes the audio the engine sees, and that is a transcript-quality decision rather
+than a byte-cap one. The system is correct without it now that the reserve is explicit. Recorded so the choice
+is made deliberately rather than inherited from whatever ffmpeg picked.
+
+### Measured cost
+
+**331 lines against the ~300 estimate (1.1x)** — `src` 42, tests 289. Test share 87%, the highest in this
+change, which is what a validation unit should look like: the code change is nine lines of arithmetic and the
+value is in what proves it.
 
 ## Slice 8a-iv: Classification Declaration (Cloud) (~300 lines)
 
