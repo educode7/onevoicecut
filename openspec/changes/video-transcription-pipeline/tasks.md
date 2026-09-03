@@ -2175,12 +2175,50 @@ empty tuple says "none yet" without pretending otherwise.
 
 Closes: `script-generation` Clip Candidate Output (musical-range scenario). Depends on 10b-i.
 
-- [ ] 10.13a RED: musical-range-eligible test — a candidate whose time range covers `MUSIC` segments is NOT
+- [x] 10.13a RED: musical-range-eligible test — a candidate whose time range covers `MUSIC` segments is NOT
       rejected on that basis; its timestamps resolve like any other candidate. Excluding music from the
       *message* must not leak into excluding it from *clips* — the singer's moment is often the best footage.
-- [ ] 10.13b GREEN: confirm candidate resolution is `kind`-agnostic. **Leaves Q9 open**: candidates over
+- [x] 10.13b GREEN: confirm candidate resolution is `kind`-agnostic. **Leaves Q9 open**: candidates over
       non-speech ranges are permitted here; whether ranking should additionally *favor* them is a prompt/score
       change confined to this slice.
+
+### Nothing to change, so the work was proving it stays that way
+
+`rank_clip_candidates` never reads `SegmentKind`, so all seven tests passed on the first run. That makes this
+a characterisation unit, and a characterisation test that passes trivially is worth nothing — so both
+plausible regressions were **mutation-checked** against the suite before it was committed:
+
+| Mutation someone might plausibly add | Caught by |
+| --- | --- |
+| Reject a moment citing a non-speech id | `test_resolution_reads_no_kind_at_all` |
+| Reject a moment whose *span* covers non-speech | the three scenario tests |
+
+Both fail with the filter in and pass with it out. That is what makes the guard real: a filter added here
+later would look like consistency with the windowing beside it, and would quietly delete the material
+`SegmentKind` marks-rather-than-filters to preserve.
+
+The two exclusions are opposites wearing the same clothes. `MUSIC` leaves the *message* because sung lyrics
+are not the preacher's argument. It stays in the *clips* because the singer's moment is often the best footage
+in the service — which is the entire reason a musical range keeps its timestamps instead of vanishing at the
+ASR boundary.
+
+### Found while confirming it: a purely musical clip is unreachable
+
+The model only ever sees `SPEECH` segments, and a moment's ids are validated against the window that produced
+it. A speech window contains no musical id, so a clip can **span** a chorus but the chorus alone can never be
+*proposed* as the clip.
+
+The spec permits musical ranges as candidates and says a sung passage can be strong short-form material.
+Today the strongest such passage is unreachable unless speech brackets it. That is Q9 — whether ranking should
+favour these — one step further out: **they cannot be favoured before they can be proposed.** Characterised in
+a test rather than fixed, because reaching them means showing the model non-speech segments, which is the
+decision 10a-ii just made in the other direction.
+
+### Measured cost
+
+**182 lines against the ~250 estimate (0.73x)** — `src` 11 (a docstring holding the invariant where a future
+reader will meet it), tests 171. The lowest src share in the change, which is what a slice that confirms
+rather than builds should look like.
 
 ## Slice 10b-iii: N Script Variants (~350 lines)
 

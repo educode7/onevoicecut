@@ -408,6 +408,17 @@ def rank_clip_candidates(
     top five would be two runs an operator cannot reason about, and nothing in
     the artifact would say which one they were reading.
 
+    **Nothing here reads `SegmentKind`, and that is deliberate.** `MUSIC` is kept
+    out of the *message* because sung lyrics are not the preacher's argument —
+    but the reason `SegmentKind` marks rather than filters, the reason a musical
+    range keeps its timestamps instead of vanishing at the ASR boundary, is that
+    the singer's moment is often the best footage in the service. A clip whose
+    span covers a chorus resolves like any other.
+
+    A filter added here later would look like consistency with the windowing
+    beside it and would quietly delete exactly what this project went out of its
+    way to keep. `tests/unit/usecases/test_musical_range_eligibility.py` holds it.
+
     `variants` comes back empty — one `complete()` call per (candidate, target)
     pair is slice 10b-iii's work, and an empty tuple says "none yet" without
     pretending otherwise.
