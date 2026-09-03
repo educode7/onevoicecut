@@ -1881,11 +1881,64 @@ Closes: `script-generation` Map-Reduce Summarization (windowing half). **No new 
 (confirmed by reading `src/onevoicecut/domain/generation.py` and `src/onevoicecut/ports/text_generation.py`).
 Pure use-case logic over an already-built port — the cheapest remaining category of work.
 
-- [ ] 10.1 RED: fake `TextGenerationPort`-based test — `complete()` call shape only, no summary logic yet.
-- [ ] 10.2 GREEN: `tests/fakes/text_generation.py` — new fake conforming to the existing port.
-- [ ] 10.3 RED: `tests/unit/usecases/test_generate_artifacts_map.py` — a transcript exceeding
+- [x] 10.1 RED: fake `TextGenerationPort`-based test — `complete()` call shape only, no summary logic yet.
+- [x] 10.2 GREEN: `tests/fakes/text_generation.py` — new fake conforming to the existing port.
+- [x] 10.3 RED: `tests/unit/usecases/test_generate_artifacts_map.py` — a transcript exceeding
       `map_window_tokens` windows by estimated char/4 budget, 200-token overlap, rendered with segment ids.
-- [ ] 10.4 GREEN: `usecases/generate_artifacts.py` MAP phase.
+- [x] 10.4 GREEN: `usecases/generate_artifacts.py` MAP phase.
+
+### Coverage and progress, because every failure here reads perfectly
+
+A dropped window is a passage of the sermon the model never saw. A duplicated one is a point made twice.
+Neither leaves a mark in the artifact an operator would notice, so the assertions are about the two properties
+that cannot be checked by reading the output: **every segment reaches at least one window**, and **every window
+admits at least one segment the previous one did not**. The second is termination — a transcript longer than
+the budget would otherwise window forever, inside a job already measured in hours.
+
+`MapWindow` carries its ids alongside its text because 10a-iii rejects any id the model returns that the
+window did not contain. A window whose manifest and text disagreed would either reject a valid citation or
+admit an invented one, and a test asserts the two are the same set.
+
+### Two places a token budget cannot be honoured exactly, for the same reason
+
+Segments are indivisible, so a budget expressed in tokens meets inputs it cannot cut:
+
+- **A segment larger than the whole window** gets a window of its own, over budget. It cannot be made to fit
+  and it must not be dropped, so it is handed on and `ContextLengthExceeded` deals with it — which is what
+  10a-iv's halving retry exists for.
+- **An overlap budget smaller than one segment** still carries one. Carrying nothing would be a hard boundary,
+  which is exactly what overlap exists to avoid: a thought split there is summarised twice as two
+  half-thoughts with nothing left to reconcile them. Found by the RED, not reasoned about in advance — the
+  fixture's segments cost 32 tokens against a 20-token overlap and no overlap was produced at all. Zero
+  requested is still zero given, so hard boundaries remain available to a caller that wants them.
+
+### The fake records before it fails, deliberately
+
+A test asserting "it retried three times" reads `prompts`, and a fake that logged only successful calls could
+not tell three attempts from one. `fail_times` exists so a retry test can assert *recovery* rather than
+surrender: fail once, then answer, and check the caller came back.
+
+### Discovered here, and it decides 10a-ii
+
+`speech_segments` takes `SPEECH` only. Since 8a-i the cloud adapter declares `ClassificationSupport.UNSUPPORTED`
+and emits `UNCERTAIN` unconditionally — correctly, because it has no voice-activity control and `SPEECH` is a
+claim it has not earned.
+
+**So every cloud transcript filters to nothing.** Measured, not argued: a 200-segment cloud transcript through
+`speech_segments` yields 0 segments and `map_windows` yields 0 windows. Task 10.4b says "filter to
+`kind == SPEECH` **before** windowing", which would make an empty summary the guaranteed outcome of every job
+run on the cloud engine.
+
+This is the open question `speech_segments`' own docstring parks for slice 10a, and CLAUDE.md records as
+undecided — *"excluding risks an empty summary on a non-classifying engine; marking risks the model ignoring
+the marker."* It is no longer a risk. The cloud adapter shipped, so one branch of it is now certain, and
+**10a-ii cannot be implemented as written without deciding it.**
+
+### Measured cost
+
+**605 lines against the ~400 estimate (1.5x)** — `src` 164, tests 441 (including the 75-line fake). Test share
+73%. No domain change and no port change: `GenerationResult`, `ClipCandidate`, `ScriptVariant` and
+`TextGenerationPort` all shipped in slice 1, exactly as the slice header predicted.
 
 ## Slice 10a-ii: Speech-Only Windowing (~300 lines)
 
