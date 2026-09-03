@@ -1443,12 +1443,51 @@ value is in what proves it.
 
 Closes: `speech-transcription` Non-Speech Segment Classification (cloud real-engine half). Depends on 8a-i.
 
-- [ ] 8.5a RED: `paid`-marked classification-declaration test — the cloud adapter declares its **real**
+- [x] 8.5a RED: `paid`-marked classification-declaration test — the cloud adapter declares its **real**
       `non_speech_classification` value for the chosen provider. A raw Whisper-API-style adapter exposing no
       VAD control MUST declare `UNSUPPORTED` and return `UNCERTAIN` segments; a provider with server-side VAD
       MAY declare `AVAILABLE`. Assert the declaration matches observed behavior — do not assume parity with
       the local adapter, and do not infer it from the adapter's diarization support.
-- [ ] 8.5b GREEN: implement the declared behavior for the chosen provider.
+- [x] 8.5b GREEN: implement the declared behavior for the chosen provider. **Landed in 8a-i**, unavoidably.
+
+### 8.5b was already closed, and 8.5a's real subject turned out to be *why*
+
+The GREEN half could not wait for this slice. The shared contract body asserts the **relationship** between
+the declaration and the behaviour — an adapter declaring `UNSUPPORTED` must be shown to return `UNCERTAIN`
+segments — so 8.1 could not have passed in 8a-i without both halves being present. Splitting them across
+slices was never possible; the plan assumed a seam that the contract's own design forbids.
+
+That leaves 8.5a with the part a mock genuinely cannot supply: not *that* the declaration is `UNSUPPORTED`,
+but that it is the **right** declaration for this provider. Two `paid` tests, 9 in that module now:
+
+- **Music never comes back marked as speech**, against a chord-over-pink-noise fixture — harmonically dense,
+  speech-free, and the shape that makes a Whisper-family decoder invent. `speech_segments` selects the LLM
+  window on that field and `without_music` drops on it, so this is the assertion that protects both.
+- **The declaration still matches what the provider offers.** `UNSUPPORTED` is a claim about *OpenAI*, not
+  about our code: it says this API exposes no voice-activity control, so the adapter has established nothing
+  about whether it heard the preacher or the band. If that ever stops being true — a VAD parameter, a
+  segment-level content class — the adapter should be classifying rather than blanket-marking. Pinning it
+  makes flipping it a deliberate act with a paid test behind it, rather than something inherited from 8a-i's
+  constraints.
+
+### Two deliberate choices in how it asserts
+
+**The provider's behaviour is recorded, not asserted.** A test demanding that the API hallucinate over a chord
+would be pinning a provider defect, and would go red the day OpenAI fixed it — reporting an improvement as a
+regression. What is asserted strictly is *our* answer: whatever comes back is `UNCERTAIN`.
+
+**It does not subclass the contract case.** Inheriting `TestOpenAiWhisperCloudEngine` would re-run the entire
+contract body against the new fixture and bill every one of those calls a second time, to re-prove what the
+sine fixture already proved.
+
+### Unverified, and that is stated rather than implied
+
+Every assertion here is `paid`-marked and **has never been executed** — there is no `CLOUD_ASR_API_KEY` on
+this machine. The ffmpeg fixture *was* verified independently (3.000 s, 16 kHz mono, 96 KB), so the test will
+reach the API rather than dying on its input; what the API then says is unproven. This is the same standing
+gap CLAUDE.md already records for real singing against the local engine, now on the cloud side too.
+
+**106 lines**, one file. No `src` change — there was nothing left to implement.
 
 ---
 

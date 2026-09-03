@@ -28,8 +28,14 @@ from onevoicecut.adapters.asr.cloud.openai_whisper_adapter import (
 )
 from onevoicecut.domain.chunking import AudioChunk
 from onevoicecut.domain.ids import make_job_id
+from onevoicecut.domain.transcript import SegmentKind
+from onevoicecut.ports.capabilities import ClassificationSupport
 from onevoicecut.ports.transcription import TranscriptionPort
-from tests.contract.transcription import CHUNK_START_S, TranscriptionPortContract
+from tests.contract.transcription import (
+    CHUNK_START_S,
+    TranscriptionPortContract,
+    single_speaker,
+)
 
 pytestmark = pytest.mark.paid
 
@@ -88,3 +94,102 @@ class TestOpenAiWhisperCloudEngine(TranscriptionPortContract):
         provenance unanswerable.
         """
         assert DEFAULT_MODEL in port.capabilities().engine_id
+
+
+class TestTheClassificationDeclarationIsEarned:
+    """Why the declaration is UNSUPPORTED, not merely that it is.
+
+    Deliberately not a subclass of the contract case above: inheriting it would
+    re-run the whole contract body against this fixture and bill every one of
+    those calls a second time to re-prove what the sine already proved.
+
+    8a-i had to declare it and honour it in one unit — the shared contract body
+    asserts the *relationship* between the two, so it could not pass otherwise.
+    What a mock could never supply is the evidence that the declaration is the
+    right one, and this is the only place that can ask the provider directly.
+
+    The strict assertion is the invariant: whatever comes back is UNCERTAIN. The
+    provider's own behaviour is *recorded* rather than asserted, deliberately —
+    a test that demanded the API hallucinate over music would be pinning a
+    provider defect, and would go red the day they fixed it. What must never
+    change is our answer to it.
+    """
+
+    @pytest.fixture
+    def port(self) -> TranscriptionPort:
+        api_key = os.environ.get(CLOUD_API_KEY_ENV)
+        if not api_key:
+            pytest.skip(f"{CLOUD_API_KEY_ENV} is not set")
+        return OpenAiWhisperTranscriber(api_key)
+
+    @pytest.fixture
+    def chunk(self, tmp_path: Path, ffmpeg_available: None) -> AudioChunk:
+        """A chord over noise: the closest ffmpeg gets to the worship band.
+
+        Every ASR fixture in this suite is synthesised, and no synthetic signal
+        is a human singing — that gap is recorded in CLAUDE.md and is exactly
+        what `scripts/try_local_asr.py` exists for. This is still the most
+        provoking input available without committing media: harmonically dense,
+        speech-free, and the shape that makes a Whisper-family decoder invent.
+        """
+        path = tmp_path / "chunk.wav"
+        subprocess.run(
+            [
+                "ffmpeg", "-nostdin", "-y",
+                "-f", "lavfi",
+                "-i", f"sine=frequency=220:duration={TONE_SECONDS}",
+                "-f", "lavfi",
+                "-i", f"sine=frequency=277:duration={TONE_SECONDS}",
+                "-f", "lavfi",
+                "-i", f"anoisesrc=d={TONE_SECONDS}:c=pink:a=0.2",
+                "-filter_complex", "amix=inputs=3:duration=shortest",
+                "-ar", "16000", "-ac", "1",
+                str(path),
+            ],
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        return AudioChunk(
+            job_id=JOB_ID,
+            index=0,
+            path=path,
+            start_s=CHUNK_START_S,
+            end_s=CHUNK_START_S + TONE_SECONDS,
+            size_bytes=path.stat().st_size,
+        )
+
+    def test_music_never_comes_back_marked_as_speech(
+        self, port: TranscriptionPort, chunk: AudioChunk
+    ) -> None:
+        """The whole axis, against the live engine.
+
+        `speech_segments` selects the LLM's window on this field, and
+        `without_music` drops on it. A provider that returns confident text over
+        a chord — which is the documented Whisper failure mode and this
+        project's stated normal input — must not reach either of them wearing
+        the label it did not earn.
+        """
+        segments = port.transcribe(chunk, single_speaker())
+
+        assert all(s.kind is SegmentKind.UNCERTAIN for s in segments)
+
+    def test_the_declaration_still_matches_what_the_provider_offers(
+        self, port: TranscriptionPort
+    ) -> None:
+        """The claim that can go stale without anyone noticing.
+
+        `UNSUPPORTED` is a statement about the provider, not about our code: it
+        says this API exposes no voice-activity control, so we have established
+        nothing about whether we heard the preacher or the band. If that ever
+        becomes false — a VAD parameter, a segment-level content class — this
+        adapter should be reclassifying rather than blanket-marking, and the
+        declaration is where that decision gets made.
+
+        Pinned here so flipping it is a deliberate act with a paid test behind
+        it, rather than something inherited from 8a-i's constraints.
+        """
+        assert (
+            port.capabilities().non_speech_classification
+            is ClassificationSupport.UNSUPPORTED
+        )
