@@ -22,7 +22,7 @@ from onevoicecut.domain.ids import (
     generate_media_id,
 )
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
-from onevoicecut.ports.capabilities import DiarizationSupport, TranscriptionCapabilities
+from onevoicecut.ports.capabilities import DiarizationSupport
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 
 
@@ -48,7 +48,7 @@ def admit_job(
     speaker_mode: SpeakerMode,
     operator: OperatorId,
     storage: TranscriptStoragePort,
-    capabilities: Callable[[EngineChoice], TranscriptionCapabilities] | None = None,
+    capabilities: Callable[[EngineChoice], DiarizationSupport] | None = None,
     now: Callable[[], float] = time.time,
     new_job_id: Callable[[], JobId] = generate_job_id,
     new_media_id: Callable[[], MediaId] = generate_media_id,
@@ -66,9 +66,14 @@ def admit_job(
     When a capabilities callable is supplied, engine/speaker-mode compatibility
     is validated before any storage operation — IDs are not minted, no storage
     is touched, when validation fails.
+
+    It answers with `DiarizationSupport` rather than whole capabilities because
+    that is the only field read here, and the wider type is what kept the guard
+    disconnected: the rest of a `TranscriptionCapabilities` cannot be known
+    without constructing an engine, and the web process must not do that.
     """
     if capabilities is not None:
-        _validate_compatibility(capabilities(engine).diarization, speaker_mode)
+        _validate_compatibility(capabilities(engine), speaker_mode)
 
     job = JobRecord(
         job_id=new_job_id(),

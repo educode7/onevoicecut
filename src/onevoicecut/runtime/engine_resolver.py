@@ -21,6 +21,7 @@ from collections.abc import Callable, Mapping
 
 from onevoicecut.domain.errors import EngineUnavailable
 from onevoicecut.domain.jobs import EngineChoice
+from onevoicecut.ports.capabilities import DiarizationSupport
 from onevoicecut.ports.transcription import TranscriptionPort
 
 TranscriberFactory = Callable[[], TranscriptionPort]
@@ -145,3 +146,37 @@ def production_factories(
     if cloud_api_key is not None:
         factories[EngineChoice.CLOUD] = cloud_transcriber(cloud_api_key)
     return factories
+
+
+def declared_diarization(
+    engine: EngineChoice, *, hf_token: str | None = None
+) -> DiarizationSupport:
+    """What an engine would declare, without building one.
+
+    The admission guard needs this before a job starts, in the *web* process —
+    which has no business loading CTranslate2 weights inside an HTTP request, and
+    may not have the ASR extras installed at all. Both engines can answer without
+    being constructed: the cloud one from a constant, the local one from
+    `diarization.py`, which imports nothing heavier than `ports.capabilities`.
+
+    It calls the adapters' own definitions rather than restating them. A
+    composition root that computed this its own way would be a second answer to
+    "can this build diarize", and the failure mode is admission accepting a job
+    the adapter refuses three hours later — the exact thing the guard exists to
+    prevent.
+
+    Narrow on purpose. `admit_job` reads this one field and nothing else, and a
+    signature promising a whole `TranscriptionCapabilities` is what made the
+    guard unwireable: the rest of that object cannot be known without an engine.
+    """
+    if engine is EngineChoice.CLOUD:
+        from onevoicecut.adapters.asr.cloud.openai_whisper_adapter import DIARIZATION
+
+        return DIARIZATION
+
+    from onevoicecut.adapters.asr.local.diarization import (
+        diarization_support,
+        is_installed,
+    )
+
+    return diarization_support(installed=is_installed(), token=hf_token)

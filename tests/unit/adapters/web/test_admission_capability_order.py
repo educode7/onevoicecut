@@ -24,7 +24,6 @@ from onevoicecut.domain.jobs import EngineChoice, SpeakerMode
 from onevoicecut.ports.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
-    TranscriptionCapabilities,
 )
 from onevoicecut.usecases.admit_job import admit_job
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
@@ -36,22 +35,20 @@ from tests.unit.adapters.web.conftest import (
 )
 
 
-def _caps(diarization: DiarizationSupport) -> TranscriptionCapabilities:
-    return TranscriptionCapabilities(
-        engine_id="test-engine",
-        diarization=diarization,
-        non_speech_classification=ClassificationSupport.UNSUPPORTED,
-        max_chunk_bytes=None,
-        max_chunk_duration_s=None,
-    )
+# Slice 9b-iii narrowed the admission guard from whole capabilities to the one
+# field it reads. The rest of a `TranscriptionCapabilities` cannot be known
+# without constructing an engine, and that is what kept this guard disconnected
+# from the composition root for three slices.
 
 
-def _client(storage: FakeTranscriptStoragePort, caps: TranscriptionCapabilities) -> AsyncClient:
+def _client(
+    storage: FakeTranscriptStoragePort, diarization: DiarizationSupport
+) -> AsyncClient:
     app = create_app(
         WebDependencies(
             storage=storage,
             authenticate=fake_authenticate,
-            capabilities=lambda _engine: caps,
+            capabilities=lambda _engine: diarization,
         )
     )
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
@@ -68,7 +65,7 @@ async def test_an_unsatisfiable_admission_refuses_before_any_storage_touch(
     """OWN-11: authenticated, requesting MULTI from an engine that cannot
     diarize — the capability error answers 422 with zero records created and
     no storage method called at all."""
-    async with _client(storage, _caps(DiarizationSupport.UNSUPPORTED)) as client:
+    async with _client(storage, DiarizationSupport.UNSUPPORTED) as client:
         response = await client.post(
             "/api/jobs",
             json={"engine": "local", "speaker_mode": "multi"},
@@ -86,7 +83,7 @@ async def test_a_satisfiable_admission_still_records_the_owner(
 ) -> None:
     """Positive control: the guard only moves aside for compatible requests,
     and those still record the authenticated caller as owner."""
-    async with _client(storage, _caps(DiarizationSupport.AVAILABLE)) as client:
+    async with _client(storage, DiarizationSupport.AVAILABLE) as client:
         response = await client.post(
             "/api/jobs",
             json={"engine": "local", "speaker_mode": "multi"},
@@ -124,7 +121,7 @@ def test_the_guard_still_runs_before_any_id_is_minted(tmp_path: Path) -> None:
             speaker_mode=SpeakerMode.MULTI,
             operator=OPERATOR_A,
             storage=storage,
-            capabilities=lambda _e: _caps(DiarizationSupport.REQUIRES_SETUP),
+            capabilities=lambda _e: DiarizationSupport.REQUIRES_SETUP,
             new_job_id=recording_job_id,
             new_media_id=recording_media_id,
         )

@@ -77,6 +77,13 @@ MAX_REQUEST_BYTES = 25_000_000
 # composition root; the resolver reads the variable, this only knows its name.
 CLOUD_API_KEY_ENV = "CLOUD_ASR_API_KEY"
 
+# Never "not yet", and never a function of configuration: this API returns no
+# speaker labels and offers no way to ask for them. A module constant rather than
+# a literal inside `capabilities()` so the composition root can state it without
+# constructing an adapter — which is what lets the admission guard refuse a
+# speaker-mode job before extraction rather than three hours into it.
+DIARIZATION = DiarizationSupport.UNSUPPORTED
+
 # What a chunk gets when the job set no per-chunk budget. `None` would mean a
 # hung socket holds a worker open until the watchdog kills the process minutes
 # later, having produced nothing — a ceiling nobody chose still beats no ceiling.
@@ -140,7 +147,7 @@ class OpenAiWhisperTranscriber:
             # Never "not yet". The API exposes no diarization at all, so this
             # declaration is what makes admission reject a speaker-mode job up
             # front rather than deliver a plausible unlabelled transcript.
-            diarization=DiarizationSupport.UNSUPPORTED,
+            diarization=DIARIZATION,
             non_speech_classification=ClassificationSupport.UNSUPPORTED,
             max_chunk_bytes=MAX_REQUEST_BYTES,
             # No documented duration cap — the byte cap binds first, and the

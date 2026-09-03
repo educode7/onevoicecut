@@ -16,7 +16,6 @@ from onevoicecut.domain.jobs import EngineChoice, SpeakerMode
 from onevoicecut.ports.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
-    TranscriptionCapabilities,
 )
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.unit.adapters.web.conftest import auth_headers, fake_authenticate
@@ -24,24 +23,12 @@ from tests.unit.adapters.web.conftest import auth_headers, fake_authenticate
 FIXED_NOW = 1723501234.5
 
 
-def _unsupported_caps(_engine: EngineChoice) -> TranscriptionCapabilities:
-    return TranscriptionCapabilities(
-        engine_id="fake-engine",
-        diarization=DiarizationSupport.UNSUPPORTED,
-        non_speech_classification=ClassificationSupport.UNSUPPORTED,
-        max_chunk_bytes=None,
-        max_chunk_duration_s=None,
-    )
+def _unsupported_caps(_engine: EngineChoice) -> DiarizationSupport:
+    return DiarizationSupport.UNSUPPORTED
 
 
-def _available_caps(_engine: EngineChoice) -> TranscriptionCapabilities:
-    return TranscriptionCapabilities(
-        engine_id="fake-engine",
-        diarization=DiarizationSupport.AVAILABLE,
-        non_speech_classification=ClassificationSupport.AVAILABLE,
-        max_chunk_bytes=None,
-        max_chunk_duration_s=None,
-    )
+def _available_caps(_engine: EngineChoice) -> DiarizationSupport:
+    return DiarizationSupport.AVAILABLE
 
 
 @pytest.fixture

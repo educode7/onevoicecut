@@ -17,7 +17,6 @@ from onevoicecut.domain.jobs import EngineChoice, JobState, SpeakerMode
 from onevoicecut.ports.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
-    TranscriptionCapabilities,
 )
 from onevoicecut.ports.transcription import TranscriptionRequest
 from onevoicecut.usecases.admit_job import _validate_compatibility, admit_job
@@ -30,14 +29,10 @@ from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 OPERATOR = make_operator_id("test-operator")
 
 
-def _caps(diarization: DiarizationSupport) -> TranscriptionCapabilities:
-    return TranscriptionCapabilities(
-        engine_id="test-engine",
-        diarization=diarization,
-        non_speech_classification=ClassificationSupport.UNSUPPORTED,
-        max_chunk_bytes=None,
-        max_chunk_duration_s=None,
-    )
+# Slice 9b-iii narrowed the admission guard from whole capabilities to the one
+# field it reads. The rest of a `TranscriptionCapabilities` cannot be known
+# without constructing an engine, and that is what kept this guard disconnected
+# from the composition root for three slices.
 
 
 class TestValidateCompatibility:
@@ -83,7 +78,7 @@ class TestAdmitJobCapabilities:
                 speaker_mode=SpeakerMode.MULTI,
                 operator=OPERATOR,
                 storage=storage,
-                capabilities=lambda _e: _caps(DiarizationSupport.UNSUPPORTED),
+                capabilities=lambda _e: DiarizationSupport.UNSUPPORTED,
             )
 
         assert storage.list_jobs() == ()
@@ -100,7 +95,7 @@ class TestAdmitJobCapabilities:
                 speaker_mode=SpeakerMode.MULTI,
                 operator=OPERATOR,
                 storage=storage,
-                capabilities=lambda _e: _caps(DiarizationSupport.REQUIRES_SETUP),
+                capabilities=lambda _e: DiarizationSupport.REQUIRES_SETUP,
             )
 
         assert storage.list_jobs() == ()
@@ -114,7 +109,7 @@ class TestAdmitJobCapabilities:
             speaker_mode=SpeakerMode.MULTI,
             operator=OPERATOR,
             storage=storage,
-            capabilities=lambda _e: _caps(DiarizationSupport.AVAILABLE),
+            capabilities=lambda _e: DiarizationSupport.AVAILABLE,
         )
 
         assert job.speaker_mode is SpeakerMode.MULTI
@@ -151,7 +146,7 @@ class TestAdmitJobCapabilities:
             speaker_mode=SpeakerMode.SINGLE,
             operator=OPERATOR,
             storage=storage,
-            capabilities=lambda _e: _caps(diarization),
+            capabilities=lambda _e: diarization,
         )
 
         assert job.speaker_mode is SpeakerMode.SINGLE

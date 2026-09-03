@@ -1825,8 +1825,52 @@ fills it.
 Closes: regression coverage for slice 6 admission now that engines can declare `AVAILABLE` diarization. Depends
 on 9a and 9b-i.
 
-- [ ] 9.9 GREEN: extend slice-6's admission tests to also cover now-`AVAILABLE` engines admitting normally.
-- [ ] 9.10 REFACTOR: consolidate the two adapters' capability-probing pattern; suite green.
+- [x] 9.9 GREEN: extend slice-6's admission tests to also cover now-`AVAILABLE` engines admitting normally.
+      **They already did — and asking why found the guard unwired.**
+- [x] 9.10 REFACTOR: consolidate the two adapters' capability-probing pattern; suite green.
+
+### 9.9's literal ask was already satisfied. Its intent was not.
+
+Slice 6 already covers `AVAILABLE` admitting normally — `test_compatible_combination_admitted`, the route-level
+`_client(storage, AVAILABLE)` case, and `_validate_compatibility(AVAILABLE, MULTI)` not raising. It was written
+against a fake before any real engine could declare it, which is the right way round.
+
+So the coverage question became: does that guard run at all? **It did not.**
+`build_dependencies` never set `WebDependencies.capabilities`, so it defaulted to `None` and `admit_job`
+skipped the guard on the one path an operator actually uses. Built in slice 6, thoroughly tested, never
+connected — the same shape as 8b-ii's timeout, and the third defect in this change found by asking what
+happens to a correct component at the composition root.
+
+**What it cost.** An interview-mode job is admitted, queued, and given a worker. ffmpeg extracts the audio from
+a three-hour recording. The chunk plan is written. TRANSCRIBING begins — and *then* the adapter's own
+`_validate_compatibility` raises on the first chunk. The operator learns at the end of the expensive part what
+was knowable before it started, and the extraction is thrown away. Moving that discovery to the front was
+slice 6's entire purpose.
+
+### Why it could not be wired, which is what 9.10 turned out to be about
+
+The callable's type promised a whole `TranscriptionCapabilities`. Assembling one in the *web* process means
+constructing an adapter, and constructing the local one loads CTranslate2 weights — inside an HTTP request, on
+a process that may not have the ASR extras installed at all. The guard was unwireable as typed.
+
+`admit_job` reads exactly one field of it. So the dependency is now `Callable[[EngineChoice],
+DiarizationSupport]`, and the honest answer becomes cheap: both engines can state their diarization support
+without being built. The cloud one from a module constant (`DIARIZATION`, hoisted out of `capabilities()`
+for exactly this); the local one from `diarization.py`, which imports nothing heavier than `ports.capabilities`.
+A test asserts the composition root answers `LOCAL` **in the default suite**, where no extras are installed —
+which is the assertion that nothing is being constructed.
+
+**That is the consolidation 9.10 asked for**, and it is a real one rather than the fifth negative result:
+`declared_diarization` calls the adapters' own definitions instead of restating them. A composition root that
+computed this its own way would be a second answer to "can this build diarize", and its failure mode is
+admission accepting a job the adapter refuses three hours later — precisely the defect being closed. A test
+pins the two together.
+
+### Measured cost
+
+**239 lines against the ~250 estimate (0.96x)** — `src` 86 across five files, tests 153 new plus 47 lines of
+churn in slice 6's three admission modules, whose `_caps(...)` helpers collapsed to the value they always
+wrapped.
 
 ---
 
