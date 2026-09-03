@@ -19,9 +19,16 @@ cloud one — which is what keeps engine choice out of the use-case layer entire
 import time
 from collections.abc import Callable
 from dataclasses import replace
+from pathlib import Path
 
-from onevoicecut.domain.chunking import AudioChunk, ChunkPlan, ChunkResult, ChunkState
-from onevoicecut.domain.errors import ChunkTimeout, TranscriptionFailed
+from onevoicecut.domain.chunking import (
+    AudioChunk,
+    ChunkPlan,
+    ChunkResult,
+    ChunkState,
+    PlannedChunk,
+)
+from onevoicecut.domain.errors import ChunkTimeout, ChunkTooLarge, TranscriptionFailed
 from onevoicecut.domain.ids import JobId
 from onevoicecut.domain.jobs import JobRecord, JobState, SpeakerMode
 from onevoicecut.domain.media import AudioTrack, SourceMedia
@@ -46,6 +53,13 @@ MAX_REPORTED_FAILURES = 6
 # engine will never accept does not stall a job that already runs for hours.
 DEFAULT_MAX_ATTEMPTS = 3
 
+# How many times one planned chunk may be halved when the engine refuses it for
+# size. Three levels turn it into at most eight pieces, which is already far past
+# what an average-bitrate miss can produce — and the bound is what stops halving
+# something the engine will never accept from becoming an infinite loop inside a
+# job that is already measured in hours.
+DEFAULT_MAX_SPLIT_DEPTH = 3
+
 Clock = Callable[[], float]
 
 
@@ -60,6 +74,7 @@ def transcribe_job(
     target_chunk_s: float = DEFAULT_TARGET_CHUNK_S,
     chunk_timeout_s: float | None = DEFAULT_CHUNK_TIMEOUT_S,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    max_split_depth: int = DEFAULT_MAX_SPLIT_DEPTH,
 ) -> JobRecord:
     """Returns the job as it ended, not the transcript.
 
@@ -102,11 +117,16 @@ def transcribe_job(
         # healthy — exactly the case a bare pid check already fails to catch.
         storage.write_heartbeat(job_id, at_s=now())
 
-        chunk = extractor.slice(
-            track, planned, storage.chunk_path(job_id, planned.index)
-        )
-        result = _transcribe_chunk(
-            chunk, request, transcriber=transcriber, now=now, max_attempts=max_attempts
+        result = _transcribe_planned(
+            planned,
+            track,
+            storage.chunk_path(job_id, planned.index),
+            request,
+            extractor=extractor,
+            transcriber=transcriber,
+            now=now,
+            max_attempts=max_attempts,
+            max_split_depth=max_split_depth,
         )
         # Committed here, inside the loop, not accumulated for a final batch.
         storage.save_chunk_result(result)
@@ -123,6 +143,176 @@ def transcribe_job(
         )
 
     return _stitch(job, plan, transcriber=transcriber, storage=storage, now=now)
+
+
+def _transcribe_planned(
+    planned: PlannedChunk,
+    track: AudioTrack,
+    dest: Path,
+    request: TranscriptionRequest,
+    *,
+    extractor: AudioExtractorPort,
+    transcriber: TranscriptionPort,
+    now: Clock,
+    max_attempts: int,
+    max_split_depth: int,
+    depth: int = 0,
+) -> ChunkResult:
+    """One planned chunk's result, whatever it took to get it.
+
+    The recovery path for a chunk the engine refuses **for its size**. The
+    planner already sizes chunks against the declared cap, so reaching here means
+    the plan's average-bitrate arithmetic was beaten by one chunk that encoded
+    above it — one in eighty-seven on a three-hour sermon, and not worth failing
+    the other eighty-six over.
+
+    The split happens *inside* the planned chunk and never touches the plan.
+    That is not tidiness: chunk results are indexed against the persisted plan,
+    and `_plan` already refuses to re-plan an existing job because a plan that
+    differed by one chunk would re-map every completed result onto the wrong
+    range. Two halves therefore come back as **one** result at the original
+    index, and resume never learns a split happened.
+    """
+    chunk = extractor.slice(track, planned, dest)
+    try:
+        return _transcribe_chunk(
+            chunk, request, transcriber=transcriber, now=now, max_attempts=max_attempts
+        )
+    except ChunkTooLarge as error:
+        # Never retried at the same size: the refusal is a measurement of these
+        # exact bytes, so another attempt is the retry loop's one guaranteed
+        # waste — and against a cloud engine, a paid one.
+        if depth >= max_split_depth:
+            return _failed_chunk(
+                chunk,
+                transcriber.capabilities().engine_id,
+                attempt := depth + 1,
+                f"{error}; still refused after {attempt} splits "
+                f"({chunk.size_bytes} bytes at {planned.end_s - planned.start_s:.0f}s)",
+                now,
+            )
+
+    return _split_and_retry(
+        planned,
+        track,
+        dest,
+        request,
+        extractor=extractor,
+        transcriber=transcriber,
+        now=now,
+        max_attempts=max_attempts,
+        max_split_depth=max_split_depth,
+        depth=depth,
+    )
+
+
+def _split_and_retry(
+    planned: PlannedChunk,
+    track: AudioTrack,
+    dest: Path,
+    request: TranscriptionRequest,
+    *,
+    extractor: AudioExtractorPort,
+    transcriber: TranscriptionPort,
+    now: Clock,
+    max_attempts: int,
+    max_split_depth: int,
+    depth: int,
+) -> ChunkResult:
+    """Halve, transcribe each half, and fold the two back into one result.
+
+    **No overlap is added at the seam**, and that is a decision rather than an
+    omission. The stitcher dedupes by the *plan's* overlap, and these halves are
+    not in the plan — so an overlap here would duplicate text at the seam with
+    nothing left to remove it. A word clipped once is the cheaper defect, and a
+    correctly planned job never enters this path at all.
+    """
+    midpoint_s = planned.start_s + (planned.end_s - planned.start_s) / 2
+    halves = (
+        replace(planned, end_s=midpoint_s),
+        replace(planned, start_s=midpoint_s),
+    )
+
+    parts: list[tuple[float, ChunkResult]] = []
+    for position, half in enumerate(halves):
+        parts.append(
+            (
+                half.start_s - planned.start_s,
+                _transcribe_planned(
+                    half,
+                    track,
+                    _sub_path(dest, depth, position),
+                    request,
+                    extractor=extractor,
+                    transcriber=transcriber,
+                    now=now,
+                    max_attempts=max_attempts,
+                    max_split_depth=max_split_depth,
+                    depth=depth + 1,
+                ),
+            )
+        )
+
+    return _merge(planned, parts, now)
+
+
+def _sub_path(dest: Path, depth: int, position: int) -> Path:
+    """A sibling of the chunk file, never the chunk file itself.
+
+    Both halves writing to `chunk_path(index)` would have the second overwrite
+    the first — and on the real extractor the second slice would be reading a
+    destination it is simultaneously writing. Derived from the parent's name so
+    the depth is legible in the directory afterwards, and kept in the same
+    directory because every path handed to the extractor is resolve-checked
+    against the job directory before a spawn.
+    """
+    return dest.with_name(f"{dest.stem}-{depth}{position}{dest.suffix}")
+
+
+def _merge(
+    planned: PlannedChunk, parts: list[tuple[float, ChunkResult]], now: Clock
+) -> ChunkResult:
+    """Fold the halves' results into the one the plan is expecting.
+
+    Each half answered in times local to *itself*. Concatenating them unchanged
+    would put the second half's segments back at zero, on top of the first
+    half's — a transcript that stitches cleanly and aims every clip cut from its
+    back half at the wrong minute of the sermon. The offset is the whole reason
+    this function exists.
+    """
+    first = parts[0][1]
+    failed = [result for _, result in parts if result.state is ChunkState.FAILED]
+    if failed:
+        # One bad half loses the chunk. Keeping the good half would deliver a
+        # result covering less audio than its planned range claims, and nothing
+        # downstream compares the two — the hole would read as a pause.
+        return replace(
+            first,
+            index=planned.index,
+            state=ChunkState.FAILED,
+            segments=(),
+            attempts=sum(result.attempts for _, result in parts),
+            error="; ".join(result.error or "" for result in failed),
+            finished_at=now(),
+        )
+
+    return replace(
+        first,
+        index=planned.index,
+        state=ChunkState.DONE,
+        segments=tuple(
+            replace(
+                segment,
+                start_s=segment.start_s + offset_s,
+                end_s=segment.end_s + offset_s,
+            )
+            for offset_s, result in parts
+            for segment in result.segments
+        ),
+        attempts=sum(result.attempts for _, result in parts),
+        error=None,
+        finished_at=now(),
+    )
 
 
 def _transcribe_chunk(

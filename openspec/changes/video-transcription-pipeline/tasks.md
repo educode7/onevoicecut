@@ -1497,9 +1497,69 @@ Closes: `speech-transcription` Cloud Adapter Request-Size Handling (recovery hal
 addition to two already-shipped files (`plan_chunks.py`, `transcribe_job.py`), independently revertible without
 touching the cloud adapter itself.
 
-- [ ] 8.6 RED: `ChunkTooLarge` split-and-retry test — an oversized actual chunk triggers a half-split
+- [x] 8.6 RED: `ChunkTooLarge` split-and-retry test — an oversized actual chunk triggers a half-split
       re-slice instead of a failed job.
-- [ ] 8.7 GREEN: `plan_chunks.py`/`transcribe_job.py` — catch `ChunkTooLarge`, split, re-slice, retry.
+- [x] 8.7 GREEN: ~~`plan_chunks.py`/~~`transcribe_job.py` — catch `ChunkTooLarge`, split, re-slice, retry.
+
+### `plan_chunks.py` was not touched, and must not be
+
+8.7 named both files. Only `transcribe_job.py` changed, because **the split must not reach the plan**.
+Chunk results are indexed against the *persisted* plan, and `_plan` already refuses to re-plan an existing job
+for precisely this reason: "a plan that differed by one chunk would silently re-map every completed result
+onto the wrong range." A recovery path that grew the plan by a chunk would corrupt every resume after it.
+
+So the split happens **inside** one planned chunk. The halves are sliced and transcribed separately and their
+segments come back as **one** `ChunkResult` at the original index. `pending_chunks` compares results to the
+plan by index and sees exactly what it expected; resume never learns a split happened. That is also why a
+split chunk is not re-run on restart — proven, because the property is easy to assert and easy to lose.
+
+### Three ways to get this wrong, all silent
+
+- **Times.** Each half answers in times local to *itself*. Concatenating them unchanged puts the second
+  half's segments back at zero, on top of the first half's. The result stitches cleanly, reads as a whole
+  sermon, and aims every clip cut from its back half at the wrong minute. `_merge` offsets by
+  `half.start_s - planned.start_s`, and it exists for nothing else.
+- **The seam.** No overlap is added between halves — a decision, not an omission. The stitcher dedupes by the
+  **plan's** overlap and these halves are not in the plan, so an overlap here would duplicate text with
+  nothing left to remove it. A word clipped once at one seam is the cheaper defect, and a correctly planned
+  job never enters this path.
+- **A failed half.** One bad half fails the whole chunk. Keeping the good half would store a result covering
+  less audio than its planned range claims, and nothing downstream compares the two — the missing half would
+  read as a pause, which is the same "hole that reads as a whole transcript" failure `_stitch` already guards
+  against at the job level.
+
+### Two properties that stop it being a worse bug than the one it fixes
+
+**It never retries at the same size.** `ChunkTooLarge` is a measurement of those exact bytes, so a second
+identical request is the retry loop's one guaranteed waste — and against a cloud engine, a billed one. It is
+handled outside `_transcribe_chunk`'s attempt loop entirely, which is also why it never spends the
+`max_attempts` budget that transient failures need.
+
+**It terminates.** `DEFAULT_MAX_SPLIT_DEPTH = 3` bounds one chunk to at most eight pieces. Halving something
+the engine will never accept is an infinite loop inside a job already measured in hours, and nothing
+downstream would ever report why. Exhausting the depth produces a normal `FAILED` chunk result naming the
+size and the duration it could not get under — chunk-level isolation still applies, so the other chunks are
+kept and the operator learns which one and by how much.
+
+Sub-slices are written to derived sibling paths (`0007-00.flac`, `0007-01.flac`, …) rather than to
+`chunk_path(index)`. Both halves reusing the chunk file would have the second overwrite the first, and on the
+real extractor the second slice would be reading a destination it is simultaneously writing. They stay in the
+same directory because every path handed to the extractor is resolve-checked against the job directory before
+a spawn.
+
+### The fixture arithmetic caught the same off-by-an-overlap twice
+
+The first draft of these tests assumed a 600 s target produces 600 s chunks. It does not: chunk 0 is
+**[0, 605]**, because it carries the overlap tail. That is the identical mistake slice 8a-iii found inside the
+byte cap itself — *no chunk is one stride long* — this time made by the test rather than by the code. Worth
+recording because it is now the second time the overlap has been dropped from an estimate of a chunk's size,
+which suggests it is genuinely easy to forget rather than a one-off slip.
+
+### Measured cost
+
+**622 lines against the ~450 estimate (1.4x)** — `src` 198, tests 424. Test share 68%. Inside the 800 budget,
+so one unit. No new dependency, no port change, no domain change: the recovery path is entirely inside the
+use case that already owned the loop, which is what makes it revertible on its own.
 
 ## Slice 8b-ii: In-Call-Timeout Construction Refactor (~150 lines)
 
