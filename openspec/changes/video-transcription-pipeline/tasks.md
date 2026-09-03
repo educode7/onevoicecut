@@ -2070,9 +2070,52 @@ The fixture now cites nothing.
 
 Closes: `script-generation` Map-Reduce Summarization (recovery half). Depends on 10a-iii.
 
-- [ ] 10.9 RED: `ContextLengthExceeded` retry test — window halves and retries.
-- [ ] 10.10 GREEN: implement halving retry.
-- [ ] 10.11 REFACTOR: extract token-estimation helper; suite green.
+- [x] 10.9 RED: `ContextLengthExceeded` retry test — window halves and retries.
+- [x] 10.10 GREEN: implement halving retry.
+- [x] 10.11 REFACTOR: extract token-estimation helper; suite green. **Already extracted in 10a-i.**
+
+### The same recovery as 8b-i, one layer up
+
+`chars/4` is deliberately crude — it is what keeps a provider-specific tokenizer out of the core — and the
+price is that it is sometimes wrong in the expensive direction. The provider says so by raising
+`ContextLengthExceeded`, and the answer is the shape slice 8b-i already built for oversized audio chunks:
+halve, retry each half, bound the recursion, lose nothing.
+
+The two properties that mattered there matter here for the same reasons. **Coverage**: every id in the
+original window must still reach the model in one of the halves, because a dropped half is a passage of the
+sermon nobody summarised and the summary reads exactly as well without it. **Termination**: a window of one
+segment cannot be halved into anything, so it fails loudly rather than recursing forever, and the refusal
+names the segment — an operator's only lever is the transcript, and knowing which segment is the immovable one
+is the difference between acting and guessing.
+
+**One thing differs, and it is a difference from 8b-i rather than from windowing.** A split audio chunk had to
+come back as *one* `ChunkResult`, because chunk results are indexed against the persisted plan. A split window
+comes back as **two partials**, and that is fine: REDUCE folds however many arrive, which is the mechanism
+that existed for this all along. Nothing downstream counts partials.
+
+**The halves do not overlap**, which is the opposite of what windowing does and for a reason worth stating.
+Windowing overlaps to protect a thought split across a boundary it is creating. Here the boundary already
+exists — re-sending shared segments would pay twice for text the model has seen and return two partials that
+repeat each other.
+
+`_halve` splits at a segment boundary by splitting the rendered lines, which stay aligned with `segment_ids`
+because a window is rendered one line per segment. That is what lets a half be rebuilt without the transcript
+that produced it, and it is now named: `SEGMENT_SEPARATOR`.
+
+### 10.11 was closed by 10a-i
+
+`estimate_tokens` has been the single definition since the MAP windowing landed — `CHARS_PER_TOKEN` appears
+exactly twice in the module, as the constant and as its one use, and windowing, the fold budget and this
+retry path all call the same function. A test pins that count so a second inline `/4` cannot creep back in.
+
+Fifth task in this change to be already-satisfied when reached (7.7, 8.5b, 8.8, 9.5/9.6, now 10.11). Four of
+those were seams the design forbids; this one is simply a refactor that happened at the right time on its own.
+
+### Measured cost
+
+**282 lines against the ~300 estimate (0.94x)** — `src` 76, tests 206. **Sub-slice 10a is closed**: fake port,
+MAP windowing, speech-only filtering, the admission guard it forced, id validation, the REDUCE fold, and the
+halving retry.
 
 ---
 

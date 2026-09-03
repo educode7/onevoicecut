@@ -29,7 +29,7 @@ import json
 import math
 from dataclasses import dataclass
 
-from onevoicecut.domain.errors import GenerationFailed
+from onevoicecut.domain.errors import ContextLengthExceeded, GenerationFailed
 from onevoicecut.domain.transcript import TranscriptSegment, is_speech
 from onevoicecut.ports.text_generation import TextGenerationPort
 
@@ -40,6 +40,10 @@ DEFAULT_MAP_OVERLAP_TOKENS = 200
 
 # Deliberately crude, deliberately conservative. See the module docstring.
 CHARS_PER_TOKEN = 4
+
+# One line per segment is how a window is rendered, which is also what lets one be
+# split back apart without the transcript that produced it.
+SEGMENT_SEPARATOR = "\n"
 
 # Named in every refusal, so a message about a malformed answer says what was
 # expected instead of only what arrived.
@@ -299,15 +303,75 @@ def run_map(
     generate: TextGenerationPort,
     max_output_tokens: int,
 ) -> tuple[MapPartial, ...]:
-    """One call per window, each answer checked against its own window."""
-    return tuple(
-        parse_map_response(
-            generate.complete(
-                _map_prompt(window), max_output_tokens=max_output_tokens
-            ),
-            window,
+    """One call per window, each answer checked against its own window.
+
+    More partials can come back than windows went in. `chars/4` is deliberately
+    crude — it is what keeps a provider-specific tokenizer out of the core — and
+    the price is that it is sometimes wrong in the expensive direction. A window
+    the provider refuses is halved and retried, so it yields two partials rather
+    than one, and REDUCE folds however many arrive. That fold is the mechanism
+    which existed for this all along.
+    """
+    partials: list[MapPartial] = []
+    for window in windows:
+        partials.extend(
+            _map_one(window, generate=generate, max_output_tokens=max_output_tokens)
         )
-        for window in windows
+    return tuple(partials)
+
+
+def _map_one(
+    window: MapWindow, *, generate: TextGenerationPort, max_output_tokens: int
+) -> tuple[MapPartial, ...]:
+    """Summarise one window, halving it if the provider says it is too long.
+
+    The same recovery slice 8b-i built for oversized audio chunks, and the same
+    two properties: **coverage**, because a dropped half is a passage of the
+    sermon nobody summarised and the summary reads as well without it; and
+    **termination**, because a window of one segment cannot be halved into
+    anything and must fail loudly rather than recurse forever.
+
+    The halves do not overlap, unlike the windowing that produced them. Overlap
+    exists to protect a thought split across a boundary; here the boundary
+    already existed, so re-sending shared segments would pay twice for text the
+    model has seen and return two partials repeating each other.
+    """
+    try:
+        raw = generate.complete(_map_prompt(window), max_output_tokens=max_output_tokens)
+    except ContextLengthExceeded as error:
+        if len(window.segment_ids) < 2:
+            raise ContextLengthExceeded(
+                f"segment {window.segment_ids[0] if window.segment_ids else '?'} "
+                f"alone exceeds the model's context and cannot be split further: "
+                f"{error}"
+            ) from error
+
+        left, right = _halve(window)
+        return _map_one(
+            left, generate=generate, max_output_tokens=max_output_tokens
+        ) + _map_one(right, generate=generate, max_output_tokens=max_output_tokens)
+
+    return (parse_map_response(raw, window),)
+
+
+def _halve(window: MapWindow) -> tuple[MapWindow, MapWindow]:
+    """Split at a segment boundary, never inside one.
+
+    The rendered text is one line per segment by construction, so lines and ids
+    stay aligned and a half can be rebuilt without the original transcript —
+    which is what keeps this recovery local to the module that made the window.
+    """
+    lines = window.text.splitlines()
+    middle = len(window.segment_ids) // 2
+    return (
+        MapWindow(
+            segment_ids=window.segment_ids[:middle],
+            text=SEGMENT_SEPARATOR.join(lines[:middle]),
+        ),
+        MapWindow(
+            segment_ids=window.segment_ids[middle:],
+            text=SEGMENT_SEPARATOR.join(lines[middle:]),
+        ),
     )
 
 
