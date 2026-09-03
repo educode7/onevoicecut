@@ -45,7 +45,23 @@ def _window(*ids: int) -> MapWindow:
 
 
 def _response(summary: str, *cited: int) -> str:
-    return json.dumps({"summary": summary, "segment_ids": list(cited)})
+    """Slice 10b-i gave the cited ids their structure: they are carried by a
+    *moment*, which also names the hook, the quote and a score. The id rules
+    these tests assert are unchanged — they just live one level in now."""
+    moments = (
+        [
+            {
+                "segment_ids": list(cited),
+                "hook": "gancho",
+                "quote": "cita",
+                "rationale": "porque si",
+                "score": 0.5,
+            }
+        ]
+        if cited
+        else []
+    )
+    return json.dumps({"summary": summary, "moments": moments})
 
 
 def _segments(count: int) -> tuple[TranscriptSegment, ...]:
@@ -106,14 +122,21 @@ class TestIdsAreCheckedAgainstTheirWindow:
 
     def test_a_response_without_a_summary_is_refused(self) -> None:
         with pytest.raises(GenerationFailed):
-            parse_map_response(json.dumps({"segment_ids": [1]}), _window(1, 2))
+            parse_map_response(json.dumps({"moments": []}), _window(1, 2))
 
     def test_a_non_integer_id_is_refused(self) -> None:
         """`"s0001"` is what a model returns when it echoes the rendered form
         instead of the number, and `int()` on it raises somewhere useless."""
         with pytest.raises(GenerationFailed):
             parse_map_response(
-                json.dumps({"summary": "x", "segment_ids": ["s0001"]}), _window(1, 2)
+                json.dumps(
+                    {
+                        "summary": "x",
+                        "moments": [{"segment_ids": ["s0001"], "hook": "g",
+                                     "quote": "c", "rationale": "r", "score": 0.5}],
+                    }
+                ),
+                _window(1, 2),
             )
 
 

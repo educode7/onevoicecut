@@ -2123,9 +2123,53 @@ halving retry.
 
 Closes: `script-generation` Clip Candidate Output. Builds directly on 10a's MAP/REDUCE infrastructure.
 
-- [ ] 10.12 RED: clip-candidate test — candidate carries `start_s`/`end_s` mapping into the source
+- [x] 10.12 RED: clip-candidate test — candidate carries `start_s`/`end_s` mapping into the source
       transcript plus a short script.
-- [ ] 10.13 GREEN: rank-by-score candidate selection, top `max_clip_candidates`.
+- [x] 10.13 GREEN: rank-by-score candidate selection, top `max_clip_candidates`.
+
+### The model proposes; the transcript decides where
+
+A moment arrives as segment ids plus a hook, a quote, a reason and a score. **The times are never taken from
+the model.** They are read off the segments those ids resolve to — start of the earliest, end of the latest —
+so a model citing 1 and 4 gets the stretch rather than two fragments that jump.
+
+`Moment` has **no timestamp field at all**, and that absence is the design. Offering one would invite exactly
+the fabrication the id scheme exists to prevent, and a test feeds a response carrying `start_s: 999.0` to
+prove it is ignored rather than merely unused.
+
+### The flat `segment_ids` was always a placeholder
+
+10a-iii parsed `{"summary": str, "segment_ids": [int]}`, which was the id-validation half of a shape design.md
+had described in full: *"partial summary text plus candidate moments referenced by segment id"*. This slice is
+where the moments take their structure, so the flat list became `moments`, each carrying its own ids.
+
+Every id rule 10a-iii established is unchanged — checked against the producing window, one invented id refuses
+the whole response, non-integer ids refused rather than coerced. They live one level in now, and the churn is
+29 lines in that slice's fixtures. Planned evolution rather than a correction: the two slices were always
+going to meet here.
+
+Three new refusals, all about being *comparable* rather than merely well-formed:
+
+- **A moment citing nothing.** A clip without a time is not a clip, and dropping it silently would lose a
+  moment the model may have thought was the best in the sermon.
+- **A score outside 0..1.** Ranking is comparison, so the scale has to mean the same thing for every moment.
+  One scored 87 alongside one scored 0.9 tops every list for no reason.
+- **A missing hook, quote or rationale.** These reach the operator; a candidate with a blank one is a row they
+  cannot act on.
+
+### Determinism is the point of the tiebreak, not the tiebreak
+
+Ties break on position, earliest first. Which rule wins matters less than that one exists: two runs over the
+same transcript disagreeing about the top five would be two runs an operator cannot reason about, and nothing
+in the artifact would say which they were reading.
+
+`variants` comes back empty. One `complete()` call per (candidate, target) pair is 10b-iii's work, and an
+empty tuple says "none yet" without pretending otherwise.
+
+### Measured cost
+
+**370 lines against the ~300 estimate (1.23x)** — `src` 144, tests 206 new plus 29 lines of fixture churn in
+10a-iii. No domain change: `ClipCandidate` shipped in slice 1 with exactly the fields this fills.
 
 ## Slice 10b-ii: Musical-Range Eligibility (~250 lines)
 

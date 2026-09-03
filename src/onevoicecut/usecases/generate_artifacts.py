@@ -30,6 +30,7 @@ import math
 from dataclasses import dataclass
 
 from onevoicecut.domain.errors import ContextLengthExceeded, GenerationFailed
+from onevoicecut.domain.generation import ClipCandidate
 from onevoicecut.domain.transcript import TranscriptSegment, is_speech
 from onevoicecut.ports.text_generation import TextGenerationPort
 
@@ -47,13 +48,21 @@ SEGMENT_SEPARATOR = "\n"
 
 # Named in every refusal, so a message about a malformed answer says what was
 # expected instead of only what arrived.
-RESPONSE_SHAPE = 'JSON: {"summary": str, "segment_ids": [int]}'
+RESPONSE_SHAPE = (
+    'JSON: {"summary": str, "moments": [{"segment_ids": [int], "hook": str, '
+    '"quote": str, "rationale": str, "score": float}]}'
+)
+
+# How many clip candidates survive ranking. Few enough that an operator reviews
+# all of them, which is the point of ranking rather than listing.
+DEFAULT_MAX_CLIP_CANDIDATES = 8
 
 # Spanish, because the source is. The prompts are the one place in this module
 # where the material's language shows through.
 _MAP_INSTRUCTION = (
-    "Resume el siguiente fragmento de una predicacion. Cita los momentos "
-    "destacados unicamente por su identificador de segmento, nunca por tiempo. "
+    "Resume el siguiente fragmento de una predicacion e identifica los "
+    "momentos que merecen un clip corto. Referencia cada momento unicamente "
+    "por identificador de segmento, nunca por tiempo. "
     f"Responde en {RESPONSE_SHAPE}."
 )
 _FOLD_INSTRUCTION = (
@@ -237,6 +246,29 @@ def _next_start(costs: list[int], start: int, end: int, overlap_tokens: int) -> 
 
 
 @dataclass(frozen=True, slots=True)
+class Moment:
+    """A stretch the model thinks is worth cutting, anchored by ids only.
+
+    There is deliberately **no timestamp field**. Offering one would invite the
+    exact fabrication the id scheme exists to prevent: an LLM asked for a number
+    produces a plausible one, and a clip cut at an invented time is fluent,
+    confident and aimed at the wrong minute of a three-hour video. The times are
+    read off the transcript in `rank_clip_candidates`.
+
+    `score` is the one judgement the model is qualified to make here, and it is
+    bounded so the scale means the same thing for every moment — ranking is
+    comparison, and a moment scored 87 against another scored 0.9 would top every
+    list for no reason.
+    """
+
+    segment_ids: tuple[int, ...]
+    hook: str
+    quote: str
+    rationale: str
+    score: float
+
+
+@dataclass(frozen=True, slots=True)
 class MapPartial:
     """One window's answer: prose to fold, and the moments it pointed at.
 
@@ -247,7 +279,14 @@ class MapPartial:
     """
 
     summary: str
-    cited_ids: tuple[int, ...]
+    moments: tuple[Moment, ...] = ()
+
+    @property
+    def cited_ids(self) -> tuple[int, ...]:
+        """Every id this partial points at, in order, without repeats."""
+        return tuple(
+            dict.fromkeys(i for moment in self.moments for i in moment.segment_ids)
+        )
 
 
 def parse_map_response(raw: str, window: MapWindow) -> MapPartial:
@@ -275,7 +314,62 @@ def parse_map_response(raw: str, window: MapWindow) -> MapPartial:
             f"the model's answer carried no summary; expected {RESPONSE_SHAPE}"
         )
 
-    raw_ids = payload.get("segment_ids", [])
+    raw_moments = payload.get("moments", [])
+    if not isinstance(raw_moments, list):
+        raise GenerationFailed(
+            f"the model's moments were not a list; expected {RESPONSE_SHAPE}"
+        )
+
+    return MapPartial(
+        summary=payload["summary"],
+        moments=tuple(_read_moment(raw, window) for raw in raw_moments),
+    )
+
+
+def _read_moment(raw: object, window: MapWindow) -> Moment:
+    """One proposed clip, refused unless it is anchored and comparable."""
+    if not isinstance(raw, dict):
+        raise GenerationFailed(f"a moment was not an object: {raw!r}")
+
+    ids = _read_ids(raw.get("segment_ids"), window)
+    if not ids:
+        # A clip without a time is not a clip. Dropping it silently would lose a
+        # moment the model may have thought was the best in the sermon.
+        raise GenerationFailed(
+            "a moment cited no segment ids, so there is nothing to cut it from"
+        )
+
+    score = raw.get("score")
+    if not isinstance(score, (int, float)) or isinstance(score, bool):
+        raise GenerationFailed(f"a moment's score was not a number: {score!r}")
+    if not 0.0 <= float(score) <= 1.0:
+        # Ranking is comparison, so the scale has to mean the same thing for
+        # every moment. One scored 87 alongside one scored 0.9 tops every list.
+        raise GenerationFailed(
+            f"a moment's score {score} is outside the 0..1 range every other "
+            f"moment is ranked on"
+        )
+
+    text = {field: raw.get(field) for field in ("hook", "quote", "rationale")}
+    missing = sorted(field for field, value in text.items() if not isinstance(value, str))
+    if missing:
+        raise GenerationFailed(f"a moment was missing {missing}; expected {RESPONSE_SHAPE}")
+
+    return Moment(
+        segment_ids=ids,
+        hook=str(text["hook"]),
+        quote=str(text["quote"]),
+        rationale=str(text["rationale"]),
+        score=float(score),
+    )
+
+
+def _read_ids(raw_ids: object, window: MapWindow) -> tuple[int, ...]:
+    """Ids checked against **the window that produced them**, never the whole
+    transcript — otherwise a model could cite a moment it was never shown and
+    the citation would validate."""
+    if raw_ids is None:
+        return ()
     if not isinstance(raw_ids, list) or any(
         not isinstance(value, int) or isinstance(value, bool) for value in raw_ids
     ):
@@ -293,8 +387,46 @@ def parse_map_response(raw: str, window: MapWindow) -> MapPartial:
             f"contain; a fabricated reference points at the wrong moment of the "
             f"recording while looking correct"
         )
+    return tuple(raw_ids)
 
-    return MapPartial(summary=payload["summary"], cited_ids=tuple(raw_ids))
+
+def rank_clip_candidates(
+    partials: tuple[MapPartial, ...],
+    segments: tuple[TranscriptSegment, ...],
+    *,
+    max_candidates: int = DEFAULT_MAX_CLIP_CANDIDATES,
+) -> tuple[ClipCandidate, ...]:
+    """Place every proposed moment in real time, then keep the best few.
+
+    **The times come from the transcript, never from the model.** A moment is a
+    set of ids; the clip runs from the start of the earliest to the end of the
+    latest, so a model citing 1 and 4 gets the stretch rather than two fragments
+    that jump.
+
+    Ties break on position, earliest first. Determinism matters more than the
+    tiebreak itself: two runs over the same transcript that disagreed about the
+    top five would be two runs an operator cannot reason about, and nothing in
+    the artifact would say which one they were reading.
+
+    `variants` comes back empty — one `complete()` call per (candidate, target)
+    pair is slice 10b-iii's work, and an empty tuple says "none yet" without
+    pretending otherwise.
+    """
+    candidates = [
+        ClipCandidate(
+            start_s=min(segments[i].start_s for i in moment.segment_ids),
+            end_s=max(segments[i].end_s for i in moment.segment_ids),
+            hook=moment.hook,
+            quote=moment.quote,
+            rationale=moment.rationale,
+            score=moment.score,
+            variants=(),
+        )
+        for partial in partials
+        for moment in partial.moments
+    ]
+    candidates.sort(key=lambda c: (-c.score, c.start_s))
+    return tuple(candidates[:max_candidates])
 
 
 def run_map(
