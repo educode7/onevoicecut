@@ -3332,20 +3332,20 @@ Closes: `clip-rendering` Single Native ffmpeg Pass, Crop Trajectory Applied As G
 **ffmpeg filter-graph composition**. Depends on 13a-i (`ClipId`, `OutputSpec`) and 12a-i
 (`CropTrajectory`). Independent of 13a-ii; gates 13b-i.
 
-- [ ] 13a.23 RED: `tests/unit/adapters/ffmpeg/test_argv_composition.py` — the render argv contains one
+- [x] 13a.23 RED: `tests/unit/adapters/ffmpeg/test_argv_composition.py` — the render argv contains one
       `-filter_complex` chaining `sendcmd`→`crop`→`scale`→`subtitles`, `-ss` before `-i`, absolute
       source/dest paths, and exactly one ffmpeg invocation per render.
-- [ ] 13a.24 GREEN: `adapters/ffmpeg/argv.py` — `build_render_argv()` extending the shipped
+- [x] 13a.24 GREEN: `adapters/ffmpeg/argv.py` — `build_render_argv()` extending the shipped
       prefix/containment helpers.
-- [ ] 13a.25 RED: bare-relative-filename test — the composed graph references `<clip_id>.cmds`/`.ass` by
+- [x] 13a.25 RED: bare-relative-filename test — the composed graph references `<clip_id>.cmds`/`.ass` by
       bare filename with **no directory prefix and no path separator**, never an absolute path, regardless
       of a job-directory path containing `:`, `'`, `,`, or `\`; the composer reports the job's `render/`
       subdirectory as the `cwd` the graph resolves against.
-- [ ] 13a.26 GREEN: confirm the graph composer never interpolates the job-directory path, nor a `render/`
+- [x] 13a.26 GREEN: confirm the graph composer never interpolates the job-directory path, nor a `render/`
       prefix, into the filter string.
-- [ ] 13a.27 RED: non-ULID-`clip_id` test — a `clip_id` failing the ULID regex is refused before the graph
+- [x] 13a.27 RED: non-ULID-`clip_id` test — a `clip_id` failing the ULID regex is refused before the graph
       is composed.
-- [ ] 13a.28 GREEN: validate `clip_id` against `domain/ids.py`'s regex before composition.
+- [x] 13a.28 GREEN: validate `clip_id` against `domain/ids.py`'s regex before composition.
 - [x] 13a.29 RED: `tests/unit/adapters/ffmpeg/test_sendcmd.py` — a `CropTrajectory` sampled at
       `sample_hz=4` densifies to `command_hz=25` commands via linear interpolation, introducing no new
       `INTERPOLATED`/`FALLBACK_CENTER` origin (the densifier is origin-blind).
@@ -3354,6 +3354,56 @@ Closes: `clip-rendering` Single Native ffmpeg Pass, Crop Trajectory Applied As G
       smoothing/dead-zone/clamp parameter is referenced by the densifier module.
 - [x] 13a.32 GREEN: confirm by construction (`ast`-parse `sendcmd.py`, assert no import of
       `plan_trajectory`'s policy type).
+### The filter string is where argv's safety argument stops applying
+
+List form protects the *tokens* — nothing splits them on `;` or a backtick, because nothing parses them as a
+command line. But `-filter_complex` is a single token that **ffmpeg itself parses**, with its own grammar: `:`
+separates options, `,` separates filters, and quoting is its own.
+
+A job directory on this machine is an absolute Windows path: a drive-letter colon and backslashes, both syntax
+inside that grammar. A directory an operator named with an apostrophe would close a quote. So **no path
+reaches the graph** — the command and subtitle files are referenced by **bare filename**, and the composer
+returns the directory they resolve against beside the argv, which makes setting it the caller's obligation
+rather than a fact buried in a docstring.
+
+Mutation-checked, all three caught: interpolating the resolved path into the graph fails 5 tests, adding even
+a relative `render/` prefix fails 2, and skipping `clip_id` validation fails 5.
+
+**Validating the id first is what closes the last hole.** Bare filenames leave exactly one value composed into
+the string, so a `clip_id` carrying `/`, `..` or a quote would escape the directory or the quoting. After
+`make_clip_id` it is twenty-six characters from a fixed alphabet.
+
+### A defect in `domain/ids.py`, found while relying on it
+
+`_validate_ulid` used `.match` with a `$`-anchored pattern, and **a `$` anchor matches before a trailing
+newline** — so `"<ulid>
+"` passed as a ULID for `job_id`, `media_id` and `clip_id` alike.
+
+This is the same defect slice 1 fixed for `make_operator_id`, whose comment says so in as many words; the ULID
+validator never got the same treatment. It is reachable: `%0A` in a URL path decodes to exactly that, and the
+project's own security invariant is that `job_id` is validated against this regex *before touching the
+filesystem*. From this slice a `clip_id` also reaches a filter string, where a newline is grammar rather than
+cosmetics. Fixed with `fullmatch` over an unanchored pattern, matching the operator-id precedent, with tests
+over all three factories and both ends.
+
+### Two tests corrected against what the code actually guarantees
+
+- **A reversed span never reaches the composer.** `TimeSpan` refuses one in `__post_init__` — the guard added
+  in 12b-ii — so `-t` can never go negative, which matters because ffmpeg reads a negative duration as "until
+  the end" and would render the rest of a three-hour sermon into a thirty-second clip. The `ClipRangeInvalid`
+  branch here therefore guards **zero length only**: a span that is coherent to construct and meaningless to
+  render. Writing the test is what revealed the branch was half dead.
+- **A colon cannot be tested by fixture on Windows.** The hostile-directory case wanted `with:colon` and the
+  OS refuses it outright — a colon separates an NTFS alternate data stream. Recorded rather than worked
+  around, because the colon risk is already covered more strongly: every absolute path here carries a
+  drive-letter one, and a separate test asserts the whole job path is absent from the graph.
+
+### Measured cost
+
+**493 lines against the ~575 slice estimate** — `src` 106, tests 387 (including the ids regression). With the
+densifier's 364, slice 13a-iii comes to **857 across two units**, each comfortably inside the 800 budget where
+one would not have been. That is the seam 13a-i and 13a-ii both had and neither took.
+
 ### Split at the seam: the densifier ships alone
 
 13a-i came in at 952 lines and 13a-ii at 843, both over the 800 budget, and both had a visible seam nobody
@@ -3408,7 +3458,7 @@ and mutation-checked the result.
 **364 lines against the ~575 estimate for the whole slice (0.63x)** and well inside the 800 budget — `src`
 117, tests 247. The other half carries the rest.
 
-- [ ] 13a.33 REFACTOR: suite green, `mypy src tests` clean.
+- [x] 13a.33 REFACTOR: suite green, `mypy src tests` clean.
 
 ---
 

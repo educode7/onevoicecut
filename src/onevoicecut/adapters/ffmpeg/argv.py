@@ -15,10 +15,14 @@ Two rules carry the safety here:
    one place where a leading-dash filename would otherwise matter.
 """
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from onevoicecut.domain.chunking import PlannedChunk
-from onevoicecut.domain.errors import ExtractionFailed
+from onevoicecut.domain.errors import ClipRangeInvalid, ExtractionFailed
+from onevoicecut.domain.framing import TimeSpan
+from onevoicecut.domain.ids import make_clip_id
+from onevoicecut.domain.rendering import OutputSpec
 
 FFMPEG_BINARY = "ffmpeg"
 FFPROBE_BINARY = "ffprobe"
@@ -132,3 +136,111 @@ def build_slice_argv(track: Path, planned: PlannedChunk, dest: Path) -> list[str
         "-y",
         str(dest.resolve()),
     ]
+
+
+# The subdirectory a clip's own files live in, and the working directory the
+# filter graph resolves its bare filenames against.
+RENDER_DIRNAME = "render"
+
+
+@dataclass(frozen=True, slots=True)
+class RenderInvocation:
+    """An argv and the directory it must be run from.
+
+    The two travel together because neither is correct alone: the filter graph
+    references its command and subtitle files by bare filename, so a caller that
+    ran this argv from anywhere else would have ffmpeg look for them in the wrong
+    place. Returning the directory makes that the caller's obligation rather than
+    a fact buried in a docstring.
+    """
+
+    argv: list[str]
+    cwd: Path
+
+
+def build_render_argv(
+    *,
+    source: Path,
+    dest: Path,
+    job_dir: Path,
+    clip_id: str,
+    span: TimeSpan,
+    crop_size: tuple[int, int],
+    output: OutputSpec,
+) -> RenderInvocation:
+    """One native pass: seek, crop along the trajectory, scale, burn in captions.
+
+    **`-filter_complex` is where argv's safety argument stops applying.** List
+    form protects the *tokens* — nothing splits them on `;` or a backtick,
+    because nothing parses them as a command line. But the filter string is a
+    single token that ffmpeg itself parses, with its own grammar: `:` separates
+    options, `,` separates filters, and quoting and escaping are its own.
+
+    A job directory on Windows carries a drive-letter colon and backslashes, both
+    of which are syntax inside that grammar, and a directory an operator named
+    with an apostrophe would close a quote. So
+    **no path reaches the graph**: the command and subtitle files are referenced
+    by bare filename and resolved against `cwd`.
+
+    That leaves the id itself as the only value composed into the string, which
+    is why it is validated first. A `clip_id` carrying `/`, `..` or a quote would
+    escape the directory or the quoting; after `make_clip_id` it is twenty-six
+    characters from a fixed alphabet.
+
+    The crop size is taken, never recomputed. Stage 1 fixed it and
+    `CropTrajectory` holds it for the whole clip, so deriving it again here would
+    be a second answer to a question already settled — and the quality
+    declaration divides by it.
+    """
+    validated = make_clip_id(clip_id)
+
+    if span.duration_s <= 0:
+        # Zero length only, in practice: `TimeSpan` already refuses a reversed
+        # pair in `__post_init__`, so `-t` can never go negative — which matters
+        # because ffmpeg reads a negative duration as "until the end". What
+        # reaches here is a span that is coherent to *construct* and meaningless
+        # to *render*, and `ClipRangeInvalid` says whose error it is.
+        raise ClipRangeInvalid(
+            f"clip range {span.start_s}s..{span.end_s}s has no footage in it"
+        )
+
+    crop_w, crop_h = crop_size
+    return RenderInvocation(
+        argv=[
+            *_ffmpeg_prefix(),
+            "-ss",
+            _seconds(span.start_s),
+            "-i",
+            str(resolve_inside(job_dir, source)),
+            "-t",
+            _seconds(span.duration_s),
+            "-filter_complex",
+            _render_graph(validated, crop_w, crop_h, output),
+            "-y",
+            str(resolve_inside(job_dir, dest)),
+        ],
+        cwd=resolve_inside(job_dir, job_dir / RENDER_DIRNAME),
+    )
+
+
+def _render_graph(
+    clip_id: str, crop_w: int, crop_h: int, output: OutputSpec
+) -> str:
+    """The four stages, in the only order that works.
+
+    `sendcmd` first because it drives the `crop` that follows it — a command
+    stream cannot address a filter declared before it. `scale` after `crop` so
+    the upscale happens once, on the smaller picture. `subtitles` last so the
+    captions are burned at output resolution rather than scaled up with the
+    frame, which would soften every glyph.
+
+    Bare filenames throughout. See `build_render_argv` for why.
+    """
+    return ",".join(
+        (
+            f"sendcmd=f={clip_id}.cmds",
+            f"crop=w={crop_w}:h={crop_h}:x=0:y=0",
+            f"scale={output.width}:{output.height}",
+            f"subtitles={clip_id}.ass",
+        )
+    )

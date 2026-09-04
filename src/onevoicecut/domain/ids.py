@@ -15,7 +15,7 @@ import re
 import time
 from typing import NewType
 
-_ULID_PATTERN = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
+_ULID_PATTERN = re.compile(r"[0-9A-HJKMNP-TV-Z]{26}")
 
 # Crockford base32: no I, L, O or U, so an id read off a screen cannot be
 # transcribed into a different valid one. Matches `_ULID_PATTERN` exactly.
@@ -49,7 +49,13 @@ class InvalidIdError(ValueError):
 
 
 def _validate_ulid(value: str) -> str:
-    if not _ULID_PATTERN.match(value):
+    # `fullmatch`, not `match` with `$` — the same fix `make_operator_id` carries
+    # and the same reason. A `$` anchor matches before a trailing newline, so
+    # `"<ulid>\n"` passed as a ULID. It is reachable: `%0A` in a URL path decodes
+    # to exactly that, and this validator is what stands between a request and a
+    # path component. From slice 13 a `clip_id` also reaches an ffmpeg
+    # `-filter_complex` string, where a newline is grammar rather than cosmetics.
+    if not _ULID_PATTERN.fullmatch(value):
         raise InvalidIdError(f"{value!r} is not a valid ULID")
     return value
 

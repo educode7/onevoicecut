@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import pytest
 
 from onevoicecut.domain.ids import (
@@ -123,3 +125,37 @@ class TestClipId:
 
     def test_it_is_a_newtype_over_str(self) -> None:
         assert getattr(ClipId, "__supertype__") is str
+
+
+class TestTheUlidAnchorAcceptsNoTrailingNewline:
+    """The same defect `make_operator_id` was fixed for in slice 1, on the
+    validator that guards every path component this system writes.
+
+    A `$` anchor matches before a trailing newline, so `_validate_ulid` accepted
+    `"<ulid>\n"` as a ULID. It is reachable: `%0A` in a URL path decodes to
+    exactly that, and the project's own security invariant is that `job_id` is
+    validated against this regex *before touching the filesystem*. From slice 13
+    a `clip_id` also reaches an ffmpeg `-filter_complex` string, where a newline
+    inside a filter argument is a syntax problem rather than a cosmetic one.
+    """
+
+    @pytest.mark.parametrize(
+        "factory", [make_job_id, make_media_id, make_clip_id]
+    )
+    def test_a_trailing_newline_is_not_an_identity(
+        self, factory: Callable[[str], str]
+    ) -> None:
+        with pytest.raises(InvalidIdError):
+            factory(f"{VALID_ULID}\n")
+
+    @pytest.mark.parametrize(
+        "factory", [make_job_id, make_media_id, make_clip_id]
+    )
+    def test_a_leading_newline_is_not_an_identity_either(
+        self, factory: Callable[[str], str]
+    ) -> None:
+        with pytest.raises(InvalidIdError):
+            factory(f"\n{VALID_ULID}")
+
+    def test_the_valid_id_itself_still_passes(self) -> None:
+        assert make_clip_id(VALID_ULID) == VALID_ULID
