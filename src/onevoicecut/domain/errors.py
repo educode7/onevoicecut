@@ -116,6 +116,29 @@ class FrameGeometryUnavailable(DomainError):
     """
 
 
+class TrackingUnavailable(DomainError):
+    """Raised when the tracker a clip needs cannot run on this build at all.
+
+    The exception behind `DetectionSupport.REQUIRES_SETUP` and `UNSUPPORTED`.
+    Declared capability lets a caller skip the clip before spending anything;
+    this stops a caller who ignored the declaration from receiving an empty
+    detection series, which reads exactly like a subject who never moved.
+
+    Distinct from `DetectionFailed` because the operator's next move differs:
+    install the vision extras, or render without a reframe.
+    """
+
+
+class DetectionFailed(DomainError):
+    """Raised when a tracker that can run failed on this particular clip.
+
+    Corrupt frames, an unreadable seek, a provider that fell over. Retryable in
+    a way `TrackingUnavailable` is not, and a domain error because a caller must
+    never have to catch a vision library's own exception type to survive one bad
+    clip in eighty.
+    """
+
+
 class ContextLengthExceeded(DomainError):
     pass
 

@@ -2823,22 +2823,87 @@ with the new domain module in place.
 Closes: `subject-tracking` SubjectTrackerPort Contract, Capability Declaration, A Miss Is Reported Never
 Guessed. Depends on 12a-i for `TimeSpan`, which appears in `detect`'s signature; both gate 12b-i.
 
-- [ ] 12a.10 RED: `tests/unit/ports/test_capabilities.py` — `DetectionSupport` has exactly `{unsupported,
+- [x] 12a.10 RED: `tests/unit/ports/test_capabilities.py` — `DetectionSupport` has exactly `{unsupported,
       requires_setup, available}`; `TrackerCapabilities(tracker_id, detection)`.
-- [ ] 12a.11 GREEN: `ports/capabilities.py` — add `DetectionSupport(StrEnum)`, `TrackerCapabilities`.
-- [ ] 12a.12 RED: `tests/unit/ports/test_subject_tracker.py` — `BoundingBox`, `SubjectDetection(at_s, box,
+- [x] 12a.11 GREEN: `ports/capabilities.py` — add `DetectionSupport(StrEnum)`, `TrackerCapabilities`.
+- [x] 12a.12 RED: `tests/unit/ports/test_subject_tracker.py` — `BoundingBox`, `SubjectDetection(at_s, box,
       confidence)` construct; `box=None` is an explicit miss, distinguishable from a low-confidence hit
       (`box` set, low `confidence`).
-- [ ] 12a.13 GREEN: `ports/subject_tracker.py` — the two dataclasses + `SubjectTrackerPort(Protocol)` with
+- [x] 12a.13 GREEN: `ports/subject_tracker.py` — the two dataclasses + `SubjectTrackerPort(Protocol)` with
       `capabilities()`/`detect()`.
-- [ ] 12a.14 RED: fake-detector test — the fake returns a detection or explicit miss for every sampled
+- [x] 12a.14 RED: fake-detector test — the fake returns a detection or explicit miss for every sampled
       point in a requested span, and none outside it.
-- [ ] 12a.15 GREEN: `tests/fakes/subject_tracker.py` — script-driven fake, mirroring
+- [x] 12a.15 GREEN: `tests/fakes/subject_tracker.py` — script-driven fake, mirroring
       `FakeTranscriptionPort`'s shape.
-- [ ] 12a.16 RED: `domain/errors.py` — `TrackingUnavailable`/`DetectionFailed` derive from `DomainError`.
-- [ ] 12a.17 GREEN: add both errors.
-- [ ] 12a.18 REFACTOR: suite green, `mypy src tests` clean; confirm `tests/test_architecture.py` still
+- [x] 12a.16 RED: `domain/errors.py` — `TrackingUnavailable`/`DetectionFailed` derive from `DomainError`.
+- [x] 12a.17 GREEN: add both errors.
+- [x] 12a.18 REFACTOR: suite green, `mypy src tests` clean; confirm `tests/test_architecture.py` still
       passes with the two new port/domain modules.
+
+
+### The whole port is one distinction: a miss has no box, a weak hit has one
+
+Everything else here is vocabulary. `box=None` versus a low-confidence hit is the spec's "the no-detection
+result MUST be distinguishable from a low-confidence true detection", made **structural rather than
+conventional** — a miss has nothing to inspect, a weak hit does.
+
+There is deliberately **no threshold** at which a weak hit becomes a miss. Whether a barely-visible preacher
+is good enough is policy, and policy lives in the use case; a detector that collapsed the two would discard a
+real observation on its own authority. And the failure it prevents is the one this system keeps naming: a
+centred guess returned at `confidence=0.05` is indistinguishable from a genuine faint detection, and the
+trajectory built from it would stamp a fabricated position `TRACKED`.
+
+`BoundingBox` is **not** `CropRect`, despite the same four integers. That is a window the renderer cuts; this
+is where a person was found. Sharing the type would put cropping vocabulary inside an answer the port is
+forbidden to have an opinion about — asserted as an *absent import* rather than as a type comparison, for the
+reason below.
+
+### Two tests I wrote were dead, and mypy said so
+
+`BoundingBox is not CropRect`, `TrackingUnavailable is not DetectionFailed` and
+`DetectionSupport is not DiarizationSupport` were all rejected as **non-overlapping identity checks**. mypy
+proves each statically, at a strictness the runtime assertion cannot reach, so the tests could never have
+failed. Each was replaced with something that carries weight: an absent-import check on the port module, and
+`issubclass` on the error pair.
+
+The third one taught something worth keeping. `DetectionSupport.AVAILABLE == DiarizationSupport.AVAILABLE` is
+genuinely **`True`** at runtime — both are `StrEnum` and compare by value. The separation design.md calls a
+"type-level fact" is exactly that and nothing more; a runtime assertion there would have asserted the opposite
+of the truth. The test now pins the deliberate duplication of vocabulary and says where the guarantee actually
+lives.
+
+### Mutation-checking found a defect in the fake, and an error in my reasoning
+
+Four regressions injected. Three were caught: a miss returned as a centred box (2 failures), a miss omitted
+rather than reported (2), and dropping the minimum-one-sample rule (1).
+
+**The fourth was caught by nothing, and chasing why is the finding.** Swapping `floor` for `ceil` in the
+sampling grid changed no observable behaviour — because the docstring's justification was wrong. `ceil` does
+*not* put a sample past the span end; with `n = ceil(d·hz)` the last sample sits at `(n−1)/hz ≤ d`, always
+inside. Measured across four span/rate pairs rather than argued.
+
+The real difference is at the other end: **`floor` alone returns zero samples for any clip shorter than one
+sample interval** — 0.2 s at 4 Hz. Zero detections is not "no subject found", it is *nothing to build a
+trajectory from*, and that clip renders entirely `FALLBACK_CENTER` with the preacher visible in every frame of
+it. Precisely the mostly-guessed reframe the confidence axis exists to flag, arriving from the sampling grid
+rather than from the detector. Fixed to `max(1, floor(...))`, with an empty span still yielding none because
+there is no frame to look at.
+
+`ceil` survives the corrected suite, and that is now correct rather than a gap: against `max(1, floor(...))`
+it differs only in whether a fractional count rounds up, and both satisfy every stated invariant. The spec
+does not fix the count for a fractional interval, so an assertion killing `ceil` would pin an arbitrary choice
+as though it were a requirement.
+
+### Nothing was already satisfied
+
+All nine tasks did real work — the first slice in a while where none turned out to be a confirmation.
+
+### Measured cost
+
+**710 lines against the ~525 estimate (1.35x)** — `src` 123 (the port 90, capabilities 33), tests 587. The
+overrun is the mutation round: the short-clip defect cost three tests and a docstring correction that the
+estimate did not anticipate, and `tests/unit/ports/test_subject_tracker_fake.py` at 202 lines is the largest
+single file because it is what 12b-i's arithmetic will rest on.
 
 ---
 

@@ -46,6 +46,39 @@ class WordTimingSupport(StrEnum):
     AVAILABLE = "available"
 
 
+class DetectionSupport(StrEnum):
+    """Whether this build can locate the preacher inside the wide shot.
+
+    Three members and not two, because the operator's remediation genuinely
+    differs: "choose another tracker" versus "install the vision extras and let
+    the weights download". The same argument `DiarizationSupport` made, and the
+    same conclusion.
+
+    **The duplication with `DiarizationSupport` is deliberate.** A shared
+    `SupportLevel` would be shorter and would couple independent axes to one
+    vocabulary, which is the first step toward inferring one from another — the
+    thing every axis in this system forbids. Two small enums cost six lines and
+    make "never infer one axis from the other" a type-level fact.
+    """
+
+    UNSUPPORTED = "unsupported"  # no vision adapter in this build
+    REQUIRES_SETUP = "requires_setup"  # adapter present, weights or extras absent
+    AVAILABLE = "available"
+
+
+@dataclass(frozen=True, slots=True)
+class TrackerCapabilities:
+    """What a subject tracker declares before a clip is dispatched.
+
+    Its own type rather than a field on `TranscriptionCapabilities`: an install
+    can transcribe and not track, or track and not transcribe, and one record
+    covering both would make a missing tracker read as a missing engine.
+    """
+
+    tracker_id: str
+    detection: DetectionSupport
+
+
 @dataclass(frozen=True, slots=True)
 class TranscriptionCapabilities:
     engine_id: str

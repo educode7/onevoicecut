@@ -1,10 +1,12 @@
-from dataclasses import FrozenInstanceError, fields
+from dataclasses import MISSING, FrozenInstanceError, fields
 
 import pytest
 
 from onevoicecut.ports.capabilities import (
     ClassificationSupport,
+    DetectionSupport,
     DiarizationSupport,
+    TrackerCapabilities,
     TranscriptionCapabilities,
     WordTimingSupport,
 )
@@ -132,3 +134,62 @@ def test_diarization_support_has_exactly_three_members() -> None:
         "requires_setup",
         "available",
     }
+
+
+def test_detection_support_has_exactly_three_members() -> None:
+    """Three and not two, because the operator remediation genuinely differs:
+    "choose another tracker" versus "install the vision extras and let the
+    weights download". The same argument `DiarizationSupport` made."""
+    assert {m.value for m in DetectionSupport} == {
+        "unsupported",
+        "requires_setup",
+        "available",
+    }
+
+
+def test_detection_support_duplicates_diarizations_vocabulary_deliberately() -> None:
+    """Not a shared `SupportLevel`. One vocabulary across independent axes is the
+    first step toward inferring one from another, which every axis in this system
+    forbids, so the duplication is intentional and this pins it.
+
+    **The separation is type-level, not runtime**, and that is worth knowing:
+    both are `StrEnum`, so `DetectionSupport.AVAILABLE == DiarizationSupport
+    .AVAILABLE` is genuinely `True` — they compare by value. mypy is what
+    rejects passing one where the other is expected, which is exactly the
+    guarantee design.md claims for keeping them separate. A runtime assertion
+    here would be asserting the opposite of the truth.
+    """
+    assert {m.value for m in DetectionSupport} == {m.value for m in DiarizationSupport}
+
+
+def test_tracker_capabilities_declares_an_id_and_a_detection_level() -> None:
+    caps = TrackerCapabilities(
+        tracker_id="fake-tracker", detection=DetectionSupport.AVAILABLE
+    )
+
+    assert caps.tracker_id == "fake-tracker"
+    assert caps.detection is DetectionSupport.AVAILABLE
+
+
+def test_tracker_capabilities_holds_exactly_two_fields() -> None:
+    """A field here is a question every tracker adapter must answer, so growing
+    the set is a decision rather than a convenience."""
+    assert {f.name for f in fields(TrackerCapabilities)} == {"tracker_id", "detection"}
+
+
+def test_tracker_capabilities_has_no_defaults() -> None:
+    """Same rule the transcription axes follow: an adapter that never states
+    whether it can detect at all is a gap the dispatch check cannot reason
+    about."""
+    for field in fields(TrackerCapabilities):
+        assert field.default is MISSING
+        assert field.default_factory is MISSING
+
+
+def test_tracker_capabilities_is_frozen() -> None:
+    caps = TrackerCapabilities(
+        tracker_id="fake-tracker", detection=DetectionSupport.AVAILABLE
+    )
+
+    with pytest.raises(FrozenInstanceError):
+        caps.tracker_id = "other"  # type: ignore[misc]
