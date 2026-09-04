@@ -35,7 +35,12 @@ from onevoicecut.domain.ids import (
 )
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.domain.media import SourceMedia
-from onevoicecut.domain.transcript import SegmentKind, Transcript, TranscriptSegment
+from onevoicecut.domain.transcript import (
+    SegmentKind,
+    Transcript,
+    TranscriptSegment,
+    WordTiming,
+)
 
 Record = dict[str, Any]
 
@@ -157,6 +162,37 @@ def _optional_operator(record: Record) -> OperatorId | None:
         raise CorruptedRecord(str(error)) from error
 
 
+def _word_timings(record: Record) -> tuple[WordTiming, ...]:
+    """Word-level timings, treating an absent key as an older writer.
+
+    The mirror image of how `kind` is read next door, and the asymmetry is the
+    point. A stored segment always carries a kind, so an absent one is a broken
+    file. **An absent `words` key is information**: every transcript written
+    before slice 11 has none, and those files are on disk right now — a job that
+    completed last week is old, not corrupt.
+
+    Present-but-wrong is a different answer entirely. A key that is not a list of
+    well-formed entries was written by something that meant to record timings and
+    failed, and reading past it would put partial or fabricated timings into a
+    transcript that then renders captions from them.
+
+    `null` is refused rather than read as absent, because absent means "written
+    before this existed" and `null` means something wrote the key with nothing in
+    it. Those are different facts and only one of them is expected.
+    """
+    if "words" not in record:
+        return ()
+
+    return tuple(
+        WordTiming(
+            start_s=_number(word, "start_s"),
+            end_s=_number(word, "end_s"),
+            text=_text(word, "text"),
+        )
+        for word in _objects(record, "words")
+    )
+
+
 def _segment(record: Record) -> TranscriptSegment:
     # `kind` is read explicitly rather than left to the entity default. The entity
     # defaults to `UNCERTAIN` so a non-classifying adapter cannot assert speech;
@@ -169,6 +205,7 @@ def _segment(record: Record) -> TranscriptSegment:
         speaker=_optional_text(record, "speaker"),
         confidence=_optional_number(record, "confidence"),
         kind=_member(record, "kind", SegmentKind),
+        words=_word_timings(record),
     )
 
 

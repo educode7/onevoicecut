@@ -2680,19 +2680,59 @@ branch (11b.19) and the word-less no-op (11b.21) both turned out to be confirmat
 
 Closes: `transcript-artifacts` Word-Level Timing (storage round-trip scenario). Depends on 11b-i.
 
-- [ ] 11b.23 RED: `tests/unit/adapters/storage/test_filesystem_transcript_storage.py` — a pre-slice-11
+- [x] 11b.23 RED: `tests/unit/adapters/storage/test_filesystem_transcript_storage.py` — a pre-slice-11
       fixture payload with no `"words"` key decodes with `segment.words == ()`.
-- [ ] 11b.24 GREEN: `adapters/storage/serialization.py` — `_word_timings()` helper; absent key → `()`.
-- [ ] 11b.25 RED: malformed-payload tests — `"words": "hello"` and `"words": [{"start_s": true, ...}]`
+- [x] 11b.24 GREEN: `adapters/storage/serialization.py` — `_word_timings()` helper; absent key → `()`.
+- [x] 11b.25 RED: malformed-payload tests — `"words": "hello"` and `"words": [{"start_s": true, ...}]`
       both raise `CorruptedRecord`.
-- [ ] 11b.26 GREEN: `_objects`/`_number`/`_text` validation applied to each word entry.
-- [ ] 11b.27 RED: round-trip test — a segment persisted with a non-empty `words` tuple is retrieved with
+- [x] 11b.26 GREEN: `_objects`/`_number`/`_text` validation applied to each word entry.
+- [x] 11b.27 RED: round-trip test — a segment persisted with a non-empty `words` tuple is retrieved with
       the same tuple; a segment persisted with `()` is retrieved with `()`.
-- [ ] 11b.28 GREEN: confirm the encoder needs no change (`asdict` already recurses); wire `_word_timings()`
+- [x] 11b.28 GREEN: confirm the encoder needs no change (`asdict` already recurses); wire `_word_timings()`
       into `_segment()`.
-- [ ] 11b.29 REFACTOR: suite green, `mypy src tests` clean; confirm no shipped `results/*.json` fixture in
+- [x] 11b.29 REFACTOR: suite green, `mypy src tests` clean; confirm no shipped `results/*.json` fixture in
       the test suite regresses.
 
+
+### Absence means two different things, and the codec now says which
+
+The comment beside `kind` already stated half of this: it is read explicitly rather than left to the entity
+default because "a *stored* segment always carries a kind, so an absent one is a broken file, not an
+unclassified one".
+
+`words` is the mirror image. **Its absence is information.** Every transcript written before slice 11 has no
+`"words"` key, and those files are on disk right now — a job that completed last week is old, not corrupt. So
+absent decodes to `()` and the record reads normally, which is the first backward-compatibility concern this
+change has had.
+
+Present-but-wrong is a different answer entirely. A key that is not a list of well-formed entries was written
+by something that meant to record timings and failed, and reading past it would put partial or fabricated
+timings into a transcript that then renders captions from them. `CorruptedRecord`, which resume already
+expects to catch after a crash.
+
+**`null` is refused rather than read as absent.** Absent means "written before this existed"; `null` means
+something wrote the key with nothing in it. Those are different facts, and only one of them is expected.
+
+### The encoder needed no change, and that is asserted
+
+`asdict` recurses into the frozen `WordTiming` entries on its own. A test reads the encoded JSON and pins the
+exact shape rather than trusting it, because "no change needed" is the claim that goes stale silently — and
+the round trip is also driven through the real `FilesystemTranscriptStorage`, since the encoder is not the
+only thing between a `WordTiming` and the disk.
+
+The `bool`-is-an-`int` guard the existing `_number` already carried does real work here: without it a
+`"start_s": true` would persist as a caption starting at one second.
+
+### Measured cost
+
+**239 lines against the ~400 estimate (0.60x)** — `src` 41, tests 198. Under, because 11b.28 was a
+confirmation: the encoder genuinely needed nothing, and the four validation helpers the malformed cases needed
+(`_objects`, `_number`, `_text`, `_field`) all shipped in slice 1.
+
+---
+
+**Slice 11 is closed.** 11a (`MediaProbe.frame`), 11b-i (the `WordTiming` axis and the first warning), 11b-ii
+(stitcher lockstep) and 11b-iii (this). Next is slice 12, where rendering itself begins.
 ---
 
 ## Slice 12a-i: `domain/framing.py` Entities + Trajectory Invariant (~450 lines)
