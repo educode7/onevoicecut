@@ -43,8 +43,56 @@ def _tokens_with_owner(
 
 
 def _shift(segment: TranscriptSegment, offset: float) -> TranscriptSegment:
+    """Chunk-local to track-relative, words included.
+
+    Words left behind here would be offset by the chunk's own start — two and a
+    half hours out by chunk 15 of a three-hour sermon — and nothing would say so:
+    the transcript still reads correctly, and the drift appears only when
+    somebody watches the video.
+    """
     return replace(
-        segment, start_s=segment.start_s + offset, end_s=segment.end_s + offset
+        segment,
+        start_s=segment.start_s + offset,
+        end_s=segment.end_s + offset,
+        words=tuple(
+            replace(word, start_s=word.start_s + offset, end_s=word.end_s + offset)
+            for word in segment.words
+        ),
+    )
+
+
+def _keep_words(
+    segment: TranscriptSegment, cut: float, *, before: bool
+) -> TranscriptSegment | None:
+    """Re-cut a segment at word granularity, or drop it if nothing survives.
+
+    **A word is atomic**: half of "hermanos" is not a caption. So the boundary
+    moves to the nearest word edge rather than splitting one, and the segment's
+    new `start_s`, `end_s` and `text` are *derived from the words that survive*
+    rather than inherited from the segment that had more.
+
+    Deriving is the point. Truncating the times while carrying the text and the
+    words through whole leaves entries for words the segment no longer contains
+    — a caption that renders after the clip it belongs to has finished.
+
+    Words are partitioned by their **start**, so the word straddling the cut goes
+    to exactly one side and keeps its own timing. Truncating it to the cut would
+    render a caption that begins mid-syllable.
+    """
+    kept = [
+        word
+        for word in segment.words
+        if (word.start_s < cut) is before
+    ]
+    if not kept:
+        return None
+
+    return replace(
+        segment,
+        start_s=kept[0].start_s,
+        end_s=kept[-1].end_s,
+        text="".join(word.text for word in kept),
+        words=tuple(kept),
     )
 
 
@@ -56,9 +104,18 @@ def _clip_before(
     for segment in segments:
         if segment.start_s >= cut:
             continue
-        kept.append(
-            segment if segment.end_s <= cut else replace(segment, end_s=cut)
-        )
+        if segment.end_s <= cut:
+            kept.append(segment)
+            continue
+        # Straddling. With words, the cut moves to a word edge; without them
+        # there is nothing to derive a boundary from, so the time cut stands —
+        # which is exactly the behaviour every adapter in production produces.
+        if segment.words:
+            recut = _keep_words(segment, cut, before=True)
+            if recut is not None:
+                kept.append(recut)
+        else:
+            kept.append(replace(segment, end_s=cut))
     return kept
 
 
@@ -70,9 +127,15 @@ def _clip_after(
     for segment in segments:
         if segment.end_s <= cut:
             continue
-        kept.append(
-            segment if segment.start_s >= cut else replace(segment, start_s=cut)
-        )
+        if segment.start_s >= cut:
+            kept.append(segment)
+            continue
+        if segment.words:
+            recut = _keep_words(segment, cut, before=False)
+            if recut is not None:
+                kept.append(recut)
+        else:
+            kept.append(replace(segment, start_s=cut))
     return kept
 
 

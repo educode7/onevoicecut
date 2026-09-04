@@ -2614,24 +2614,66 @@ words are joined back to reconstruct the segment, and a lossy split renders a se
 
 Closes: `transcript-artifacts` Word-Level Timing Is Consistent With Overlap Stitching. Depends on 11b-i.
 
-- [ ] 11b.14 RED: `tests/unit/usecases/test_stitch_transcript.py` — a boundary word carrying word-level
+- [x] 11b.14 RED: `tests/unit/usecases/test_stitch_transcript.py` — a boundary word carrying word-level
       timing on both sides of the cut appears exactly once in the stitched output, with its original
       timing.
-- [ ] 11b.15 GREEN: `usecases/stitch_transcript.py` — `_shift` carries `words` through the existing
+- [x] 11b.15 GREEN: `usecases/stitch_transcript.py` — `_shift` carries `words` through the existing
       time-shift; `_split_words` partitions by word start, deriving segment `start_s`/`end_s`/`text` from
       surviving words.
-- [ ] 11b.16 RED: orphaned-entry test — no `WordTiming` entry survives for a word whose text was dropped
+- [x] 11b.16 RED: orphaned-entry test — no `WordTiming` entry survives for a word whose text was dropped
       as a duplicate.
-- [ ] 11b.17 GREEN: wire `_split_words` into `_clip_before`/`_clip_after`, gated on `segment.words` being
+- [x] 11b.17 GREEN: wire `_split_words` into `_clip_before`/`_clip_after`, gated on `segment.words` being
       non-empty.
-- [ ] 11b.18 RED: empty-survivor-set test — a straddling segment whose every word lands on the discarded
+- [x] 11b.18 RED: empty-survivor-set test — a straddling segment whose every word lands on the discarded
       side drops the segment entirely.
-- [ ] 11b.19 GREEN: confirm the existing drop-when-empty branch now fires for a genuinely empty result.
-- [ ] 11b.20 RED: regression test — a word-less transcript (`words=()` throughout) stitches
+- [x] 11b.19 GREEN: confirm the existing drop-when-empty branch now fires for a genuinely empty result.
+- [x] 11b.20 RED: regression test — a word-less transcript (`words=()` throughout) stitches
       byte-identically to the pre-retrofit shipped behavior.
-- [ ] 11b.21 GREEN: confirm the empty-words branch is a no-op change from today's time-truncation path.
-- [ ] 11b.22 REFACTOR: suite green, `mypy src tests` clean.
+- [x] 11b.21 GREEN: confirm the empty-words branch is a no-op change from today's time-truncation path.
+- [x] 11b.22 REFACTOR: suite green, `mypy src tests` clean.
 
+
+### Three operations, each of which breaks word timing silently
+
+The stitcher shifts a segment from chunk-local to track-relative, truncates it when a cut lands inside it, and
+drops it when nothing survives. Carrying words through any of those unchanged fails without a trace: the
+transcript still reads correctly, and the damage shows up only when somebody watches the video.
+
+- **A shifted segment whose words did not shift** offsets every caption by the chunk's own start — two and a
+  half hours out by chunk 15 of a three-hour sermon.
+- **A truncated segment keeping words past its own end** renders a caption after the clip it belongs to has
+  finished.
+- **A dropped segment** is the easy one, and the existing branch already handled it once the word set could be
+  empty.
+
+### The cut moves to word granularity, and derives rather than truncates
+
+A word is atomic — half of *"hermanos"* is not a caption — so `_keep_words` partitions by word **start**, which
+sends the word straddling the boundary to exactly one side **with its own timing intact**. Truncating it to
+the cut would render a caption that begins mid-syllable.
+
+The segment's new `start_s`, `end_s` and `text` are then **derived from the survivors**. That is the part that
+prevents orphans: truncating the times while carrying the text and the words through whole leaves entries for
+words the segment no longer contains, and `"".join(w.text) == segment.text` is what the test asserts to catch
+it.
+
+### The word-less path is untouched, which is the path that matters today
+
+Every adapter in production produces `words=()`. Both `_clip_before` and `_clip_after` gate the new behaviour
+on `segment.words` being non-empty and otherwise take the original time cut with the text carried through
+whole. Two regression tests pin that, because a word-granularity boundary applied to a transcript with no
+words would silently re-cut every existing job.
+
+### Mutation-checked
+
+Two regressions injected, both caught: `_shift` carrying words through unmoved (2 failures), and the
+word-granularity cut keeping the original text and words instead of the survivors (1 failure). The second is
+the orphan case, and it is the one a reader would most plausibly write.
+
+### Measured cost
+
+**353 lines against the ~475 estimate (0.74x)** — `src` 89, tests 264. Under, because the drop-when-empty
+branch (11b.19) and the word-less no-op (11b.21) both turned out to be confirmations rather than changes.
 ---
 
 ## Slice 11b-iii: Storage Codec Backward-Compatible Decode (~400 lines)
