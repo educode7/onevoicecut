@@ -3346,14 +3346,68 @@ Closes: `clip-rendering` Single Native ffmpeg Pass, Crop Trajectory Applied As G
 - [ ] 13a.27 RED: non-ULID-`clip_id` test — a `clip_id` failing the ULID regex is refused before the graph
       is composed.
 - [ ] 13a.28 GREEN: validate `clip_id` against `domain/ids.py`'s regex before composition.
-- [ ] 13a.29 RED: `tests/unit/adapters/ffmpeg/test_sendcmd.py` — a `CropTrajectory` sampled at
+- [x] 13a.29 RED: `tests/unit/adapters/ffmpeg/test_sendcmd.py` — a `CropTrajectory` sampled at
       `sample_hz=4` densifies to `command_hz=25` commands via linear interpolation, introducing no new
       `INTERPOLATED`/`FALLBACK_CENTER` origin (the densifier is origin-blind).
-- [ ] 13a.30 GREEN: `adapters/ffmpeg/sendcmd.py` — the densifying command-file writer.
-- [ ] 13a.31 RED: no-recompute test — densified rects never leave the frame (proven by convexity), and no
+- [x] 13a.30 GREEN: `adapters/ffmpeg/sendcmd.py` — the densifying command-file writer.
+- [x] 13a.31 RED: no-recompute test — densified rects never leave the frame (proven by convexity), and no
       smoothing/dead-zone/clamp parameter is referenced by the densifier module.
-- [ ] 13a.32 GREEN: confirm by construction (`ast`-parse `sendcmd.py`, assert no import of
+- [x] 13a.32 GREEN: confirm by construction (`ast`-parse `sendcmd.py`, assert no import of
       `plan_trajectory`'s policy type).
+### Split at the seam: the densifier ships alone
+
+13a-i came in at 952 lines and 13a-ii at 843, both over the 800 budget, and both had a visible seam nobody
+took. This slice has the same shape — a command-file writer and an argv composer that share nothing but a
+directory — so it ships as two units. This is the first: `sendcmd` densification (13a.29–13a.32). The
+filter-graph composition and its containment guards (13a.23–13a.28) follow separately.
+
+### Densifying the commands, not the trajectory
+
+Detection is expensive, so a `CropTrajectory` carries one keyframe per detection sample — four a second.
+`sendcmd` holds a commanded value until the next arrives, so feeding those directly moves the crop in visible
+250 ms steps.
+
+**Resampling the trajectory instead would have destroyed the confidence signal.** Going 4 Hz to 25 Hz marks
+about 84% of its keyframes as fills, and the tracked ratio stops describing how much of the clip a detector
+actually found the subject in — every trajectory would read low-confidence. So the trajectory stays
+one-to-one with detection samples and the extra commands are generated at the edge, where nothing persists
+them. A command is a pixel position at a time and carries no provenance; `KeyframeOrigin` never appears in the
+module, which is what makes it origin-blind rather than merely origin-preserving.
+
+**The module decides nothing, and that is what makes it legitimate.** The spec forbids the renderer
+recomputing smoothing, the dead zone or clamping. Linear interpolation between two already-committed rects
+introduces no judgement — the value between them was implied by the pair, and by convexity a point between two
+positions inside the frame is itself inside the frame. A test `ast`-parses the file to prove no policy type is
+imported, because an absence cannot be demonstrated by calling something.
+
+### Two test defects found by mutation, one of them silent
+
+- **The sort test asserted the wrong property.** It checked that emitted *times* come out ascending, which an
+  unsorted pair passes trivially: `first > last` collapses the span and the module emits a single command
+  whose one timestamp is sorted by definition. Removing `sorted()` altogether left all thirteen tests green.
+  The harm is in the *values* — convexity holds only over an ordered sequence, so an unsorted pair
+  interpolates outside both endpoints with no clamp having been removed. Comparing the reversed pair's script
+  against the forward one discriminates; the mutation now fails.
+- **A linearity test asked for a tick that cannot exist.** It sampled quarters at 16 Hz, whose step is
+  0.0625 s, and commands are written at millisecond precision — `0.0625` is emitted as `0.062` and the lookup
+  raised `KeyError`. Rewritten against a one-second keyframe pair at 20 Hz, where every quarter lands on a
+  time the file can express. That is the format doing its job rather than a defect: a frame at 25 fps is
+  40 ms wide.
+
+An ease-in-out mutation is caught, which is the point of asserting every quarter rather than the midpoint —
+a midpoint alone passes for anything symmetric.
+
+### Provenance
+
+The subagent for this slice hit the model provider's session limit mid-work, having written the densifier and
+its tests and left one test failing. I adopted both files from its worktree, fixed the two test defects above,
+and mutation-checked the result.
+
+### Measured cost
+
+**364 lines against the ~575 estimate for the whole slice (0.63x)** and well inside the 800 budget — `src`
+117, tests 247. The other half carries the rest.
+
 - [ ] 13a.33 REFACTOR: suite green, `mypy src tests` clean.
 
 ---
