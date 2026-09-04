@@ -13,6 +13,7 @@ from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from onevoicecut.adapters.web.app import DEFAULT_MAX_UPLOAD_BYTES
+from onevoicecut.usecases.generate_artifacts import DEFAULT_SCRIPT_TARGETS
 
 
 # Two processes enforce the per-chunk timeout — the web process's watchdog from
@@ -41,6 +42,12 @@ class Settings(BaseSettings):
     # token-map parser — not a bare pydantic validation error — is what refuses
     # an unconfigured boot, with a message naming the actual failure.
     operator_tokens: str = ""
+
+    # Comma-separated names, the same shape `operator_tokens` uses, because an
+    # operator who has to write a JSON list into an environment variable is an
+    # operator who gets it wrong once. Resolved to real targets by the use case,
+    # which refuses an unknown name rather than falling back to generic.
+    script_targets: str = DEFAULT_SCRIPT_TARGETS
 
     # One global integer — not per engine, not per operator. Default 1 because
     # local ASR saturates this machine by itself, so two concurrent jobs mostly

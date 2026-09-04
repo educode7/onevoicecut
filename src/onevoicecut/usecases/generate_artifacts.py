@@ -4,11 +4,12 @@ Lives entirely above `TextGenerationPort`, which knows nothing about summaries,
 windows or chunking — that is what makes swapping an LLM provider an adapter-only
 change.
 
-This module currently holds the **MAP windowing** half. A three-hour sermon does
-not fit in any context window, so it is cut into overlapping windows and each is
-summarised separately before the partials are folded (slice 10a-iii).
+The whole pipeline lives here now: window the transcript, summarise each window,
+fold the partials, rank the moments into clip candidates, and write one script per
+candidate per target. A three-hour sermon does not fit in any context window,
+which is why every step is bounded and every bound is stated.
 
-Two decisions here are worth more than the code that implements them.
+Three decisions here are worth more than the code that implements them.
 
 **The model never emits a timestamp.** Each segment is rendered with its **id** —
 its index in the transcript — and the model is asked to cite ids back. The use
@@ -17,6 +18,11 @@ window did not contain. Asked for a number, an LLM will produce a plausible one,
 and a fabricated timestamp points an operator at the wrong minute of a three-hour
 video while looking entirely correct: the same class of silent failure as
 undeclared diarization, in the artifact rather than in the transcript.
+
+**No number an operator acts on comes from the model.** Not a timestamp, not a
+clip duration. Both are read from something real — the transcript for one, the
+target definition for the other — because an LLM asked for a number produces a
+plausible one and a plausible number is the worst kind.
 
 **Tokens are estimated as `chars/4`, with no tokenizer behind it.** The estimate
 is conservative, the adapter raises `ContextLengthExceeded` when it is wrong, and
@@ -27,10 +33,10 @@ same for every provider.
 
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from onevoicecut.domain.errors import ContextLengthExceeded, GenerationFailed
-from onevoicecut.domain.generation import ClipCandidate
+from onevoicecut.domain.generation import ClipCandidate, ScriptVariant
 from onevoicecut.domain.transcript import TranscriptSegment, is_speech
 from onevoicecut.ports.text_generation import TextGenerationPort
 
@@ -565,3 +571,113 @@ def _map_prompt(window: MapWindow) -> str:
 
 def _fold_prompt(running: str, partial: str) -> str:
     return f"{_FOLD_INSTRUCTION}\n\nA:\n{running}\n\nB:\n{partial}"
+
+
+@dataclass(frozen=True, slots=True)
+class ScriptTarget:
+    """Where a clip is going, and what that implies about the script.
+
+    `format` and `duration_target_s` live here rather than coming back from the
+    model, and the reason is the one this module keeps returning to: an LLM asked
+    for a number produces a plausible one. A fabricated duration is a fifty-second
+    script labelled thirty, and the label is what an editor cuts against. Both are
+    decided before the model is asked — they are properties of what a target *is*,
+    not observations about the text that came back.
+    """
+
+    name: str
+    format: str
+    duration_target_s: float
+
+
+# One target, deliberately. Q3 — what the real destinations are and what each
+# one wants — is open, and shipping a guess at a platform's preferred length
+# would be a product decision made by nobody. The shape is here so answering Q3
+# is adding rows.
+SCRIPT_TARGETS = {
+    "generic": ScriptTarget(name="generic", format="plain", duration_target_s=45.0),
+}
+DEFAULT_SCRIPT_TARGETS = "generic"
+
+_SCRIPT_INSTRUCTION = (
+    "Escribi un guion corto para un clip a partir del momento siguiente. "
+    "Usa unicamente lo que aparece aca, sin agregar hechos ni citas nuevas."
+)
+
+
+def resolve_script_targets(names: str) -> tuple[ScriptTarget, ...]:
+    """Comma-separated names, the same shape the operator token map uses.
+
+    An unknown name is refused rather than falling back to `generic`: an
+    operator who asked for a reel script and silently got a generic one would
+    have no way to tell. An empty list is refused too — the script artifact is
+    this system's stopping point, so a build configured to write none of them
+    produces nothing and should say so at the call.
+    """
+    wanted = [name.strip() for name in names.split(",") if name.strip()]
+    if not wanted:
+        raise GenerationFailed(
+            "no script targets are configured, so no script would be written; "
+            f"available: {', '.join(sorted(SCRIPT_TARGETS))}"
+        )
+
+    unknown = sorted({name for name in wanted if name not in SCRIPT_TARGETS})
+    if unknown:
+        raise GenerationFailed(
+            f"unknown script target(s) {unknown}; available: "
+            f"{', '.join(sorted(SCRIPT_TARGETS))}"
+        )
+
+    return tuple(SCRIPT_TARGETS[name] for name in wanted)
+
+
+def write_script_variants(
+    candidates: tuple[ClipCandidate, ...],
+    *,
+    generate: TextGenerationPort,
+    targets: tuple[ScriptTarget, ...],
+    max_output_tokens: int,
+) -> tuple[ClipCandidate, ...]:
+    """One `complete()` call per (candidate, target) pair.
+
+    The grid is the cost: three candidates over two targets is six scripts and
+    six billed calls, which is why both counts are bounded elsewhere —
+    `max_candidates` on one axis, the configured targets on the other.
+
+    The model writes from the *moment*, never from the whole sermon. That keeps
+    a script call small enough to never need windowing, and it keeps the
+    candidate's timestamps out of the prompt entirely: there is nothing for the
+    model to do with one, and offering it a number invites it to give one back.
+
+    Everything else about the candidate is carried through untouched. This step
+    adds scripts; it must not become a second place a timestamp can change.
+    """
+    return tuple(
+        replace(
+            candidate,
+            variants=tuple(
+                ScriptVariant(
+                    target=target.name,
+                    format=target.format,
+                    body=generate.complete(
+                        _script_prompt(candidate, target),
+                        max_output_tokens=max_output_tokens,
+                    ),
+                    duration_target_s=target.duration_target_s,
+                )
+                for target in targets
+            ),
+        )
+        for candidate in candidates
+    )
+
+
+def _script_prompt(candidate: ClipCandidate, target: ScriptTarget) -> str:
+    return (
+        f"{_SCRIPT_INSTRUCTION}\n"
+        f"Destino: {target.name}. Formato: {target.format}. "
+        f"Duracion objetivo: {target.duration_target_s:.0f} segundos.\n\n"
+        f"Gancho: {candidate.hook}\n"
+        f"Cita: {candidate.quote}\n"
+        f"Motivo: {candidate.rationale}"
+    )

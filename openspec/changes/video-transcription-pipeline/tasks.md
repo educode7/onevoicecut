@@ -2224,11 +2224,60 @@ rather than builds should look like.
 
 Closes: `script-generation` N Script Variants Per Clip Candidate. Depends on 10b-i.
 
-- [ ] 10.14 RED: multiple-variants test — a candidate carries `variants: tuple[ScriptVariant, ...]`
+- [x] 10.14 RED: multiple-variants test — a candidate carries `variants: tuple[ScriptVariant, ...]`
       without a schema change when count > 1.
-- [ ] 10.15 GREEN: one `complete()` call per `(candidate, target)` pair, `target` sourced from
+- [x] 10.15 GREEN: one `complete()` call per `(candidate, target)` pair, `target` sourced from
       `settings.script_targets`.
-- [ ] 10.16 GREEN: ship `settings.script_targets` defaulting to `["generic"]`. **Answers Q3 later**.
+- [x] 10.16 GREEN: ship `settings.script_targets` defaulting to `["generic"]`. **Answers Q3 later**.
+
+### Only one of `ScriptVariant`'s four fields comes from the model
+
+`target`, `format`, `body`, `duration_target_s` — shipped in slice 1, filled here. **The body comes from the
+model. The duration does not**, and the reason is the one this change keeps returning to: an LLM asked for a
+number produces a plausible one. A fabricated `duration_target_s` is a fifty-second script labelled thirty,
+and the label is what an editor cuts against. It is a property of *what a target is*, not an observation about
+the text that came back, so `ScriptTarget` carries it and the model is never offered the field.
+
+`format` is the same argument in a different coat: how a script is shaped is decided before the model is
+asked, not reported afterwards.
+
+That makes two numbers now sourced from something real rather than from the model — the clip's timestamps from
+the transcript, the script's duration from the target — and the module docstring states the rule once instead
+of twice.
+
+**The prompt carries no timestamp at all.** There is nothing for the model to do with one, and offering it a
+number invites it to give one back. A test feeds a candidate starting at 1234 s and asserts the string never
+appears.
+
+### The grid is the cost, so it is named
+
+Three candidates over two targets is six scripts and six billed calls. Both counts are bounded elsewhere —
+`max_candidates` on one axis, the configured targets on the other — and a test asserts the multiplication so
+a change to either shows up as a change in cost rather than on an invoice.
+
+The model writes from the **moment**, never from the whole sermon: hook, quote and rationale only. That keeps
+a script call small enough never to need windowing, and it is why this step has no `ContextLengthExceeded`
+path of its own.
+
+### One target, and an unknown name refused
+
+`SCRIPT_TARGETS` has exactly one row. Q3 — what the real destinations are and what each wants — is open, and
+shipping a guess at a platform's preferred length would be a product decision made by nobody. The shape is
+here so answering Q3 is adding rows.
+
+An unknown name is **refused rather than falling back to generic**: an operator who asked for a reel script
+and silently got a generic one would have no way to tell. No targets at all is refused too — the script
+artifact is this system's stopping point, so a build configured to write none of them produces nothing and
+should say so at the call.
+
+`settings.script_targets` is a comma-separated string, matching `operator_tokens` rather than pydantic's JSON
+list, because an operator who has to write JSON into an environment variable is an operator who gets it wrong
+once.
+
+### Measured cost
+
+**410 lines against the ~350 estimate (1.17x)** — `src` 145, tests 265. No domain change: `ScriptVariant` and
+`ClipCandidate` both shipped in slice 1 with exactly the fields this fills.
 
 ## Slice 10b-iv: Scope-Boundary Assertion + Prompt Refactor (~250 lines)
 
