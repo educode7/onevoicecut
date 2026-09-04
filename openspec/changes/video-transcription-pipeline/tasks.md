@@ -2911,22 +2911,72 @@ single file because it is what 12b-i's arithmetic will rest on.
 
 Closes: `subject-tracking` Smoothing, Dead-Zone (both scenarios). Depends on 12a-i and 12a-ii; gates 12b-ii.
 
-- [ ] 12b.1 RED: `tests/unit/usecases/test_plan_trajectory.py` — a hit's `box` maps to a desired centre; a
+- [x] 12b.1 RED: `tests/unit/usecases/test_plan_trajectory.py` — a hit's `box` maps to a desired centre; a
       miss contributes no centre.
-- [ ] 12b.2 GREEN: `usecases/plan_trajectory.py` — stage 2 (centres) over the fake detector's output.
-- [ ] 12b.3 RED: jitter test — a small frame-to-frame oscillation around a stable position does not
+- [x] 12b.2 GREEN: `usecases/plan_trajectory.py` — stage 2 (centres) over the fake detector's output.
+- [x] 12b.3 RED: jitter test — a small frame-to-frame oscillation around a stable position does not
       reproduce in the smoothed output.
-- [ ] 12b.4 GREEN: stage 3 — centred moving average over `smoothing_window_s`, computed over the tracked
+- [x] 12b.4 GREEN: stage 3 — centred moving average over `smoothing_window_s`, computed over the tracked
       subsequence only (misses excluded, not zero-filled).
-- [ ] 12b.5 RED: sub-threshold-movement test — displacement within `dead_zone_fraction * frame.width` does
+- [x] 12b.5 RED: sub-threshold-movement test — displacement within `dead_zone_fraction * frame.width` does
       not move the committed crop.
-- [ ] 12b.6 GREEN: stage 4 — forward-hysteresis dead-zone.
-- [ ] 12b.7 RED: supra-threshold-movement test — displacement beyond the dead-zone shifts the crop to
+- [x] 12b.6 GREEN: stage 4 — forward-hysteresis dead-zone.
+- [x] 12b.7 RED: supra-threshold-movement test — displacement beyond the dead-zone shifts the crop to
       follow the subject.
-- [ ] 12b.8 GREEN: confirm the commit branch of stage 4.
-- [ ] 12b.9 RED: stage-ordering regression test — smoothing then dead-zone (not the reverse) does not
+- [x] 12b.8 GREEN: confirm the commit branch of stage 4.
+- [x] 12b.9 RED: stage-ordering regression test — smoothing then dead-zone (not the reverse) does not
       twitch at the threshold on synthetic jitter data.
-- [ ] 12b.10 REFACTOR: suite green, `mypy src tests` clean.
+- [x] 12b.10 REFACTOR: suite green, `mypy src tests` clean.
+
+### `build_trajectory` is deliberately not here yet
+
+Design.md fixes the signature, and this slice does not ship it. Stages 5 and 6 — clamping, and filling the
+runs nobody was detected in — are 12b-ii, so a `build_trajectory` written now would return a trajectory with
+no keyframes for misses and rects free to sit outside the frame. That object would satisfy its own type and
+violate two spec requirements, under the name the only consumer will eventually call.
+
+What ships instead is the three stages as separate pure functions. 12b-ii composes them and adds the rest.
+Nothing calls the module yet — `13b-iii` is the sole consumer — so deferring the name costs nothing and
+avoids shipping a complete-looking trajectory that is not one.
+
+### Only the horizontal axis moves, which is design.md's own division
+
+Stage 2's table row says the crop centre is "box centre, horizontally; vertically the crop is full-height so
+`y` is fixed", and stage 4's dead-zone is written against `x` alone. For a landscape source that is exact:
+`crop_size_for` on 1920x1080 returns a full-height 606x1080 crop, so `y` clamps to 0 and has nowhere to go.
+Where it does have somewhere to go — a source narrower than 9:16 — the vertical position is settled in 12b-ii
+alongside the clamp, which is the stage that owns in-frame positioning on both axes.
+
+### Two tests were weak, and the mutation round is what said so
+
+Five regressions were injected. Three were caught immediately; **two survived, and only one of those was the
+test's fault.**
+
+**A `>=` threshold survived, because the boundary case never reached the boundary.** The test held at 900.0
+and moved to `900.0 + dead_zone`. `0.04 * 1920` *is* exactly `76.8`, but `(900.0 + 76.8) - 900.0` is
+`76.79999999999995` — just under. The case had been sitting a hair inside the dead zone and asserting the
+hold that any implementation gives. It now holds at zero, where `abs(t - 0.0) == t` exactly, and the `>=`
+mutation dies. The threshold constant is also derived as `policy.dead_zone_fraction * frame.width` rather than
+written as a literal, so it cannot drift from the production expression.
+
+**The other survivor was a bad mutation, not a bad test.** Rewriting the hysteresis to compare against
+`committed[-1].x` changes nothing, because `committed[-1].x` *is* the held value. A real "measure from the
+previous sample" mutation — carrying a separate `previous` — is caught by two tests: a slow drift of
+sub-threshold steps must not move the crop, and the same drift accumulated far enough must eventually commit.
+Both directions are needed; either alone passes a broken implementation.
+
+### The stage order is now executable rather than prose
+
+Design.md asserts that reversing stages 3 and 4 "produces a crop that twitches at exactly the threshold". Two
+tests run both orderings over the same jitter — an oscillation whose peak-to-peak just clears the dead zone.
+Smoothing first commits **once**, so the crop is still; dead-zone first commits on every oscillation. The
+wrong order is composed in the test rather than made reachable in production.
+
+### Measured cost
+
+**484 lines against the ~525 estimate (0.92x)** — `src` 146, tests 338, test share 70%. Nothing outside the
+new module and its tests: `framing.py` and `subject_tracker.py` were used exactly as 12a-i and 12a-ii left
+them, and neither needed a change.
 
 ---
 
