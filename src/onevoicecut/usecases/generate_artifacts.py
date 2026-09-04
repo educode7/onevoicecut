@@ -563,14 +563,31 @@ def reduce_summaries(
     return running
 
 
-def _map_prompt(window: MapWindow) -> str:
-    return (
-        f"{_MAP_INSTRUCTION}\n\n{window.text}"
+def _prompt(instruction: str, *sections: tuple[str, str]) -> str:
+    """Instruction first, then labelled material. One builder for all three.
+
+    The framing is decided in one place rather than three, which matters less
+    for tidiness than for the invariant every prompt shares: **none of them
+    hands the model a number an operator will act on.** Three separately
+    assembled prompts is three places to remember that; one is one place to
+    assert it, and `test_generation_scope_boundary` does.
+
+    The instruction leads because a model reads the task before the material. A
+    prompt burying its instruction under three hundred lines of transcript is a
+    prompt whose instruction is advisory.
+    """
+    body = "\n\n".join(
+        f"{label}:\n{text}" if label else text for label, text in sections
     )
+    return f"{instruction}\n\n{body}"
+
+
+def _map_prompt(window: MapWindow) -> str:
+    return _prompt(_MAP_INSTRUCTION, ("", window.text))
 
 
 def _fold_prompt(running: str, partial: str) -> str:
-    return f"{_FOLD_INSTRUCTION}\n\nA:\n{running}\n\nB:\n{partial}"
+    return _prompt(_FOLD_INSTRUCTION, ("A", running), ("B", partial))
 
 
 @dataclass(frozen=True, slots=True)
@@ -673,11 +690,13 @@ def write_script_variants(
 
 
 def _script_prompt(candidate: ClipCandidate, target: ScriptTarget) -> str:
-    return (
-        f"{_SCRIPT_INSTRUCTION}\n"
-        f"Destino: {target.name}. Formato: {target.format}. "
-        f"Duracion objetivo: {target.duration_target_s:.0f} segundos.\n\n"
-        f"Gancho: {candidate.hook}\n"
-        f"Cita: {candidate.quote}\n"
-        f"Motivo: {candidate.rationale}"
+    """The candidate's times are deliberately absent. There is nothing for the
+    model to do with them, and offering it a number invites one back."""
+    return _prompt(
+        f"{_SCRIPT_INSTRUCTION} Destino: {target.name}. "
+        f"Formato: {target.format}. "
+        f"Duracion objetivo: {target.duration_target_s:.0f} segundos.",
+        ("Gancho", candidate.hook),
+        ("Cita", candidate.quote),
+        ("Motivo", candidate.rationale),
     )

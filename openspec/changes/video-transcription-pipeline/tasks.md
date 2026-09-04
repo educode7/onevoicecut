@@ -2283,11 +2283,58 @@ once.
 
 Closes: `script-generation` Scope Boundary — No Rendering. Depends on 10a and 10b-iii.
 
-- [ ] 10.17 RED: scope-boundary test — generation output is summary + candidates + variants only, no
+- [x] 10.17 RED: scope-boundary test — generation output is summary + candidates + variants only, no
       video file produced.
-- [ ] 10.18 GREEN: assert `GenerationResult` shape excludes any media artifact.
-- [ ] 10.19 REFACTOR: extract the prompt-template construction shared by MAP/REDUCE/variant calls; full
+- [x] 10.18 GREEN: assert `GenerationResult` shape excludes any media artifact. **Already held.**
+- [x] 10.19 REFACTOR: extract the prompt-template construction shared by MAP/REDUCE/variant calls; full
       default suite green end to end.
+
+### The boundary held, so the work was making it unlosable
+
+Eleven of the twelve scope tests passed on the first run. Rev 4 is why they are worth writing anyway: through
+rev 3 "no video" was a system-wide non-goal, and nothing could cross a boundary that nothing was on the other
+side of. Rev 4 put clip rendering in scope, which turned this into a **capability** boundary — rendering is
+reached through `VideoRenderPort` and specified in `clip-rendering`, never from inside generation.
+
+A boundary that exists only because nobody has crossed it is not a boundary, so it is asserted **structurally**:
+the module is parsed, not run. A test that generated artifacts and checked no file appeared would pass on a
+module that renders behind a flag nobody set; this one fails the day the import is written.
+
+Four assertions, each naming what it would catch:
+
+- `GenerationResult`, `ClipCandidate` and `ScriptVariant` carry exactly their data fields — a media handle on
+  any of them would make "generation does not render" a convention rather than a fact.
+- No import of `subprocess`, `onevoicecut.adapters`, `onevoicecut.runtime` or the audio-extractor port.
+- No `open(` anywhere: generation hands its result back, and a module writing its own output would put an
+  artifact on disk that no `TranscriptStoragePort` knows about.
+- **Exactly one port imported**, `text_generation`. This is the one `tests/test_architecture.py` cannot see —
+  `usecases` may legitimately import `ports`, so nothing else was checking *which*.
+
+### The prompt refactor has a load-bearing reason, not a tidiness one
+
+Three prompts are built — MAP, REDUCE, variants — and they share an invariant this whole change keeps
+defending: **no prompt hands the model a number an operator will act on.** Three separately assembled prompts
+is three places to remember that. One `_prompt(instruction, *sections)` is one place to assert it.
+
+Mutation-checked before committing: adding `("Momento", f"{candidate.start_s:.0f}s")` to the script prompt —
+the "helpful context" a future author would plausibly add — fails both the shared invariant test and 10b-iii's
+narrower one. The guard is real.
+
+The builder also fixes the framing once: instruction first, then labelled material, because a model reads the
+task before the material and a prompt burying its instruction under three hundred lines of transcript has an
+instruction that is advisory.
+
+### Measured cost
+
+**221 lines against the ~250 estimate (0.88x)** — `src` 32, tests 189.
+
+---
+
+**Slice 10 is closed.** 10a-i through 10a-iv (fake port, MAP windowing, speech-only filtering and the
+admission guard it forced, id validation and the REDUCE fold, the halving retry) and 10b-i through 10b-iv
+(candidate ranking, musical-range eligibility, N script variants, this boundary). Next is slice 11, which is
+where rev 4's rendering work begins: `MediaProbe.frame`, the `WordTiming` domain, stitcher lockstep, and a
+backward-compatible storage decode.
 
 ---
 
