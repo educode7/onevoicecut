@@ -34,7 +34,7 @@ from onevoicecut.domain.errors import (
     UnsupportedContainer,
 )
 from onevoicecut.domain.ids import JobId
-from onevoicecut.domain.media import AudioTrack, MediaProbe, SourceMedia
+from onevoicecut.domain.media import AudioTrack, FrameSize, MediaProbe, SourceMedia
 
 # Generous, because multi-hour input is the normal case: this bounds a hung
 # process, it does not bound expected work. Per-chunk timeouts are slice 4's job.
@@ -121,6 +121,7 @@ class FfmpegAudioExtractor:
             duration_s=duration_s,
             container=container,
             has_audio=any(s.get("codec_type") == "audio" for s in streams),
+            frame=_frame_size(streams),
         )
 
     def extract(self, media: SourceMedia, dest: Path) -> AudioTrack:
@@ -206,3 +207,69 @@ class FfmpegAudioExtractor:
                 f"{completed.stderr.strip() or 'no diagnostics'}"
             )
         return completed
+
+
+def _frame_size(streams: list[dict[str, object]]) -> FrameSize | None:
+    """The displayed geometry of the source picture, or `None` if there is none.
+
+    Two traps, both of which return a confidently wrong number rather than an
+    error, and both measured against ffprobe 9 rather than assumed.
+
+    **Attached cover art is a video stream.** An mp3 with artwork probes as an
+    audio stream plus a 600x600 video stream carrying
+    `disposition.attached_pic == 1`. Taking the first video stream reports a
+    sermon as square, and a renderer believing that would letterbox footage
+    nobody ever shot square.
+
+    **Coded geometry is not display geometry.** A phone filming vertical writes
+    1920x1080 plus a Display Matrix saying to rotate a quarter turn; what a
+    viewer sees is 1080x1920. Cropping toward a subject on the coded numbers
+    targets the wrong axis, and a service filmed on a phone is ordinary input.
+    """
+    for stream in streams:
+        if stream.get("codec_type") != "video":
+            continue
+        disposition = stream.get("disposition")
+        if isinstance(disposition, dict) and disposition.get("attached_pic"):
+            continue
+
+        width, height = stream.get("width"), stream.get("height")
+        if not isinstance(width, int) or not isinstance(height, int):
+            continue
+        if width <= 0 or height <= 0:
+            continue
+
+        if _quarter_turned(stream.get("side_data_list")):
+            return FrameSize(width=height, height=width)
+        return FrameSize(width=width, height=height)
+
+    return None
+
+
+def _quarter_turned(side_data: object) -> bool:
+    """Whether a Display Matrix rotates the picture onto its other axis.
+
+    Only the Display Matrix is consulted: `side_data_list` carries several kinds,
+    and reading `rotation` off whichever entry happens to have one would swap
+    axes on unrelated metadata. A half turn is still landscape, so only a quarter
+    turn swaps.
+
+    An unreadable rotation is ignored rather than fatal. Probing is how this
+    system learns a file is usable at all, and a stream whose rotation cannot be
+    parsed is still a stream with dimensions — failing the probe over it would
+    reject a source that plays.
+    """
+    if not isinstance(side_data, list):
+        return False
+
+    for entry in side_data:
+        if not isinstance(entry, dict) or entry.get("side_data_type") != "Display Matrix":
+            continue
+        try:
+            rotation = abs(int(float(str(entry.get("rotation", 0)))))
+        except (TypeError, ValueError):
+            continue
+        if rotation % 180 == 90:
+            return True
+
+    return False

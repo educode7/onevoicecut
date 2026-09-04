@@ -2447,28 +2447,73 @@ Closes: `audio-extraction` Media Probe Reports Frame Dimensions (all 3 scenarios
 no storage change, no codec change, no migration, because the renderer re-probes rather than persisting
 `MediaProbe`. Unblocks slice 12a-i.
 
-- [ ] 11a.1 RED: `tests/unit/domain/test_media.py` — `FrameSize(width, height)` frozen; `MediaProbe.frame`
+- [x] 11a.1 RED: `tests/unit/domain/test_media.py` — `FrameSize(width, height)` frozen; `MediaProbe.frame`
       defaults to `None`; construction with a `FrameSize` round-trips.
-- [ ] 11a.2 GREEN: `domain/media.py` — add `FrameSize`; `MediaProbe.frame: FrameSize | None = None`.
-- [ ] 11a.3 RED: `tests/unit/domain/test_errors.py` — `FrameGeometryUnavailable` derives from `DomainError`.
-- [ ] 11a.4 GREEN: `domain/errors.py` — add `FrameGeometryUnavailable`.
-- [ ] 11a.5 RED: `tests/unit/adapters/ffmpeg/test_probe_frame.py` — an ffprobe JSON fixture with a normal
+- [x] 11a.2 GREEN: `domain/media.py` — add `FrameSize`; `MediaProbe.frame: FrameSize | None = None`.
+- [x] 11a.3 RED: `tests/unit/domain/test_errors.py` — `FrameGeometryUnavailable` derives from `DomainError`.
+- [x] 11a.4 GREEN: `domain/errors.py` — add `FrameGeometryUnavailable`.
+- [x] 11a.5 RED: `tests/unit/adapters/ffmpeg/test_probe_frame.py` — an ffprobe JSON fixture with a normal
       video stream decodes `MediaProbe.frame` matching width/height.
-- [ ] 11a.6 GREEN: `adapters/ffmpeg/extractor.py` — extend `probe()` to read the selected video stream's
+- [x] 11a.6 GREEN: `adapters/ffmpeg/extractor.py` — extend `probe()` to read the selected video stream's
       `width`/`height`.
-- [ ] 11a.7 RED: attached-cover-art fixture (`disposition.attached_pic == 1`) — probe returns `frame=None`,
+- [x] 11a.7 RED: attached-cover-art fixture (`disposition.attached_pic == 1`) — probe returns `frame=None`,
       not the artwork's square dimensions.
-- [ ] 11a.8 GREEN: skip streams with `disposition.attached_pic == 1` before selecting the video stream.
-- [ ] 11a.9 RED: rotation fixture — a stream with `side_data_list` rotation of ±90° reports `FrameSize`
+- [x] 11a.8 GREEN: skip streams with `disposition.attached_pic == 1` before selecting the video stream.
+- [x] 11a.9 RED: rotation fixture — a stream with `side_data_list` rotation of ±90° reports `FrameSize`
       with width/height swapped (display geometry, not coded geometry).
-- [ ] 11a.10 GREEN: read rotation from `side_data_list`; swap width/height when it is ±90°.
-- [ ] 11a.11 RED: no-video-stream fixture (audio-only source) — `MediaProbe.frame is None`.
-- [ ] 11a.12 GREEN: confirm the guard chain falls through to `None` when no eligible video stream survives.
-- [ ] 11a.13 RED: `integration`-marked test against a real ffmpeg-synthesized fixture (`-f lavfi`,
+- [x] 11a.10 GREEN: read rotation from `side_data_list`; swap width/height when it is ±90°.
+- [x] 11a.11 RED: no-video-stream fixture (audio-only source) — `MediaProbe.frame is None`.
+- [x] 11a.12 GREEN: confirm the guard chain falls through to `None` when no eligible video stream survives.
+- [x] 11a.13 RED: `integration`-marked test against a real ffmpeg-synthesized fixture (`-f lavfi`,
       matching the 3a precedent) — confirms both guards against the real binary's JSON shape, not only a
       hand-written fixture; skips when ffmpeg is absent.
-- [ ] 11a.14 GREEN: fix any gap 11a.13 exposes between the hand-written fixtures and real ffprobe output.
-- [ ] 11a.15 REFACTOR: suite green, `mypy src tests` clean.
+- [x] 11a.14 GREEN: fix any gap 11a.13 exposes between the hand-written fixtures and real ffprobe output.
+- [x] 11a.15 REFACTOR: suite green, `mypy src tests` clean.
+
+### Both traps were measured off ffprobe 9 before a line was written
+
+11a.13 exists because a hand-written fixture proves the *parser* and cannot prove the *fixture*: every field
+name, nesting level and value type in it is a belief about ffprobe's JSON, and a wrong belief makes sixteen
+tests pass over a probe that returns `None` for every real file. So the two shapes were read off the binary
+first:
+
+- **Cover art**: an mp3 with artwork really does probe as an audio stream *plus* a 600x600 video stream
+  carrying `disposition.attached_pic == 1`. Taking "the first video stream" reports a sermon as square, and a
+  renderer believing that would letterbox footage nobody ever shot square.
+- **Rotation**: `-display_rotation:v:0 90` writes
+  `side_data_list: [{"side_data_type": "Display Matrix", "rotation": 90, ...}]` and leaves `width`/`height` at
+  the coded 320x240. What a viewer sees is 240x320. Cropping toward a subject on the coded numbers targets the
+  wrong axis, and a service filmed on a phone is ordinary input here.
+
+**11a.14 found no gap**, which is the result of measuring rather than a lucky guess — the four `integration`
+tests passed on their first run against the real binary.
+
+### Three smaller decisions, each with a test
+
+- **Only the Display Matrix is consulted.** `side_data_list` carries several kinds, and reading `rotation` off
+  whichever entry happens to have one would swap axes on unrelated metadata.
+- **A half turn does not swap.** Upside down is still landscape; swapping would invent a vertical source out
+  of a camera that was merely mounted badly.
+- **An unreadable rotation is ignored, not fatal.** Probing is how this system learns a file is usable at all,
+  and a stream whose rotation cannot be parsed is still a stream with dimensions. Failing the probe over it
+  would reject a source that plays.
+
+`frame` is `None` rather than a zero size for the same reason `MediaProbe` has three states elsewhere: a
+renderer must be able to tell "there is no picture" from "the picture is nothing", which is a frame it would
+divide by. Zero or missing dimensions collapse to `None` too.
+
+### `FrameGeometryUnavailable` is declared and unraised, deliberately
+
+Slice 12's renderer raises it, refusing a job rather than inventing a frame — the same no-silent-substitution
+rule the engine resolver and the capability axes already apply. Declared here because it guards the axis
+`MediaProbe.frame` just opened, and its docstring names who raises it and when so it does not read as dead
+code.
+
+### Measured cost
+
+**417 lines against the ~525 estimate (0.79x)** — `src` 100 across three files, tests 317. No storage change,
+no codec change, no migration, exactly as the slice header predicted: the renderer re-probes rather than
+persisting `MediaProbe`.
 
 ---
 

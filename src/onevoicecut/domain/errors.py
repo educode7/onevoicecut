@@ -104,6 +104,18 @@ class CorruptedRecord(DomainError):
     """
 
 
+class FrameGeometryUnavailable(DomainError):
+    """Raised when rendering needs the source geometry and the probe has none.
+
+    Declared here rather than where it will be raised, because the axis it
+    guards is the one `MediaProbe.frame` just opened: an audio-only source, or
+    one carrying nothing but cover art, has no picture to crop toward. The
+    renderer (slice 12) is what raises it — refusing the job rather than
+    inventing a frame, which is the same no-silent-substitution rule the engine
+    resolver and the capability axes already apply.
+    """
+
+
 class ContextLengthExceeded(DomainError):
     pass
 
