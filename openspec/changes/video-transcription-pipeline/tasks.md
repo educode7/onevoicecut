@@ -3226,22 +3226,22 @@ Silently Degraded (both scenarios); threat-matrix row **ASS subtitle content inj
 Depends on 13a-i (`SubtitleCue`, `SubtitleTimingSource`, `CaptionCoverage`) and on **11b-i**
 (`TranscriptSegment.words`). Independent of 13a-iii; gates 13b-i and 13b-iii.
 
-- [ ] 13a.14 RED: `tests/unit/adapters/ffmpeg/test_subtitles.py` — hostile strings (`{\an8}`, a lone `}`, a
+- [x] 13a.14 RED: `tests/unit/adapters/ffmpeg/test_subtitles.py` — hostile strings (`{\an8}`, a lone `}`, a
       lone `\`, `\r\n`, a 5,000-char run) each emit a single dialogue line with no override block, `\`
       escaped, CR/LF stripped, intended breaks only as `\N`.
-- [ ] 13a.15 GREEN: `adapters/ffmpeg/subtitles.py` — the escaping function + `.ass` file generation from
+- [x] 13a.15 GREEN: `adapters/ffmpeg/subtitles.py` — the escaping function + `.ass` file generation from
       `tuple[SubtitleCue, ...]`.
-- [ ] 13a.16 RED: `tests/unit/usecases/test_build_subtitle_cues.py` — a multi-second `SPEECH` segment with
+- [x] 13a.16 RED: `tests/unit/usecases/test_build_subtitle_cues.py` — a multi-second `SPEECH` segment with
       `words` splits into cues at word boundaries, none exceeding `max_cue_chars`; plus the eligibility
       rule: a `MUSIC` segment in the span produces no cue while keeping its timestamps in the transcript,
       and an `UNCERTAIN` segment does produce cues, carrying no `UNCERTAIN_MARKER` in the cue text.
-- [ ] 13a.17 GREEN: `usecases/build_subtitle_cues.py` — eligibility via `without_music(...)` over the
+- [x] 13a.17 GREEN: `usecases/build_subtitle_cues.py` — eligibility via `without_music(...)` over the
       segments overlapping the requested span, minus any segment whose text is empty once stripped, then
       word-boundary cue splitting; one selector, reused by both declarations.
-- [ ] 13a.18 RED: word-less-segment test — a segment with `words=()` yields one cue at segment times, never
+- [x] 13a.18 RED: word-less-segment test — a segment with `words=()` yields one cue at segment times, never
       an evenly-distributed guess.
-- [ ] 13a.19 GREEN: implement the segment-level fallback branch.
-- [ ] 13a.20 RED: declaration tests — (a) timing source: a clip whose every **eligible** segment carries
+- [x] 13a.19 GREEN: implement the segment-level fallback branch.
+- [x] 13a.20 RED: declaration tests — (a) timing source: a clip whose every **eligible** segment carries
       `words` returns `SubtitleTimingSource.WORD_LEVEL`, any eligible segment lacking `words` degrades the
       whole clip to `SEGMENT_LEVEL`, and a span with zero eligible segments returns `SEGMENT_LEVEL` rather
       than a vacuous `WORD_LEVEL`; (b) caption coverage: all-`SPEECH` → `CONFIRMED_SPEECH`, any
@@ -3249,13 +3249,83 @@ Depends on 13a-i (`SubtitleCue`, `SubtitleTimingSource`, `CaptionCoverage`) and 
       whitespace-only segment is not eligible, every eligible segment yields at least one cue, and
       therefore `NONE` is declared whenever the cue set is empty (no `CONFIRMED_SPEECH` or
       `INCLUDES_UNVERIFIED` clip carries zero cues).
-- [ ] 13a.21 GREEN: `build_subtitle_cues` returns `(cues, timing_source, coverage)`, both declarations
+- [x] 13a.21 GREEN: `build_subtitle_cues` returns `(cues, timing_source, coverage)`, both declarations
       computed from **one basis** — the actual eligible segments in range, never the cues and never
       `capabilities().word_timing` — with cue construction total over that same set.
-- [ ] 13a.22 REFACTOR: suite green, `mypy src tests` clean.
+- [x] 13a.22 REFACTOR: suite green, `mypy src tests` clean.
 
 ---
 
+
+### One basis for both declarations, and it is not the capability
+
+A clip declares where its caption timing came from and what its captions contain. Both are computed from the
+**eligible segments overlapping the span** — never from the cues, and never from `capabilities().word_timing`.
+
+The capability answers "could this engine ever produce word timings". The segments answer "did *this clip* get
+them", and only the second is true about the artifact: a word-timing-capable adapter can still return `()` for
+a segment. Reading the capability would let a clip declare `WORD_LEVEL` over captions it does not have.
+
+### `UNCERTAIN` is captioned; its marker is not
+
+Eligibility is the message-facing rule every other consumer shares, with one deliberate difference from
+`render_message_text`. `MUSIC` is dropped — sung lyrics are not the message. `UNCERTAIN` is **kept**, because
+an adapter that cannot classify marks everything `UNCERTAIN` and excluding it would leave a muted clip with a
+silently blank caption channel.
+
+But `[?]` never reaches the frame. `render_message_text` marks it for a human *reading a transcript*; a
+caption **is** the message, and `[?]` on screen is not what the preacher said. The uncertainty is declared as
+metadata instead — which is exactly what `CaptionCoverage.INCLUDES_UNVERIFIED` exists for.
+
+### Two quiet traps, both guarded and both mutation-checked
+
+- **`all()` over an empty set is `True`.** A span of pure music would otherwise declare a vacuous
+  `WORD_LEVEL`. Removing the empty-set guard fails 5 tests.
+- **Cue construction is total over the eligible set.** Only then are "zero cues" and "no eligible segment" the
+  same condition, which is what lets `NONE` mean something an operator can act on. Letting blank-text segments
+  through fails 2. Letting the `[?]` marker reach the frame fails 1.
+
+### Splitting needs word times to split on
+
+A segment without them yields **one** cue carrying its own boundaries, even when that overruns the character
+budget. Dividing it evenly would invent the timing, and even spacing looks exactly like measurement while
+drifting with every syllable the speaker lingers on — the same refusal the word-timing axis itself is built
+around. The clip declares `SEGMENT_LEVEL` so the coarser captions are never passed off as ordinary ones. That
+is the normal path today: both real adapters declare `word_timing=UNSUPPORTED`.
+
+### Cue text is model output, so ASS treats it as hostile
+
+`{...}` is an ASS override block — it can move a caption off-screen, change its colour, or swallow the rest of
+the line. A decoder hallucinating an override, and Whisper-family decoders hallucinate confidently, would be
+authoring subtitle directives inside a clip nobody reviewed.
+
+Three characters are **substituted rather than escaped**, because ASS defines no reliable literal escape for
+any of them and a substitution that renders wrong beats a directive that executes. Verified against the real
+functions: an override block comes out as ordinary parentheses.
+
+**The backslash is the subtle one.** ASS's hard line break is a backslash followed by `N`, so source text
+shaped that way would render as a break followed by the remainder — a syllable silently deleted. Escaping
+therefore runs *before* intended breaks are inserted, which makes "the only breaks in a document are ones this
+module inserted" true structurally rather than by convention. Verified: the syllable survives.
+
+Timestamps are centiseconds in ASS's own `H:MM:SS.cc` shape. A stamp in the wrong shape is **not rejected** by
+libass — it reads as zero, so every caption would land at the start of the clip and nothing would report it.
+Verified: 3661.07 s renders as `1:01:01.07`.
+
+### How this unit was actually built
+
+The subagent implementing it hit the model provider's session limit partway through, having finished the ASS
+half green and written the cue builder's RED tests. The RED was left in the tree, so the suite could not even
+collect. I implemented `build_subtitle_cues` against those tests and mutation-checked the result. The
+provenance is worth recording because the tests came from one author and the implementation from another,
+which is the same review boundary a pull request has.
+
+### Measured cost
+
+**843 lines against the ~525 estimate (1.61x)** and **over the 800 budget by 5%**. The seam was available and
+visible in hindsight: the ASS document half and the cue-building half are independently green, and they landed
+that way by accident rather than by design. Recorded rather than repaired, because splitting a commit after
+the fact buys nothing — but it is the second unit in slice 13 to overrun, after 13a-i at 952.
 ## Slice 13a-iii: Filter-Graph Composition + `sendcmd` Densification (~575 lines)
 
 Closes: `clip-rendering` Single Native ffmpeg Pass, Crop Trajectory Applied As Given; threat-matrix row
