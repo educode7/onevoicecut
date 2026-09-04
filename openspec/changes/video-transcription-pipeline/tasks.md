@@ -2987,28 +2987,131 @@ Center (both scenarios), Keyframe Provenance Is Marked, Mostly-Fallback Trajecto
 scenarios), Trajectory Arithmetic Is Testable With No Model Weights. Depends on 12b-i; gates 13b-iii, the
 only consumer of `build_trajectory`'s output.
 
-- [ ] 12b.11 RED: edge-clamp test — a detection near the frame edge produces a crop rect clamped fully
+- [x] 12b.11 RED: edge-clamp test — a detection near the frame edge produces a crop rect clamped fully
       inside the frame.
-- [ ] 12b.12 GREEN: stage 5 — `x = min(max(x, 0), frame.width - crop_w)`, same for `y`; applied last among
+- [x] 12b.12 GREEN: stage 5 — `x = min(max(x, 0), frame.width - crop_w)`, same for `y`; applied last among
       position stages.
-- [ ] 12b.13 RED: bounded-short-gap test — a no-detection run bounded by `TRACKED` keyframes on both sides,
+- [x] 12b.13 RED: bounded-short-gap test — a no-detection run bounded by `TRACKED` keyframes on both sides,
       `<= max_gap_s`, fills with `INTERPOLATED` keyframes moving continuously between the bounding rects.
-- [ ] 12b.14 GREEN: stage 6a — linear interpolation over a bounded gap.
-- [ ] 12b.15 RED: leading-gap and over-long-gap tests — a leading run and a run exceeding `max_gap_s` both
+- [x] 12b.14 GREEN: stage 6a — linear interpolation over a bounded gap.
+- [x] 12b.15 RED: leading-gap and over-long-gap tests — a leading run and a run exceeding `max_gap_s` both
       fill with `FALLBACK_CENTER`, never `INTERPOLATED`.
-- [ ] 12b.16 GREEN: stage 6b — centred-rect fallback for every run not eligible for interpolation.
-- [ ] 12b.17 RED: provenance-query test — every keyframe in a full-clip trajectory reports exactly one of
+- [x] 12b.16 GREEN: stage 6b — centred-rect fallback for every run not eligible for interpolation.
+- [x] 12b.17 RED: provenance-query test — every keyframe in a full-clip trajectory reports exactly one of
       the three origins, matching what actually produced it.
-- [ ] 12b.18 GREEN: confirm origin tagging across all three producing paths.
-- [ ] 12b.19 RED: confidence test — a predominantly-`FALLBACK_CENTER` trajectory is `LOW_CONFIDENCE`; a
+- [x] 12b.18 GREEN: confirm origin tagging across all three producing paths.
+- [x] 12b.19 RED: confidence test — a predominantly-`FALLBACK_CENTER` trajectory is `LOW_CONFIDENCE`; a
       predominantly-`TRACKED`-or-`INTERPOLATED` trajectory is not.
-- [ ] 12b.20 GREEN: compute `fallback_ratio` once on the finished trajectory; threshold against
+- [x] 12b.20 GREEN: compute `fallback_ratio` once on the finished trajectory; threshold against
       `policy.max_fallback_ratio`.
-- [ ] 12b.21 RED: no-vision-weights marker check — the full `test_plan_trajectory.py` module runs under
+- [x] 12b.21 RED: no-vision-weights marker check — the full `test_plan_trajectory.py` module runs under
       the default suite's marker filter with zero `localmodel` imports.
-- [ ] 12b.22 GREEN: confirm (structural — no production change expected).
-- [ ] 12b.23 REFACTOR: extract the shared "run of misses" segmentation helper used by stage 6a/6b; suite
+- [x] 12b.22 GREEN: confirm (structural — no production change expected).
+- [x] 12b.23 REFACTOR: extract the shared "run of misses" segmentation helper used by stage 6a/6b; suite
       green.
+
+### Stage 6 does not re-clamp, and that is a proof carried out rather than a habit
+
+design.md supplies the argument and this slice relies on it: the frame is convex, both interpolation
+endpoints are already inside it, so every point on the segment between them is inside it — and rounding a
+value that already lies within an integer interval keeps it there. A centred rect is inside by construction.
+
+Re-clamping would be the same class of error as re-evening a clamped value, which 12a-i already refused from
+the other side: an operation that looks defensive and can only move a correct answer. What replaced the
+reflex is a **property test** — every hit/miss pattern crossed with subjects at −500 px, 0, centre, the frame
+edge and 5000 px, asserting every rect lands inside the frame. Removing stage 5's clamp fails it 18 times.
+
+### The gap is measured between the bounding samples, not across the misses
+
+A decision, not a detail, and the two measures differ by exactly one sample interval: a run of *n* misses at
+4 Hz spans `(n−1)/4` s while the gap containing it spans `(n+1)/4` s. At six misses those are 1.25 s and
+1.75 s, straddling the 1.5 s policy — so the choice decides whether that gap is bridged.
+
+Measuring between the endpoints is the distance actually being inferred over, and it is the conservative one.
+That case is now a test; before it existed the mutation swapping the two measures survived, because every
+other fixture had both measures on the same side of the threshold.
+
+### The vertical axis, settled
+
+For a landscape source `crop_size_for` returns a full-height crop, so `frame.height − crop_h` is zero and `y`
+has exactly one legal value — which is why stages 2 to 4 could ignore the axis entirely. That is asserted
+rather than assumed, because it is the premise the earlier slice rested on.
+
+Where `y` genuinely has room — a source narrower than 9:16 — it is **centred**, because nothing tracks
+vertically and centring is the one position that does not claim to be derived from evidence. The test fixture
+for that needed care: 1080×1920 is *exactly* 9:16 and takes the wide branch, giving a full-height crop and no
+vertical room at all. It would have passed for the wrong reason. 1000×1920 is genuinely narrower.
+
+### An empty trajectory is `LOW_CONFIDENCE`
+
+There is no ratio to compute — no denominator — and the safe reading of no evidence is the weaker claim.
+Reporting a trajectory with no keyframes as well tracked is the "looks like success" failure this axis exists
+to prevent, in its purest form. Removing the guard turns it into a `ZeroDivisionError`, which is at least
+loud; returning `WELL_TRACKED` would not be.
+
+### Four mutations survived the first round, and three were my tests' fault
+
+| Mutation | First round | After |
+| --- | --- | --- |
+| Drop stage 5's clamp | caught (18) | caught (18) |
+| Measure the gap across the misses | **survived** | caught |
+| Count `INTERPOLATED` as a fallback | **survived** | caught |
+| `>=` instead of `>` on the ratio | **survived** | caught |
+| Remove the empty-trajectory guard | caught | caught |
+
+The second is the fixture arithmetic above. The third is the boundary trap this change keeps producing: with
+*two* interpolated keyframes of four, they are exactly half — not *above* the default threshold either way —
+so the assertion held whether or not they were miscounted. Three misses makes them the majority, which is the
+only arrangement that can tell the two behaviours apart. The fourth had no boundary test at all; "exceeds" in
+the spec is strictly greater, and two fallbacks of four is exactly 0.5 with both values exactly representable.
+
+A fifth mutation — re-clamping inside stage 6 — was **dropped as uninformative** rather than recorded as a
+survivor. It reduced to `min(max(raw, 0), raw)`, which is the identity for a non-negative value, so it tested
+nothing. The property test above is what actually carries that claim.
+
+### `TimeSpan` now refuses to run backwards — found in review, not in this slice's scope
+
+`TimeSpan(10.0, 5.0)` constructed silently and yielded `duration_s == −5.0`. Every consumer treats that
+quantity as a length: it scales interpolation here, it decides a sample count in the fake detector, and slice
+13's renderer will cut with it. The precedent was already in the codebase — `plan_chunks` raises on a
+non-positive duration to protect its own division, and `CropTrajectory` validates its invariant the same way.
+
+**One correction to the report that handed this over.** The stated downstream harm was that a reversed span
+reaches the detector as `max(1, floor(−20))` and returns one detection. It does not: `_sample_times` guards
+`duration_s <= 0` before that line and returns none. Measured, not argued — a reversed span yields zero
+detections today. The guard is still right, for the reason above rather than that one.
+
+Zero length stays legal. A request to look at nothing is answerable; a request to look backwards is not.
+
+### Two things noted, not acted on
+
+`build_trajectory` accepts `span` and reads nothing from it. The signature is design.md's and slice 13 seeks
+with it, but detection times are already clip-local — re-offsetting them here would be the second translation
+point `subject_tracker.py`'s docstring warns against. Documented at the parameter rather than removed.
+
+12b.23 asked for the "run of misses" segmentation helper to be extracted. `_miss_runs` was written that way
+from the start rather than extracted afterwards, because both fills need the same question answered — whether
+a run is bounded, and how long it is — and neither can ask it from inside the run.
+
+### Measured cost
+
+**635 lines against the ~575 estimate (1.10x)** — `src` 242, tests 393. Test share 62%. The overrun is the
+second mutation round: three of the five regressions were invisible to the first set of fixtures.
+
+---
+
+## Slice 12 closed
+
+Four units. **12a-i** fixed the crop size once and proved the direction of `even()` is what keeps the clamp
+well-formed. **12a-ii** made "a miss has no box, a weak hit has one" structural rather than conventional, and
+found that plain `floor` returns zero samples for a clip shorter than one sample interval. **12b-i** put
+smoothing before the dead-zone and made design.md's prose claim about the reverse order executable. **12b-ii**
+clamped, filled and reported.
+
+Every unit found something by mutation that its own tests had missed, and one found that its stated
+justification was false. The subsystem now answers, for every sampled moment of a clip, where the vertical
+window sits and **where that position came from** — which is the whole point: a clip framed on an empty
+pulpit is reported as low-confidence before it is rendered, not discovered afterwards.
 
 ---
 

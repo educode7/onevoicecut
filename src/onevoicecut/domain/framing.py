@@ -77,6 +77,26 @@ class TimeSpan:
     start_s: float
     end_s: float
 
+    def __post_init__(self) -> None:
+        """A span that ends before it starts is not a short span, it is nonsense.
+
+        Found reviewing 12a-i rather than reached by this module's own scope. A
+        reversed pair yields a negative `duration_s`, and every consumer treats
+        that quantity as a length: it scales interpolation, it decides a sample
+        count, and slice 13's renderer will cut with it. The precedent is
+        already here — `plan_chunks` raises on a non-positive duration to
+        protect its own division, and `CropTrajectory` validates its invariant
+        the same way.
+
+        Zero length stays legal. A request to look at nothing is answerable;
+        a request to look backwards is not.
+        """
+        if self.end_s < self.start_s:
+            raise ValueError(
+                f"a time span cannot end before it starts: "
+                f"{self.start_s}s to {self.end_s}s"
+            )
+
     @property
     def duration_s(self) -> float:
         """Derived, never stored. Two representations of one fact drift, and
