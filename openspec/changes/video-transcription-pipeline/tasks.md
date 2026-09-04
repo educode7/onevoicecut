@@ -2740,29 +2740,82 @@ confirmation: the encoder genuinely needed nothing, and the four validation help
 Closes: `subject-tracking` CropTrajectory Domain Object. Depends on slice 11a's `FrameSize`. Gates 12a-ii
 (which needs `TimeSpan`) and, with it, 12b-i.
 
-- [ ] 12a.1 RED: `tests/unit/domain/test_framing.py` — construct `TimeSpan`, `CropRect`, `CropKeyframe`
+- [x] 12a.1 RED: `tests/unit/domain/test_framing.py` — construct `TimeSpan`, `CropRect`, `CropKeyframe`
       (timestamp + rect + `KeyframeOrigin`), `CropTrajectory`, `TrackingConfidence`, `TrajectoryPolicy`;
       all frozen, `FrozenInstanceError` on mutation.
-- [ ] 12a.2 GREEN: `domain/framing.py` — the six entity types + `KeyframeOrigin(StrEnum)` (`TRACKED`,
+- [x] 12a.2 GREEN: `domain/framing.py` — the six entity types + `KeyframeOrigin(StrEnum)` (`TRACKED`,
       `INTERPOLATED`, `FALLBACK_CENTER`).
-- [ ] 12a.3 RED: `CropTrajectory.__post_init__` invariant test — a trajectory whose keyframes carry
+- [x] 12a.3 RED: `CropTrajectory.__post_init__` invariant test — a trajectory whose keyframes carry
       mismatched rect `width`/`height` raises `ValueError`.
-- [ ] 12a.4 GREEN: implement the invariant check in `__post_init__` — the domain's first `__post_init__`
+- [x] 12a.4 GREEN: implement the invariant check in `__post_init__` — the domain's first `__post_init__`
       invariant.
-- [ ] 12a.5 RED: keyframe-inspection test — a keyframe exposes its timestamp, rect, and exactly one origin.
-- [ ] 12a.6 GREEN: confirm the constructed type already satisfies this.
-- [ ] 12a.8 RED: `crop_size_for` pinned test — 3840×2160 → `(1214, 2160)` and 1920×1080 → `(606, 1080)`,
+- [x] 12a.5 RED: keyframe-inspection test — a keyframe exposes its timestamp, rect, and exactly one origin.
+- [x] 12a.6 GREEN: confirm the constructed type already satisfies this.
+- [x] 12a.8 RED: `crop_size_for` pinned test — 3840×2160 → `(1214, 2160)` and 1920×1080 → `(606, 1080)`,
       the two authoritative numbers; a source narrower than 9:16 swaps the derivation axis; and the
       postcondition `crop_w <= frame.width and crop_h <= frame.height`, both even and **non-negative**,
       holds over odd frame widths and heights too — the property stage 5's clamp depends on. The property
       asserts non-negativity, **not** positivity: `even(v) == 0` for `v < 2`, so `FrameSize(1920, 1)`
       yields `(0, 0)`, which is correct output for a degenerate frame and is refused at the render-worker
       boundary by `13b.20`, never repaired here.
-- [ ] 12a.7 GREEN: `domain/framing.py` — `even(value) = 2 * floor(value / 2)` (round **down**, no tie case)
+- [x] 12a.7 GREEN: `domain/framing.py` — `even(value) = 2 * floor(value / 2)` (round **down**, no tie case)
       and `crop_size_for(frame, policy)` module function (pipeline stage 1), with no clamping and no
       re-evening step.
-- [ ] 12a.9 REFACTOR: suite green, `mypy src tests` clean.
+- [x] 12a.9 REFACTOR: suite green, `mypy src tests` clean.
 
+
+### The direction of `even()` is the whole slice
+
+Everything else here is vocabulary. `even()` is the one decision, and rounding **down** is not a preference:
+on an odd frame width, rounding up returns `frame.width + 1`, which makes `frame.width - crop_w` negative and
+inverts stage 5's clamp into `min(max(x, 0), -1) == -1` — a crop rect starting *outside* the frame, which is
+precisely what *Clamping to Frame Edges* exists to prevent.
+
+**Mutation-checked rather than argued.** Three regressions injected against the finished suite, all caught:
+
+| Mutation | Failures |
+| --- | --- |
+| `even()` rounds up (`math.ceil`) | 50 |
+| The `__post_init__` size invariant never fires | 3 |
+| A "re-even" step nudges `crop_w` up by 2 after derivation | 6 |
+
+The third is the one worth having. design.md warns that the removed *re-even after clamping* step "has the
+same defect from the other side", and that warning was previously only prose — the postcondition property now
+catches it, over odd values on both axes rather than only at the two worked examples.
+
+### Non-negative is the exact word, and the tests say so
+
+`even(v) == 0` for every `v` below 2, so `FrameSize(1920, 1)` yields `(0, 0)`. That is the correct output: a
+one-pixel-tall picture has no 9:16 crop, and no rounding invents one. The property test asserts
+`crop_w >= 0`, **not** `> 0`, and a test pins the degenerate pair explicitly so a later reader cannot mistake
+the weaker assertion for an oversight. The refusal belongs at the render-worker boundary (`13b.20`), where a
+single totality test replaces a per-branch minimum-frame-size threshold that a caller could compare against
+the wrong way round.
+
+### `TrackingConfidence.WELL_TRACKED` is a name this slice had to choose
+
+design.md fixes `LOW_CONFIDENCE` and never names its counterpart. `TRACKED` was the obvious pick and was
+rejected: it collides with `KeyframeOrigin.TRACKED`, and the two mean different things — `INTERPOLATED`
+keyframes count as *well tracked* because the spec's own scenario says a trajectory predominantly `TRACKED`
+**or** `INTERPOLATED` is not flagged. A shared name would have made that distinction unreadable at every call
+site that touches both.
+
+### Two smaller notes
+
+**12a.6 is a confirmation, not a discovery.** The task reads "confirm the constructed type already satisfies
+this", and it does — a keyframe built in 12a.2 already exposes a timestamp, a rect and exactly one origin.
+Unlike the five already-satisfied tasks earlier in this change, this one was *written* as a confirmation, so
+it is not a sixth surprise.
+
+**The task list numbers 12a.8 before 12a.7.** Deliberate on inspection: 12a.8 is the RED that pins the
+authoritative numbers, and 12a.7 is the GREEN that implements `even()` and `crop_size_for` to satisfy it. The
+ordering is correct for strict TDD and only the labels look transposed.
+
+### Measured cost
+
+**480 lines against the ~450 estimate (1.07x)** — `src` 194, tests 286. Test share 60%. No change outside the
+new module and its tests: `FrameSize` came from 11a as planned, and `tests/test_architecture.py` still passes
+with the new domain module in place.
 ---
 
 ## Slice 12a-ii: `SubjectTrackerPort` + Fake Detector (~525 lines)
