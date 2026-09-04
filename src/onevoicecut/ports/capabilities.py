@@ -29,6 +29,23 @@ class ClassificationSupport(StrEnum):
     AVAILABLE = "available"
 
 
+class WordTimingSupport(StrEnum):
+    """Whether the engine can say when each word was spoken.
+
+    Two states, not three. Diarization has a `REQUIRES_SETUP` because it is an
+    install with a licence behind it; word timing is a decoder flag — an engine
+    either produces the timings or it does not.
+
+    An engine that cannot must return no words rather than dividing the segment
+    evenly across them. Evenly spaced words look completely plausible: they read
+    as timing, they render as captions, and they drift further from the audio
+    with every syllable the speaker lingers on.
+    """
+
+    UNSUPPORTED = "unsupported"
+    AVAILABLE = "available"
+
+
 @dataclass(frozen=True, slots=True)
 class TranscriptionCapabilities:
     engine_id: str
@@ -36,6 +53,9 @@ class TranscriptionCapabilities:
     # Required, with no default: an adapter that never states whether it can tell
     # speech from music is a gap the admission check cannot reason about.
     non_speech_classification: ClassificationSupport
+    # Required for the same reason, on a third and independent axis. Never infer
+    # one axis from another: an engine can time words and not classify music.
+    word_timing: WordTimingSupport
     max_chunk_bytes: int | None
     max_chunk_duration_s: float | None
 
@@ -56,3 +76,4 @@ class DeclaredSupport:
 
     diarization: DiarizationSupport
     non_speech_classification: ClassificationSupport
+    word_timing: WordTimingSupport

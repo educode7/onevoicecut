@@ -25,6 +25,7 @@ from onevoicecut.ports.capabilities import (
     ClassificationSupport,
     DeclaredSupport,
     DiarizationSupport,
+    WordTimingSupport,
 )
 from onevoicecut.ports.transcription import TranscriptionPort
 
@@ -200,6 +201,7 @@ def declared_support(
     return DeclaredSupport(
         diarization=declared_diarization(engine, hf_token=hf_token),
         non_speech_classification=_declared_classification(engine),
+        word_timing=_declared_word_timing(engine),
     )
 
 
@@ -212,3 +214,21 @@ def _declared_classification(engine: EngineChoice) -> ClassificationSupport:
     from onevoicecut.adapters.asr.local.declarations import CLASSIFICATION
 
     return CLASSIFICATION
+
+
+def _declared_word_timing(engine: EngineChoice) -> WordTimingSupport:
+    """Read from the adapters, never asserted here.
+
+    Both declare `UNSUPPORTED` today, which makes a hardcoded constant look
+    equivalent and is exactly why it is not: the day one adapter starts asking
+    its engine for word timestamps, a composition root holding its own answer
+    would keep warning operators about a capability the build now has.
+    """
+    if engine is EngineChoice.CLOUD:
+        from onevoicecut.adapters.asr.cloud.openai_whisper_adapter import WORD_TIMING
+
+        return WORD_TIMING
+
+    from onevoicecut.adapters.asr.local.declarations import WORD_TIMING
+
+    return WORD_TIMING

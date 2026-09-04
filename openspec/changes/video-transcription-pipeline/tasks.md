@@ -1342,6 +1342,10 @@ that is ever preferred.
 
 ### Measured cost
 
+**599 lines against the ~625 estimate (0.96x)** — 313 changed across 22 files, 286 new. The 22-file spread is
+the axis being required rather than optional: fifteen capability constructions and sixteen `admit_job` call
+sites all had to answer.
+
 **449 lines against the ~150 estimate (3.0x)** — `src` 128, tests 321. Well inside the 800 budget, so one
 unit. The overrun is scope, not sprawl: the estimate covered task 8.3 alone, and this unit also closed 8.3a,
 the refusal message, the resolution ordering and the release path. Test share 72%.
@@ -2523,32 +2527,87 @@ Closes: `transcript-artifacts` Word-Level Timing (adapter-carries-timing, non-su
 scenarios); `speech-transcription` Capability Declaration (word-timing axis). First of three 11b units —
 gates 11b-ii and 11b-iii.
 
-- [ ] 11b.1 RED: `tests/unit/domain/test_transcript.py` — `WordTiming(start_s, end_s, text)` frozen;
+- [x] 11b.1 RED: `tests/unit/domain/test_transcript.py` — `WordTiming(start_s, end_s, text)` frozen;
       `TranscriptSegment.words` defaults to `()`; all 15 existing construction sites still compile
       unchanged.
-- [ ] 11b.2 GREEN: `domain/transcript.py` — add `WordTiming`; `TranscriptSegment.words: tuple[WordTiming,
+- [x] 11b.2 GREEN: `domain/transcript.py` — add `WordTiming`; `TranscriptSegment.words: tuple[WordTiming,
       ...] = ()`.
-- [ ] 11b.3 RED: `tests/unit/ports/test_capabilities.py` — `WordTimingSupport` has exactly
+- [x] 11b.3 RED: `tests/unit/ports/test_capabilities.py` — `WordTimingSupport` has exactly
       `{unsupported, available}`; `TranscriptionCapabilities.word_timing` is required, no default.
-- [ ] 11b.4 GREEN: `ports/capabilities.py` — add `WordTimingSupport(StrEnum)` + the capability field;
+- [x] 11b.4 GREEN: `ports/capabilities.py` — add `WordTimingSupport(StrEnum)` + the capability field;
       update every existing capability construction site (fakes + tests) to supply it.
-- [ ] 11b.5 RED: non-supporting-fake test — a fake `TranscriptionPort` declaring `word_timing=UNSUPPORTED`
+- [x] 11b.5 RED: non-supporting-fake test — a fake `TranscriptionPort` declaring `word_timing=UNSUPPORTED`
       always returns `words=()`, never a fabricated entry.
-- [ ] 11b.6 GREEN: `tests/fakes/transcription.py` — word-timing-aware fake, mirroring the 1b
+- [x] 11b.6 GREEN: `tests/fakes/transcription.py` — word-timing-aware fake, mirroring the 1b
       classification-fake shape; script-driven word fixtures for the supporting fake.
-- [ ] 11b.7 RED: supporting-fake test — a fake declaring `word_timing=AVAILABLE` returns one `WordTiming`
+- [x] 11b.7 RED: supporting-fake test — a fake declaring `word_timing=AVAILABLE` returns one `WordTiming`
       per word, each with its own `start_s`/`end_s`, satisfying `"".join(w.text) == segment.text`.
-- [ ] 11b.8 GREEN: implement the supporting fake path.
-- [ ] 11b.9 RED: `tests/contract/` — add the word-timing invariant assertion, parametrized over every
+- [x] 11b.8 GREEN: implement the supporting fake path.
+- [x] 11b.9 RED: `tests/contract/` — add the word-timing invariant assertion, parametrized over every
       registered adapter (fakes now; real adapters inherit it once they ship word timing).
-- [ ] 11b.10 GREEN: wire the assertion into the shared contract body.
-- [ ] 11b.11 RED: `tests/unit/usecases/test_admit_job.py` — admitting a job against an engine whose
+- [x] 11b.10 GREEN: wire the assertion into the shared contract body.
+- [x] 11b.11 RED: `tests/unit/usecases/test_admit_job.py` — admitting a job against an engine whose
       capabilities declare `word_timing=UNSUPPORTED` produces a warning (not a rejection) naming the
       missing capability.
-- [ ] 11b.12 GREEN: `usecases/admit_job.py` — surface the warning alongside the existing diarization
+- [x] 11b.12 GREEN: `usecases/admit_job.py` — surface the warning alongside the existing diarization
       compatibility check, without blocking admission.
-- [ ] 11b.13 REFACTOR: suite green, `mypy src tests` clean.
+- [x] 11b.13 REFACTOR: suite green, `mypy src tests` clean.
 
+
+### The two defaults look inconsistent and are the same rule
+
+`TranscriptSegment.words` defaults to `()`; `TranscriptionCapabilities.word_timing` has **no default**. From
+opposite ends: a *segment* may legitimately have no words — a musical range has none, and an engine that
+cannot time them returns none — while an *engine* may never be silent about whether it can produce them. The
+default kept nineteen construction sites compiling; the absence of one broke fifteen, deliberately, so no
+adapter can ship without answering.
+
+The dangerous answer on this axis is specific: **evenly spaced words**. They look exactly like timing, they
+render as captions, and they drift further from the audio with every syllable the speaker lingers on — the
+same silent failure as undeclared diarization and as `SPEECH` claimed without a voice-activity pass, on a
+third and independent axis.
+
+### `WordTimingSupport` has two states, not three
+
+Diarization has `REQUIRES_SETUP` because it is an install with a licence behind it. Word timing is a decoder
+flag: an engine either produces the timings or it does not.
+
+Both real adapters declare `UNSUPPORTED`, and both could support it — `faster-whisper` has
+`word_timestamps=True`, the cloud API has `timestamp_granularities=["word"]`. Neither is asked yet, so
+`UNSUPPORTED` describes *this build* rather than the engine, and each adapter says so in a comment beside its
+constant.
+
+**The resolver reads those constants rather than holding its own answer.** Both being `UNSUPPORTED` today
+makes a hardcoded value look equivalent, which is exactly why it is not: the day one adapter starts asking for
+word timestamps, a composition root with its own copy would go on warning operators about a capability the
+build now has. Caught while writing it — the first patch did hardcode `AVAILABLE`, which was both wrong and
+a lie about every adapter that exists.
+
+### The first warning, and why this axis gets one
+
+`capabilities.py` records "reject **or warn about** a job" as a deliberate widening, and nothing had used the
+second half. Diarization and classification both refuse, because a speaker-mode job an engine cannot satisfy
+and a transcript an engine cannot tell from singing produce artifacts that are **wrong**.
+
+A transcript with no word timings is merely **thinner**. Every sentence is there, every timestamp is real, the
+summary and the clip candidates are exactly what they would have been; what is lost is caption precision in a
+rendered clip. Refusing would deny a working transcript over a rendering nicety, and silence would let an
+operator meet it when the captions land on the wrong syllable. So the warning names the capability *and what
+is lost by it*, because an operator who never renders clips does not care.
+
+**Warnings are returned, not injected.** `admit_job` now answers with `Admission(job, warnings)`, and
+`AdmitJobResponse` carries them. A `warn: Callable | None = None` seam was the obvious lighter option and is
+precisely the shape that left the admission capability guard disconnected from the composition root for three
+slices: a default nobody has to supply is a default nobody supplies. The cost is sixteen call sites, which is
+the point — a caller must acknowledge warnings exist.
+
+### Mutation-checked, because the contract assertion is the whole guard
+
+Two regressions injected against the shared contract body, both caught: a fake declaring `AVAILABLE` that
+returns no words, and a word split that drops the spaces between them. The second matters more than it looks —
+words are joined back to reconstruct the segment, and a lossy split renders a sermon as one long word.
+
+### Measured cost
 ---
 
 ## Slice 11b-ii: Stitcher Word-Timing Lockstep (~475 lines)

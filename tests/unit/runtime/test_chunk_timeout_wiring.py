@@ -37,6 +37,7 @@ from onevoicecut.ports.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
     TranscriptionCapabilities,
+    WordTimingSupport,
 )
 from onevoicecut.ports.transcription import TranscriptionRequest
 from onevoicecut.runtime import worker
@@ -66,6 +67,7 @@ class RecordingTranscriber:
             engine_id="recording-fake-asr",
             diarization=DiarizationSupport.UNSUPPORTED,
             non_speech_classification=ClassificationSupport.AVAILABLE,
+            word_timing=WordTimingSupport.UNSUPPORTED,
             max_chunk_bytes=None,
             max_chunk_duration_s=None,
         )

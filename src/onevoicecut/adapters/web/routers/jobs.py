@@ -223,7 +223,7 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         """
         operator = _authorized(request, deps)
         try:
-            job = admit_job(
+            admission = admit_job(
                 engine=body.engine,
                 speaker_mode=body.speaker_mode,
                 operator=operator,
@@ -235,7 +235,11 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
             )
         except (DiarizationUnsupported, ClassificationUnsupported) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
-        return AdmitJobResponse(job_id=job.job_id, state=job.state)
+        return AdmitJobResponse(
+            job_id=admission.job.job_id,
+            state=admission.job.state,
+            warnings=admission.warnings,
+        )
 
     @router.get("", response_model=JobListResponse)
     def listing(request: Request, mine: bool = False) -> JobListResponse:

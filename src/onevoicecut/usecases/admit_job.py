@@ -12,6 +12,7 @@ another process, has nobody to ask.
 
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from onevoicecut.domain.errors import DiarizationUnsupported
 from onevoicecut.domain.ids import (
@@ -27,6 +28,7 @@ from onevoicecut.ports.capabilities import (
     ClassificationSupport,
     DeclaredSupport,
     DiarizationSupport,
+    WordTimingSupport,
 )
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 
@@ -45,6 +47,45 @@ def _validate_compatibility(
             f"engine declares diarization={diarization.value}; "
             f"switch to a diarizing engine or use speaker_mode=single"
         )
+
+
+@dataclass(frozen=True, slots=True)
+class Admission:
+    """The admitted job, and anything the operator should know about it.
+
+    Warnings are **returned**, not delivered through an injected callback. A
+    `warn: Callable | None = None` seam is precisely the shape that left the
+    admission capability guard disconnected from the composition root for three
+    slices: a default nobody has to supply is a default nobody supplies.
+    """
+
+    job: JobRecord
+    warnings: tuple[str, ...] = ()
+
+
+def _word_timing_warnings(word_timing: WordTimingSupport) -> tuple[str, ...]:
+    """The first capability gap this system warns about instead of refusing.
+
+    `capabilities.py` records "reject **or warn**" as a deliberate widening, and
+    nothing had used the second half until now. Diarization and classification
+    both refuse, because a speaker-mode job an engine cannot satisfy and a
+    transcript an engine cannot tell from singing produce artifacts that are
+    *wrong*.
+
+    A transcript with no word timings is merely *thinner*. Every sentence is
+    there, every timestamp is real, the summary and the clip candidates are
+    exactly what they would have been; what is lost is caption precision in a
+    rendered clip. Refusing would deny a working transcript over a rendering
+    nicety, and silence would let an operator discover it when the captions land
+    on the wrong syllable.
+    """
+    if word_timing is WordTimingSupport.AVAILABLE:
+        return ()
+    return (
+        "the chosen engine declares no word-level timing, so rendered clips "
+        "will carry sentence-level captions rather than word-level ones; the "
+        "transcript itself is unaffected",
+    )
 
 
 def _validate_summarizable(classification: ClassificationSupport) -> None:
@@ -74,7 +115,7 @@ def admit_job(
     now: Callable[[], float] = time.time,
     new_job_id: Callable[[], JobId] = generate_job_id,
     new_media_id: Callable[[], MediaId] = generate_media_id,
-) -> JobRecord:
+) -> Admission:
     """Both ids are minted server-side, before anything touches the filesystem.
 
     The media id is allocated now even though no bytes have arrived, so the
@@ -101,6 +142,11 @@ def admit_job(
         # they picked. Naming the retractable one first offers the cheaper fix.
         _validate_compatibility(declared.diarization, speaker_mode)
         _validate_summarizable(declared.non_speech_classification)
+        # After both refusals, so a refused job never reports a warning about a
+        # record it does not have.
+        warnings = _word_timing_warnings(declared.word_timing)
+    else:
+        warnings = ()
 
     job = JobRecord(
         job_id=new_job_id(),
@@ -115,4 +161,4 @@ def admit_job(
         owner=operator,
     )
     storage.create_job(job)
-    return job
+    return Admission(job=job, warnings=warnings)

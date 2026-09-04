@@ -51,6 +51,7 @@ from onevoicecut.ports.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
     TranscriptionCapabilities,
+    WordTimingSupport,
 )
 from onevoicecut.ports.transcription import TranscriptionRequest
 from onevoicecut.usecases.admit_job import _validate_compatibility
@@ -89,6 +90,12 @@ DIARIZATION = DiarizationSupport.UNSUPPORTED
 # speech. Stated here so admission can refuse such a job before three hours of
 # transcription rather than deliver a blank summary afterwards.
 CLASSIFICATION = ClassificationSupport.UNSUPPORTED
+
+# `verbose_json` can carry `timestamp_granularities=["word"]`, and this adapter
+# does not request it. Like the local one, `UNSUPPORTED` describes this build
+# rather than the provider — declaring otherwise and returning nothing is the
+# failure the axis exists to catch.
+WORD_TIMING = WordTimingSupport.UNSUPPORTED
 
 # What a chunk gets when the job set no per-chunk budget. `None` would mean a
 # hung socket holds a worker open until the watchdog kills the process minutes
@@ -155,6 +162,7 @@ class OpenAiWhisperTranscriber:
             # front rather than deliver a plausible unlabelled transcript.
             diarization=DIARIZATION,
             non_speech_classification=CLASSIFICATION,
+            word_timing=WORD_TIMING,
             max_chunk_bytes=MAX_REQUEST_BYTES,
             # No documented duration cap — the byte cap binds first, and the
             # planner already bounds stride by target_chunk_seconds.

@@ -18,6 +18,7 @@ from onevoicecut.ports.capabilities import (
     ClassificationSupport,
     DeclaredSupport,
     DiarizationSupport,
+    WordTimingSupport,
 )
 from onevoicecut.ports.transcription import TranscriptionRequest
 from onevoicecut.usecases.admit_job import _validate_compatibility, admit_job
@@ -111,7 +112,7 @@ class TestAdmitJobCapabilities:
             operator=OPERATOR,
             storage=storage,
             capabilities=lambda _e: _declares(DiarizationSupport.AVAILABLE),
-        )
+        ).job
 
         assert job.speaker_mode is SpeakerMode.MULTI
         assert job.state is JobState.PENDING
@@ -126,7 +127,7 @@ class TestAdmitJobCapabilities:
             speaker_mode=SpeakerMode.MULTI,
             operator=OPERATOR,
             storage=storage,
-        )
+        ).job
 
         assert job.speaker_mode is SpeakerMode.MULTI
         assert len(storage.list_jobs()) == 1
@@ -148,7 +149,7 @@ class TestAdmitJobCapabilities:
             operator=OPERATOR,
             storage=storage,
             capabilities=lambda _e: _declares(diarization),
-        )
+        ).job
 
         assert job.speaker_mode is SpeakerMode.SINGLE
         assert len(storage.list_jobs()) == 1
@@ -215,4 +216,5 @@ def _declares(diarization: DiarizationSupport) -> DeclaredSupport:
     return DeclaredSupport(
         diarization=diarization,
         non_speech_classification=ClassificationSupport.AVAILABLE,
+        word_timing=WordTimingSupport.AVAILABLE,
     )

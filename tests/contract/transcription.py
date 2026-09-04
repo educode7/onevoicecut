@@ -28,7 +28,11 @@ from onevoicecut.domain.chunking import AudioChunk
 from onevoicecut.domain.errors import DiarizationUnsupported
 from onevoicecut.domain.jobs import SpeakerMode
 from onevoicecut.domain.transcript import SegmentKind
-from onevoicecut.ports.capabilities import ClassificationSupport, DiarizationSupport
+from onevoicecut.ports.capabilities import (
+    ClassificationSupport,
+    DiarizationSupport,
+    WordTimingSupport,
+)
 from onevoicecut.ports.transcription import TranscriptionPort, TranscriptionRequest
 
 # Deliberately not zero. A chunk carved out of hour two of a sermon starts at
@@ -140,3 +144,35 @@ class TranscriptionPortContract:
 
         for cap in (capabilities.max_chunk_bytes, capabilities.max_chunk_duration_s):
             assert cap is None or cap > 0
+
+    def test_it_honours_its_own_word_timing_declaration(
+        self, port: TranscriptionPort, chunk: AudioChunk
+    ) -> None:
+        """The third axis, held to the same shape as the other two.
+
+        An adapter that cannot time words must return none — never an even
+        division of the segment across them. Evenly spaced words are the
+        dangerous answer here for the same reason unlabelled diarization is:
+        they look exactly like timing, they render as captions, and they drift
+        further from the audio with every syllable the speaker lingers on.
+
+        Where timing *is* declared, reconstructing the segment from its words
+        must be lossless. Captions are rendered from these, so a reconstruction
+        that dropped the spaces would render a sermon as one long word.
+        """
+        capabilities = port.capabilities()
+        segments = port.transcribe(chunk, single_speaker())
+
+        if capabilities.word_timing is WordTimingSupport.UNSUPPORTED:
+            assert all(segment.words == () for segment in segments)
+            return
+
+        for segment in segments:
+            if not segment.text:
+                # A filtered non-speech range is a range, not words.
+                assert segment.words == ()
+                continue
+            assert segment.words
+            assert "".join(word.text for word in segment.words) == segment.text
+            for word in segment.words:
+                assert segment.start_s <= word.start_s <= word.end_s <= segment.end_s

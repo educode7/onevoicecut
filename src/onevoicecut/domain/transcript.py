@@ -25,6 +25,24 @@ class SegmentKind(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class WordTiming:
+    """When one word was said, inside the segment that contains it.
+
+    A rendered clip wants captions that land on the word rather than on the
+    sentence, which is the only reason this exists — a segment already knows its
+    own span.
+
+    Slotted like every other domain entity, and here it matters more than
+    elsewhere: this is the first entity that scales with *word* count rather
+    than segment count, and a three-hour sermon has tens of thousands of them.
+    """
+
+    start_s: float
+    end_s: float
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
 class TranscriptSegment:
     start_s: float
     end_s: float
@@ -34,6 +52,11 @@ class TranscriptSegment:
     # Defaults to the SAFE answer, not the common one: an adapter that never
     # classifies must not accidentally assert that its output is the message.
     kind: SegmentKind = SegmentKind.UNCERTAIN
+    # Defaulted, unlike the capability that declares it. A *segment* may
+    # legitimately have no words — a musical range has none, and an engine that
+    # cannot time them returns none. An *engine* may never be silent about
+    # whether it can produce them, which is why `word_timing` has no default.
+    words: tuple[WordTiming, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

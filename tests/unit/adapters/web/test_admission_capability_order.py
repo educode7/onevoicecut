@@ -25,6 +25,7 @@ from onevoicecut.ports.capabilities import (
     ClassificationSupport,
     DeclaredSupport,
     DiarizationSupport,
+    WordTimingSupport,
 )
 from onevoicecut.usecases.admit_job import admit_job
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
@@ -139,4 +140,5 @@ def _declares(diarization: DiarizationSupport) -> DeclaredSupport:
     return DeclaredSupport(
         diarization=diarization,
         non_speech_classification=ClassificationSupport.AVAILABLE,
+        word_timing=WordTimingSupport.AVAILABLE,
     )

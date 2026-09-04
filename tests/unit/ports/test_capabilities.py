@@ -6,6 +6,7 @@ from onevoicecut.ports.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
     TranscriptionCapabilities,
+    WordTimingSupport,
 )
 
 
@@ -18,6 +19,7 @@ def test_capabilities_declares_non_speech_classification() -> None:
         engine_id="fake",
         diarization=DiarizationSupport.UNSUPPORTED,
         non_speech_classification=ClassificationSupport.AVAILABLE,
+        word_timing=WordTimingSupport.UNSUPPORTED,
         max_chunk_bytes=None,
         max_chunk_duration_s=None,
     )
@@ -46,6 +48,7 @@ def test_classification_is_independent_of_diarization() -> None:
         engine_id="cloud-diarizing",
         diarization=DiarizationSupport.AVAILABLE,
         non_speech_classification=ClassificationSupport.UNSUPPORTED,
+        word_timing=WordTimingSupport.UNSUPPORTED,
         max_chunk_bytes=25_000_000,
         max_chunk_duration_s=None,
     )
@@ -53,6 +56,7 @@ def test_classification_is_independent_of_diarization() -> None:
         engine_id="local-vad",
         diarization=DiarizationSupport.UNSUPPORTED,
         non_speech_classification=ClassificationSupport.AVAILABLE,
+        word_timing=WordTimingSupport.UNSUPPORTED,
         max_chunk_bytes=None,
         max_chunk_duration_s=None,
     )
@@ -68,23 +72,29 @@ def test_classification_is_independent_of_diarization() -> None:
     )
 
 
-def test_capabilities_holds_exactly_five_fields() -> None:
+def test_capabilities_holds_exactly_six_fields() -> None:
+    """A field here is a question every adapter must answer, so growing this set
+    is a decision rather than a convenience. Slice 11b-i added the third
+    capability axis, `word_timing`; this failing is how that stayed deliberate."""
     caps = TranscriptionCapabilities(
         engine_id="fake",
         diarization=DiarizationSupport.UNSUPPORTED,
         non_speech_classification=ClassificationSupport.UNSUPPORTED,
+        word_timing=WordTimingSupport.UNSUPPORTED,
         max_chunk_bytes=None,
         max_chunk_duration_s=None,
     )
     assert caps.engine_id == "fake"
     assert caps.diarization is DiarizationSupport.UNSUPPORTED
     assert caps.non_speech_classification is ClassificationSupport.UNSUPPORTED
+    assert caps.word_timing is WordTimingSupport.UNSUPPORTED
     assert caps.max_chunk_bytes is None
     assert caps.max_chunk_duration_s is None
     assert {f.name for f in fields(TranscriptionCapabilities)} == {
         "engine_id",
         "diarization",
         "non_speech_classification",
+        "word_timing",
         "max_chunk_bytes",
         "max_chunk_duration_s",
     }
@@ -95,6 +105,7 @@ def test_capabilities_with_planning_limits() -> None:
         engine_id="cloud-fake",
         diarization=DiarizationSupport.AVAILABLE,
         non_speech_classification=ClassificationSupport.UNSUPPORTED,
+        word_timing=WordTimingSupport.UNSUPPORTED,
         max_chunk_bytes=25_000_000,
         max_chunk_duration_s=600.0,
     )
@@ -107,6 +118,7 @@ def test_capabilities_is_frozen() -> None:
         engine_id="fake",
         diarization=DiarizationSupport.UNSUPPORTED,
         non_speech_classification=ClassificationSupport.UNSUPPORTED,
+        word_timing=WordTimingSupport.UNSUPPORTED,
         max_chunk_bytes=None,
         max_chunk_duration_s=None,
     )

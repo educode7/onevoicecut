@@ -17,6 +17,7 @@ from onevoicecut.ports.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
     TranscriptionCapabilities,
+    WordTimingSupport,
 )
 from onevoicecut.usecases.plan_chunks import (
     DEFAULT_OVERLAP_S,
@@ -49,6 +50,7 @@ def _caps(
         engine_id=engine_id,
         diarization=DiarizationSupport.UNSUPPORTED,
         non_speech_classification=ClassificationSupport.AVAILABLE,
+        word_timing=WordTimingSupport.UNSUPPORTED,
         max_chunk_bytes=max_chunk_bytes,
         max_chunk_duration_s=max_chunk_duration_s,
     )

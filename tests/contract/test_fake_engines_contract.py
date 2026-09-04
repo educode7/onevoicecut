@@ -19,6 +19,7 @@ from tests.fakes.transcription import (
     DiarizingFakeTranscriptionPort,
     FakeTranscriptionPort,
     NonClassifyingFakeTranscriptionPort,
+    WordTimingFakeTranscriptionPort,
 )
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
@@ -73,6 +74,23 @@ class TestNonClassifyingFake(TranscriptionPortContract):
     @pytest.fixture
     def port(self) -> TranscriptionPort:
         return NonClassifyingFakeTranscriptionPort()
+
+    @pytest.fixture
+    def chunk(self, a_chunk: AudioChunk) -> AudioChunk:
+        return a_chunk
+
+
+class TestWordTimingFake(TranscriptionPortContract):
+    """The supporting half of the third axis.
+
+    Without it the `AVAILABLE` branch of the contract assertion would never
+    execute, and word timing would ship with only its refusal path proven —
+    which is exactly the gap a capability axis exists to close.
+    """
+
+    @pytest.fixture
+    def port(self) -> TranscriptionPort:
+        return WordTimingFakeTranscriptionPort()
 
     @pytest.fixture
     def chunk(self, a_chunk: AudioChunk) -> AudioChunk:

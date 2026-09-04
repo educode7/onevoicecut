@@ -17,6 +17,7 @@ from onevoicecut.ports.capabilities import (
     ClassificationSupport,
     DeclaredSupport,
     DiarizationSupport,
+    WordTimingSupport,
 )
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.unit.adapters.web.conftest import auth_headers, fake_authenticate
@@ -28,6 +29,7 @@ def _unsupported_caps(_engine: EngineChoice) -> DeclaredSupport:
     return DeclaredSupport(
         diarization=DiarizationSupport.UNSUPPORTED,
         non_speech_classification=ClassificationSupport.AVAILABLE,
+        word_timing=WordTimingSupport.AVAILABLE,
     )
 
 
@@ -35,6 +37,7 @@ def _available_caps(_engine: EngineChoice) -> DeclaredSupport:
     return DeclaredSupport(
         diarization=DiarizationSupport.AVAILABLE,
         non_speech_classification=ClassificationSupport.AVAILABLE,
+        word_timing=WordTimingSupport.AVAILABLE,
     )
 
 

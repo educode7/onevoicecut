@@ -10,17 +10,19 @@ defense-in-depth — the same single definition of compatibility that admission
 uses, closing the spec's "single definition of compatibility" requirement.
 """
 
+import re
 from collections.abc import Callable
 from dataclasses import replace
 
 from onevoicecut.domain.chunking import AudioChunk
 from onevoicecut.domain.errors import DiarizationUnsupported, TranscriptionFailed
 from onevoicecut.domain.jobs import SpeakerMode
-from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
+from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment, WordTiming
 from onevoicecut.ports.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
     TranscriptionCapabilities,
+    WordTimingSupport,
 )
 from onevoicecut.ports.transcription import TranscriptionRequest
 from onevoicecut.usecases.admit_job import _validate_compatibility
@@ -28,6 +30,9 @@ from onevoicecut.usecases.admit_job import _validate_compatibility
 Script = tuple[tuple[str, SegmentKind], ...]
 
 _DEFAULT_SCRIPT: Script = (("hola mundo", SegmentKind.SPEECH),)
+
+# Trailing whitespace is captured with the word so a join is lossless.
+_WORD = re.compile(r"\S+\s*")
 
 
 def _lay_out(script: Script, chunk: AudioChunk) -> tuple[TranscriptSegment, ...]:
@@ -61,6 +66,7 @@ class FakeTranscriptionPort:
             engine_id="fake-asr",
             diarization=DiarizationSupport.UNSUPPORTED,
             non_speech_classification=ClassificationSupport.AVAILABLE,
+            word_timing=WordTimingSupport.UNSUPPORTED,
             max_chunk_bytes=None,
             max_chunk_duration_s=None,
         )
@@ -87,6 +93,7 @@ class DiarizingFakeTranscriptionPort:
             engine_id="diarizing-fake-asr",
             diarization=DiarizationSupport.AVAILABLE,
             non_speech_classification=ClassificationSupport.AVAILABLE,
+            word_timing=WordTimingSupport.UNSUPPORTED,
             max_chunk_bytes=None,
             max_chunk_duration_s=None,
         )
@@ -127,6 +134,7 @@ class FlakyFakeTranscriptionPort:
             engine_id="flaky-fake-asr",
             diarization=DiarizationSupport.UNSUPPORTED,
             non_speech_classification=ClassificationSupport.AVAILABLE,
+            word_timing=WordTimingSupport.UNSUPPORTED,
             max_chunk_bytes=None,
             max_chunk_duration_s=None,
         )
@@ -159,6 +167,7 @@ class NonClassifyingFakeTranscriptionPort:
             engine_id="unclassifying-fake-asr",
             diarization=DiarizationSupport.UNSUPPORTED,
             non_speech_classification=ClassificationSupport.UNSUPPORTED,
+            word_timing=WordTimingSupport.UNSUPPORTED,
             max_chunk_bytes=None,
             max_chunk_duration_s=None,
         )
@@ -171,3 +180,63 @@ class NonClassifyingFakeTranscriptionPort:
         )
         script: Script = tuple((t, SegmentKind.UNCERTAIN) for t in self._texts)
         return _lay_out(script, chunk)
+
+
+class WordTimingFakeTranscriptionPort:
+    """Declares AVAILABLE word timing and produces one entry per word.
+
+    The fifth fake, and the third capability axis to need one: a fake that could
+    only answer `UNSUPPORTED` would let the whole word-timing path ship with the
+    supporting branch never executed.
+
+    Word text carries its own trailing whitespace, so `"".join(w.text)`
+    reconstructs the segment exactly. That losslessness is the point rather than
+    a detail — captions are rendered from these, and a reconstruction that
+    dropped the spaces would render a sermon as one long word.
+    """
+
+    def __init__(self, script: Script | None = None) -> None:
+        self._script: Script = script if script is not None else _DEFAULT_SCRIPT
+
+    def capabilities(self) -> TranscriptionCapabilities:
+        return TranscriptionCapabilities(
+            engine_id="word-timing-fake-asr",
+            diarization=DiarizationSupport.UNSUPPORTED,
+            non_speech_classification=ClassificationSupport.AVAILABLE,
+            word_timing=WordTimingSupport.AVAILABLE,
+            max_chunk_bytes=None,
+            max_chunk_duration_s=None,
+        )
+
+    def transcribe(
+        self, chunk: AudioChunk, request: TranscriptionRequest
+    ) -> tuple[TranscriptSegment, ...]:
+        _validate_compatibility(self.capabilities().diarization, request.speaker_mode)
+        return tuple(
+            replace(segment, words=_time_words(segment))
+            for segment in _lay_out(self._script, chunk)
+        )
+
+
+def _time_words(segment: TranscriptSegment) -> tuple[WordTiming, ...]:
+    """Spread the segment's words evenly across its span.
+
+    Even spacing is exactly what a *real* adapter must never invent — it looks
+    like timing and drifts with every syllable the speaker lingers on. A fake is
+    the one place it is honest, because nothing here claims to have measured
+    anything; what is under test is the shape and the invariants, not the
+    accuracy.
+    """
+    words = _WORD.findall(segment.text)
+    if not words:
+        return ()
+
+    span = (segment.end_s - segment.start_s) / len(words)
+    return tuple(
+        WordTiming(
+            start_s=segment.start_s + i * span,
+            end_s=segment.start_s + (i + 1) * span,
+            text=word,
+        )
+        for i, word in enumerate(words)
+    )

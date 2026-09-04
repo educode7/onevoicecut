@@ -46,6 +46,10 @@ class AdmitJobRequest(BaseModel):
 class AdmitJobResponse(BaseModel):
     job_id: str
     state: JobState
+    # Capability gaps the operator should know about but that do not block the
+    # job. Empty for a fully capable engine, so a client can ignore the field
+    # until it is not — and cannot fail to be told when it matters.
+    warnings: tuple[str, ...] = ()
 
 
 class ProgressResponse(BaseModel):

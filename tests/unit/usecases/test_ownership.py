@@ -76,7 +76,7 @@ def test_admission_records_the_authenticated_caller_as_owner(
         speaker_mode=SpeakerMode.SINGLE,
         operator=OPERATOR_A,
         storage=storage,
-    )
+    ).job
 
     assert job.owner == OPERATOR_A
     assert storage.load_job(job.job_id).owner == OPERATOR_A
@@ -95,7 +95,7 @@ def test_the_persisted_record_carries_the_name_never_the_token(
         speaker_mode=SpeakerMode.SINGLE,
         operator=OPERATOR_A,
         storage=storage,
-    )
+    ).job
 
     record_bytes = (storage.job_dir(job.job_id) / "job.json").read_bytes()
     assert b'"owner": "a"' in record_bytes

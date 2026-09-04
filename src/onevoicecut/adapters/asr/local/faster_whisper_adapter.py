@@ -40,13 +40,17 @@ from faster_whisper.vad import VadOptions, get_speech_timestamps
 
 from onevoicecut.adapters.asr.local.declarations import (
     CLASSIFICATION,
+    WORD_TIMING,
     diarization_support,
     is_installed,
 )
 from onevoicecut.domain.chunking import AudioChunk
 from onevoicecut.domain.errors import DomainError, EngineUnavailable, TranscriptionFailed
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
-from onevoicecut.ports.capabilities import TranscriptionCapabilities
+from onevoicecut.ports.capabilities import (
+    TranscriptionCapabilities,
+    WordTimingSupport,
+)
 from onevoicecut.ports.transcription import TranscriptionRequest
 from onevoicecut.usecases.admit_job import _validate_compatibility
 
@@ -171,6 +175,7 @@ class FasterWhisperTranscriber:
                 installed=is_installed(), token=self._hf_token
             ),
             non_speech_classification=CLASSIFICATION,
+            word_timing=WORD_TIMING,
             # Both None: a local engine imposes no per-request cap the way the
             # cloud API's 25 MB limit does. It is bounded only by the machine,
             # and the planner already bounds stride by target_chunk_seconds.

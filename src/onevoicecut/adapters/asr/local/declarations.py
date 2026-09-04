@@ -32,7 +32,11 @@ import importlib.util
 from collections.abc import Callable
 from typing import Any
 
-from onevoicecut.ports.capabilities import ClassificationSupport, DiarizationSupport
+from onevoicecut.ports.capabilities import (
+    ClassificationSupport,
+    DiarizationSupport,
+    WordTimingSupport,
+)
 
 # WhisperX wraps this rather than replacing it, so the package that decides the
 # answer is the same either way.
@@ -43,6 +47,13 @@ DIARIZATION_PACKAGE = "pyannote.audio"
 # here rather than inside `capabilities()` so the composition root can read it
 # without importing the adapter — which imports the engine at module level.
 CLASSIFICATION = ClassificationSupport.AVAILABLE
+
+# `faster-whisper` can produce word timestamps behind `word_timestamps=True`, and
+# this adapter does not ask for them yet. `UNSUPPORTED` is therefore a statement
+# about *this build*, not about the engine — and it is the honest one, because an
+# adapter that declared AVAILABLE and returned nothing would be the silent
+# degradation all three axes exist to prevent.
+WORD_TIMING = WordTimingSupport.UNSUPPORTED
 
 # Named for the refusal, not read here. `huggingface_hub` recognises several
 # spellings; this is the one the project documents, and the worker is what turns

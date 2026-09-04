@@ -32,6 +32,7 @@ from onevoicecut.ports.capabilities import (
     ClassificationSupport,
     DeclaredSupport,
     DiarizationSupport,
+    WordTimingSupport,
 )
 from onevoicecut.usecases.admit_job import admit_job
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
@@ -45,7 +46,11 @@ def _declares(
     classification: ClassificationSupport = ClassificationSupport.AVAILABLE,
 ) -> DeclaredSupport:
     return DeclaredSupport(
-        diarization=diarization, non_speech_classification=classification
+        diarization=diarization,
+        non_speech_classification=classification,
+        # Available so this module's subject stays the classification axis. The
+        # word-timing axis warns rather than refuses, and is asserted next door.
+        word_timing=WordTimingSupport.AVAILABLE,
     )
 
 
@@ -155,6 +160,6 @@ class TestBothAxesTogether:
             speaker_mode=SpeakerMode.MULTI,
             operator=OWNER,
             storage=FakeTranscriptStoragePort(tmp_path),
-        )
+        ).job
 
         assert job is not None

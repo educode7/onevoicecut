@@ -42,7 +42,7 @@ def test_owner_survives_every_transition_that_exists(
         speaker_mode=SpeakerMode.SINGLE,
         operator=OPERATOR_A,
         storage=storage,
-    )
+    ).job
     assert storage.load_job(job.job_id).owner == OPERATOR_A
 
     storage.save_media(
@@ -89,7 +89,7 @@ def test_the_record_is_frozen_so_ownership_cannot_be_reassigned(
         speaker_mode=SpeakerMode.SINGLE,
         operator=OPERATOR_A,
         storage=storage,
-    )
+    ).job
 
     with pytest.raises(FrozenInstanceError):
         job.owner = OPERATOR_B  # type: ignore[misc]
