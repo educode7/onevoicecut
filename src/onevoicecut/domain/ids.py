@@ -28,6 +28,11 @@ _MAX_TIMESTAMP_MS = 2**48 - 1
 
 JobId = NewType("JobId", str)
 MediaId = NewType("MediaId", str)
+# Validated against the same pattern rather than a looser one: a clip id becomes
+# a path component under the job directory and a route parameter, and a second
+# weaker regex for the same class of value is how one of them eventually
+# accepts a `..`.
+ClipId = NewType("ClipId", str)
 
 # Operator names come from configuration — the token map — not from a minting
 # function: lowercase letters, digits, `-` and `_`, one to sixty-four
@@ -55,6 +60,10 @@ def make_job_id(value: str) -> JobId:
 
 def make_media_id(value: str) -> MediaId:
     return MediaId(_validate_ulid(value))
+
+
+def make_clip_id(value: str) -> ClipId:
+    return ClipId(_validate_ulid(value))
 
 
 def make_operator_id(value: str) -> OperatorId:
@@ -107,3 +116,7 @@ def generate_media_id() -> MediaId:
     return make_media_id(
         new_ulid(now_ms=_now_ms(), randomness=os.urandom(_RANDOM_BYTES))
     )
+
+
+def generate_clip_id() -> ClipId:
+    return make_clip_id(new_ulid(now_ms=_now_ms(), randomness=os.urandom(_RANDOM_BYTES)))

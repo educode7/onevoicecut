@@ -139,6 +139,26 @@ class DetectionFailed(DomainError):
     """
 
 
+class RenderFailed(DomainError):
+    """Raised when ffmpeg ran for a clip and produced nothing usable.
+
+    Distinct from `ClipRangeInvalid` because the two want different answers. A
+    render failure may be transient — a busy machine, a codec that gave up on
+    one pass — and retrying it is reasonable. Collapsing both into one type
+    would make "retry or refuse" a decision nobody downstream can take without
+    reading a message.
+    """
+
+
+class ClipRangeInvalid(DomainError):
+    """Raised when a clip's range cannot be cut from this source at all.
+
+    The caller's error, not the engine's, and checked before a process is
+    spawned. It fails identically on every retry, which is exactly why it is a
+    separate type from `RenderFailed`.
+    """
+
+
 class ContextLengthExceeded(DomainError):
     pass
 

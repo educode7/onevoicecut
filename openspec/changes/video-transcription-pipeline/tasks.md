@@ -3121,30 +3121,101 @@ Closes: `clip-rendering` VideoRenderPort Contract (type-level), Rendered Content
 Source, Output Quality Declaration. Depends on 12a-i (`CropRect`, `TrackingConfidence`). Gates 13a-ii and
 13a-iii, which name the types it creates; all three gate 13b-i.
 
-- [ ] 13a.1 RED: `tests/unit/domain/test_ids.py` — `ClipId`/`make_clip_id` generate and validate against
+- [x] 13a.1 RED: `tests/unit/domain/test_ids.py` — `ClipId`/`make_clip_id` generate and validate against
       the same ULID regex as `JobId`.
-- [ ] 13a.2 GREEN: `domain/ids.py` — `ClipId` `NewType` + `make_clip_id`.
-- [ ] 13a.3 RED: `tests/unit/domain/test_rendering.py` — `OutputSpec`, `OutputQuality`, `OutputQualityKind`,
+- [x] 13a.2 GREEN: `domain/ids.py` — `ClipId` `NewType` + `make_clip_id`.
+- [x] 13a.3 RED: `tests/unit/domain/test_rendering.py` — `OutputSpec`, `OutputQuality`, `OutputQualityKind`,
       `SubtitleCue`, `SubtitleTimingSource`, `CaptionCoverage` (exactly `{confirmed_speech,
       includes_unverified, none}`), `RenderedClip` (carrying all four declarations), `ClipExport`,
       `ClipState` construct and stay frozen.
-- [ ] 13a.4 GREEN: `domain/rendering.py` — the nine new types.
-- [ ] 13a.5 RED: `tests/unit/ports/test_video_render.py` — `RenderRequest`, `RenderedFile` construct;
+- [x] 13a.4 GREEN: `domain/rendering.py` — the nine new types.
+- [x] 13a.5 RED: `tests/unit/ports/test_video_render.py` — `RenderRequest`, `RenderedFile` construct;
       `RenderCapabilities`/`RenderSupport` mirror the `DiarizationSupport` shape.
-- [ ] 13a.6 GREEN: `ports/video_render.py` — the two dataclasses + `VideoRenderPort(Protocol)`;
+- [x] 13a.6 GREEN: `ports/video_render.py` — the two dataclasses + `VideoRenderPort(Protocol)`;
       `ports/capabilities.py` — `RenderSupport(StrEnum)`, `RenderCapabilities`.
-- [ ] 13a.7 RED: `domain/errors.py` — `RenderFailed`, `ClipRangeInvalid` derive from `DomainError`.
-- [ ] 13a.8 GREEN: add both errors.
-- [ ] 13a.9 RED: structural test — `ast`-parse `ports/video_render.py`/`domain/rendering.py` and assert no
+- [x] 13a.7 RED: `domain/errors.py` — `RenderFailed`, `ClipRangeInvalid` derive from `DomainError`.
+- [x] 13a.8 GREEN: add both errors.
+- [x] 13a.9 RED: structural test — `ast`-parse `ports/video_render.py`/`domain/rendering.py` and assert no
       field type can carry an external file handle, URL, or binary payload (mirrors the shipped "no
       `UploadFile` import" test).
-- [ ] 13a.10 GREEN: confirm by construction (no production change expected).
-- [ ] 13a.11 RED: `tests/unit/domain/test_framing.py` — `quality_of(crop, target)` pinned: a 4K-derived
+- [x] 13a.10 GREEN: confirm by construction (no production change expected).
+- [x] 13a.11 RED: `tests/unit/domain/test_framing.py` — `quality_of(crop, target)` pinned: a 4K-derived
       crop (1214×2160, width×height, from `12a.8`) vs a 1080-wide target → `NATIVE`, factor `0.89`; a
       1080p-derived crop (606×1080) vs the same target → `UPSCALED`, factor `1.78`.
-- [ ] 13a.12 GREEN: `domain/framing.py` — `quality_of(crop, target)` module function.
-- [ ] 13a.13 REFACTOR: suite green, `mypy src tests` clean.
+- [x] 13a.12 GREEN: `domain/framing.py` — `quality_of(crop, target)` module function.
+- [x] 13a.13 REFACTOR: suite green, `mypy src tests` clean.
 
+
+### `quality_of` had to move one module over, and the reason is a cycle
+
+design.md places it in `domain/framing.py`, "beside `crop_size_for`, mirroring how `render_message_text` lives
+beside its entities". Taken literally it does not compose. `RenderedClip` carries `tracking:
+TrackingConfidence`, so `rendering` imports `framing`; `quality_of` returns an `OutputQuality`, so putting it
+in `framing` would import `rendering` back. **A circular import at module load**, not a style question.
+
+The stated rationale actually points the other way once followed through: `render_message_text` sits beside
+the type it returns *into*, and this function returns an `OutputQuality`. So the nine types stay exactly where
+13a.4 puts them and the function joins them, which is the only direction with no cycle. Task 13a.11 names
+`test_framing.py`; the assertions live in `test_rendering.py` for the same reason.
+
+### `FrameGeometryUnavailable` stays unraised, and that is still right
+
+Slice 11a declared it and said the renderer raises it. It is not raised here, because nothing here is the
+renderer. `quality_of` refuses a degenerate crop with a plain `ValueError` — `crop_size_for` is total and
+answers `(0, 0)` for a frame under two pixels, an honest answer that has no quality — and **13b-iii's worker
+is what turns that refusal into `FrameGeometryUnavailable` before a render is dispatched**. Raising the
+domain error from arithmetic that does not know whether a job exists would put a job-level refusal inside a
+pure function.
+
+### The structural guard, and a mutation I mis-measured before I trusted it
+
+13a.9 asks that no field type can carry an external file handle, URL or binary payload — the binding non-goal
+("every frame and every word in the output comes from the source sermon") made structural rather than
+disciplinary. Three mutations, and the first round was **my own measurement error, not a weak test**: I added
+the offending field before a field with no default, so the module failed to import and pytest reported
+`ERROR` while I was counting only `FAILED`. Re-run with the field last:
+
+| Mutation | Result |
+| --- | --- |
+| `watermark: bytes \| None` on `RenderRequest` | caught, by the field-type walk *and* the field-set assertion |
+| `thumbnail_url: HttpUrl \| None` with a real `pydantic` import | caught by the field-type walk alone |
+| `import io` in the port module | caught by the import assertion |
+
+Two layers, and the second mutation is what proves they are independent: a URL field with an unimported name
+fails at import, so only an importable one tests the type walk on its own.
+
+### One test was dead and mypy said so
+
+`make_clip_id(v) == make_job_id(v)` is a non-overlapping equality check — the two are distinct `NewType`s,
+which is the point of having both. The assertion that carries meaning at runtime is that the same value
+survives `make_clip_id`, compared against the raw string. Same lesson 12a-ii recorded; the type system proves
+the interesting half statically and a test restating it proves nothing.
+
+### Smaller decisions, each with a test
+
+- **A factor of exactly 1.0 is native.** Stretching by one is stretching by nothing, and putting the boundary
+  on the other side would flag every perfectly-matched render as degraded. Both sides are asserted so neither
+  stands alone.
+- **`quality_of` reads width only.** Height cannot disagree — `crop_size_for` derives one from the other at a
+  fixed aspect and `CropTrajectory` holds the pair constant for the whole clip — so a second axis could only
+  restate the first, or contradict it.
+- **The authoritative crops are re-derived, not written down.** A fixture carrying `1214x2160` independently
+  would pin the arithmetic to a number the pipeline might no longer produce, so the test asserts
+  `crop_size_for` still yields both.
+- **`RenderFailed` and `ClipRangeInvalid` are separate types** because the worker classifies on the type: a
+  range error fails identically on every retry, a render failure may not, and one type would make "retry or
+  refuse" undecidable without reading a message.
+- **`ClipState` mirrors `ChunkState`** rather than inventing a second lifecycle vocabulary for the same shape.
+
+**Nothing was already satisfied.** 13a.10 reads "confirm by construction (no production change expected)" and
+it held — but it was *written* as a confirmation, so it is not a sixth genuine surprise.
+
+### Measured cost
+
+**952 lines against the ~525 estimate (1.81x)** — `src` 356 across five files, tests 596. Test share 63%. The
+overrun is volume rather than scope: thirteen tasks creating nine domain types, two port dataclasses, a
+Protocol, two errors and a new id type, each of which needs its own frozen/slotted/no-default assertions, plus
+the mutation round on the structural guard.
 ---
 
 ## Slice 13a-ii: ASS Subtitles + Cue Building (~525 lines)

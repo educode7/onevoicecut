@@ -66,6 +66,36 @@ class DetectionSupport(StrEnum):
     AVAILABLE = "available"
 
 
+class RenderSupport(StrEnum):
+    """Whether this build can turn a trajectory into a file.
+
+    Three members, mirroring `DiarizationSupport`, because the remediation
+    genuinely differs: "this build ships no renderer" and "ffmpeg is not on this
+    machine" send an operator to two different places. Collapsing them would
+    send them to the wrong one.
+    """
+
+    UNSUPPORTED = "unsupported"  # no render adapter in this build
+    REQUIRES_SETUP = "requires_setup"  # adapter present, ffmpeg absent
+    AVAILABLE = "available"
+
+
+@dataclass(frozen=True, slots=True)
+class RenderCapabilities:
+    """What a renderer declares before a clip is dispatched to it.
+
+    `max_clip_seconds` is the render-resource-exhaustion guard, declared rather
+    than enforced only inside the adapter — a bound nobody can read is a bound
+    only the adapter can apply, and slice 13c reads this one to decide how much
+    footage a tracker is asked to sample. `None` is unbounded, the same way the
+    transcription caps express it; zero would be a limit that refuses every clip.
+    """
+
+    renderer_id: str
+    rendering: RenderSupport
+    max_clip_seconds: float | None
+
+
 @dataclass(frozen=True, slots=True)
 class TrackerCapabilities:
     """What a subject tracker declares before a clip is dispatched.
