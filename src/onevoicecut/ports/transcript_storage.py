@@ -5,9 +5,10 @@ from typing import Protocol
 
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult
 from onevoicecut.domain.generation import GenerationResult
-from onevoicecut.domain.ids import JobId
+from onevoicecut.domain.ids import ClipId, JobId
 from onevoicecut.domain.jobs import JobRecord
 from onevoicecut.domain.media import SourceMedia
+from onevoicecut.domain.rendering import ClipExport
 from onevoicecut.domain.transcript import Transcript
 
 
@@ -80,6 +81,29 @@ class TranscriptStoragePort(Protocol):
     def save_artifacts(self, job_id: JobId, artifacts: GenerationResult) -> None: ...
 
     def export_text(self, job_id: JobId, text: str) -> Path: ...
+
+    def save_clip_export(self, export: ClipExport) -> None:
+        """Committed by rename, like every other record a worker leaves behind.
+
+        Takes the export alone: it carries its own job id through `clip.job_id`,
+        so there is no pair a caller can get wrong -- the rule
+        `save_chunk_result` already follows.
+        """
+
+    def load_clip_exports(
+        self, job_id: JobId, clip_id: ClipId
+    ) -> "tuple[ClipExport, ...]":
+        """Every profile's export for one clip, never just one.
+
+        One candidate yields one export per distinct render profile, so "the
+        export for this clip" names a set. Returning a single record would force
+        the caller to say which profile it meant at the point it is least able to
+        know, which is the same reason `export_key` takes both halves.
+
+        An absent clip is an empty tuple rather than a refusal: a clip that has
+        not been rendered yet is a normal mid-run state, the way an absent chunk
+        plan is.
+        """
 
     def write_heartbeat(self, job_id: JobId, *, at_s: float) -> None:
         """Written by the worker, and by nothing else.

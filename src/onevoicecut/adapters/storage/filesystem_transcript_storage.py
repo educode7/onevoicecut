@@ -20,6 +20,8 @@ import os
 from pathlib import Path
 
 from onevoicecut.adapters.storage.serialization import (
+    decode_clip_export,
+    encode_clip_export,
     decode_chunk_plan,
     decode_chunk_result,
     decode_control,
@@ -36,10 +38,15 @@ from onevoicecut.adapters.storage.serialization import (
 )
 from onevoicecut.domain.media import SourceMedia
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult
-from onevoicecut.domain.errors import JobAlreadyExists, JobNotFound
+from onevoicecut.domain.errors import (
+    JobAlreadyExists,
+    JobNotFound,
+    RenderProfileInvalid,
+)
 from onevoicecut.domain.generation import GenerationResult
-from onevoicecut.domain.ids import InvalidIdError, JobId, make_job_id
+from onevoicecut.domain.ids import ClipId, InvalidIdError, JobId, make_job_id
 from onevoicecut.domain.jobs import JobRecord
+from onevoicecut.domain.rendering import ClipExport
 from onevoicecut.domain.transcript import Transcript
 
 JOBS_DIRNAME = "jobs"
@@ -52,6 +59,7 @@ SOURCE = "source"
 AUDIO_TRACK = "audio.flac"
 CHUNKS_DIRNAME = "chunks"
 RESULTS_DIRNAME = "results"
+RENDER_DIRNAME = "render"
 PENDING_SUFFIX = ".tmp"
 TRANSCRIPT = "transcript.json"
 TRANSCRIPT_TEXT = "transcript.txt"
@@ -193,6 +201,61 @@ class FilesystemTranscriptStorage:
         path = self._writable(job_id) / TRANSCRIPT_TEXT
         self._write(path, text)
         return path
+
+    def save_clip_export(self, export: ClipExport) -> None:
+        """One file per clip *and* profile, committed by rename like every other
+        record a worker leaves behind.
+
+        The clip id is a directory rather than a filename because one candidate
+        now yields one export per distinct profile, and a flat `{clip_id}.json`
+        could hold only the last one written -- silently, since a render that
+        finished would leave no trace of the render it overwrote.
+        """
+        directory = self._writable(export.clip.job_id) / RENDER_DIRNAME
+        path = self._export_path(directory, export.clip.clip_id, export.profile)
+        self._write(path, encode_clip_export(export))
+
+    def load_clip_exports(
+        self, job_id: JobId, clip_id: ClipId
+    ) -> tuple[ClipExport, ...]:
+        """Every profile's export for one clip, sorted by profile so two reads of
+        an unchanged directory agree -- `glob` does not promise an order, and a
+        caller comparing two listings would otherwise see a difference the disk
+        does not have.
+
+        A stale `.tmp` is skipped by the glob rather than by a check, the way
+        `load_chunk_results` already does it, so there is no path that forgets to.
+        """
+        directory = self.job_dir(job_id) / RENDER_DIRNAME / clip_id
+        if not directory.is_dir():
+            return ()
+        exports = [
+            decode_clip_export(path.read_text(encoding="utf-8"))
+            for path in directory.glob("*.json")
+        ]
+        return tuple(sorted(exports, key=lambda export: export.profile))
+
+    @staticmethod
+    def _export_path(render_dir: Path, clip_id: ClipId, profile: str) -> Path:
+        """The profile is a path component, so it is checked like every other
+        client-influenced name here.
+
+        It originates in configuration rather than in a request, but
+        configuration is not a trust boundary: the same operator file that names
+        a profile is edited by hand, and a name carrying `..` would put an
+        export outside the job it belongs to. `RenderProfileInvalid` because a
+        bad profile name fails identically on every retry -- the distinction that
+        type was created for.
+        """
+        root = render_dir.resolve()
+        candidate = (render_dir / clip_id / f"{profile}.json").resolve()
+        if not candidate.is_relative_to(root):
+            raise RenderProfileInvalid(
+                f"render profile {profile!r} does not name a file inside the "
+                f"job's render directory; a profile name is a path component "
+                f"and cannot escape the job it belongs to"
+            )
+        return candidate
 
     def write_heartbeat(self, job_id: JobId, *, at_s: float) -> None:
         """The worker saying it is still working, not merely still running.

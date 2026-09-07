@@ -12,9 +12,10 @@ from pathlib import Path
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult
 from onevoicecut.domain.errors import JobNotFound
 from onevoicecut.domain.generation import GenerationResult
-from onevoicecut.domain.ids import JobId
+from onevoicecut.domain.ids import ClipId, JobId
 from onevoicecut.domain.jobs import JobRecord, JobState
 from onevoicecut.domain.media import SourceMedia
+from onevoicecut.domain.rendering import ClipExport
 from onevoicecut.domain.transcript import Transcript
 
 
@@ -30,6 +31,10 @@ class FakeTranscriptStoragePort:
         self._cancelled: dict[JobId, bool] = {}
         self._heartbeats: dict[JobId, float] = {}
         self._media: dict[JobId, SourceMedia] = {}
+        # Keyed the way disk is, by clip *and* profile: a dict keyed by clip
+        # alone would pass a test the filesystem fails, which is the one thing
+        # a fake must never do.
+        self._clip_exports: dict[tuple[JobId, ClipId, str], ClipExport] = {}
         self.calls: list[str] = []
         self._states: dict[JobId, list[JobState]] = {}
         # Lets a test act *between* chunks — the only way to exercise a stop
@@ -112,6 +117,25 @@ class FakeTranscriptStoragePort:
     def load_chunk_results(self, job_id: JobId) -> tuple[ChunkResult, ...]:
         return tuple(
             sorted(self._chunk_results.get(job_id, []), key=lambda r: r.index)
+        )
+
+    def save_clip_export(self, export: ClipExport) -> None:
+        self.calls.append(f"save_clip_export:{export.profile}")
+        key = (export.clip.job_id, export.clip.clip_id, export.profile)
+        self._clip_exports[key] = export
+
+    def load_clip_exports(
+        self, job_id: JobId, clip_id: ClipId
+    ) -> tuple[ClipExport, ...]:
+        return tuple(
+            sorted(
+                (
+                    export
+                    for (job, clip, _), export in self._clip_exports.items()
+                    if job == job_id and clip == clip_id
+                ),
+                key=lambda export: export.profile,
+            )
         )
 
     def save_transcript(self, transcript: Transcript) -> None:

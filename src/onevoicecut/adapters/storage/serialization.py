@@ -10,9 +10,16 @@ then fail somewhere far away; here a payload that no longer matches the entity i
 rejected at the boundary as `CorruptedRecord`. That matters because resume reads
 files written by an older process that may have died mid-write.
 
-Encoding is `asdict` because the entities are the schema. `StrEnum` members
-serialize as their own values, and no persisted entity carries a `Path` — the one
-type that would not survive.
+Encoding is `asdict` because the entities are the schema, and `StrEnum` members
+serialize as their own values.
+
+**`ClipExport` is the first record carrying a `Path`, and it is converted by
+hand.** `asdict` leaves a `Path` intact and `json.dumps` then refuses it, so the
+one field is spelled out rather than left to a default encoder: a codec that
+silently stringified any unknown object would accept the next unserialisable type
+too, and this module exists to reject a payload at the boundary instead of far
+away. It decodes back through `Path`, so a record written on one platform reads
+as that platform's flavour rather than as text.
 """
 
 import json
@@ -23,18 +30,30 @@ from typing import Any, TypeVar
 
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
 from onevoicecut.domain.errors import CorruptedRecord
+from onevoicecut.domain.framing import TrackingConfidence
 from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
 from onevoicecut.domain.ids import (
+    ClipId,
     InvalidIdError,
     JobId,
     MediaId,
     OperatorId,
+    make_clip_id,
     make_job_id,
     make_media_id,
     make_operator_id,
 )
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.domain.media import SourceMedia
+from onevoicecut.domain.rendering import (
+    CaptionCoverage,
+    ClipExport,
+    ClipState,
+    OutputQuality,
+    OutputQualityKind,
+    RenderedClip,
+    SubtitleTimingSource,
+)
 from onevoicecut.domain.transcript import (
     SegmentKind,
     Transcript,
@@ -347,4 +366,60 @@ def decode_artifacts(payload: str) -> GenerationResult:
             )
             for item in _objects(record, "clip_candidates")
         ),
+    )
+
+
+def _clip_id(record: Record) -> ClipId:
+    """Validated here for the reason `_job_id` is: it is about to become a path
+    component, and a stored record is not a trusted one."""
+    try:
+        return make_clip_id(_text(record, "clip_id"))
+    except InvalidIdError as error:
+        raise CorruptedRecord(str(error)) from error
+
+
+def encode_clip_export(export: ClipExport) -> str:
+    record = asdict(export)
+    record["clip"]["path"] = str(export.clip.path)
+    return _dumps(record)
+
+
+def decode_clip_export(payload: str) -> ClipExport:
+    record = _loads(payload)
+    clip = _field(record, "clip")
+    if not isinstance(clip, dict):
+        raise CorruptedRecord("field 'clip' is not an object")
+    quality = _field(clip, "quality")
+    if not isinstance(quality, dict):
+        raise CorruptedRecord("field 'quality' is not an object")
+    return ClipExport(
+        clip=RenderedClip(
+            clip_id=_clip_id(clip),
+            job_id=_job_id(clip),
+            path=Path(_text(clip, "path")),
+            source_start_s=_number(clip, "source_start_s"),
+            source_end_s=_number(clip, "source_end_s"),
+            quality=OutputQuality(
+                kind=_member(quality, "kind", OutputQualityKind),
+                factor=_number(quality, "factor"),
+            ),
+            subtitle_timing=_member(
+                clip, "subtitle_timing", SubtitleTimingSource
+            ),
+            captions=_member(clip, "captions", CaptionCoverage),
+            tracking=_member(clip, "tracking", TrackingConfidence),
+        ),
+        profile=_text(record, "profile"),
+        title=_text(record, "title"),
+        description=_text(record, "description"),
+        variants=tuple(
+            ScriptVariant(
+                target=_text(variant, "target"),
+                format=_text(variant, "format"),
+                body=_text(variant, "body"),
+                duration_target_s=_number(variant, "duration_target_s"),
+            )
+            for variant in _objects(record, "variants")
+        ),
+        state=_member(record, "state", ClipState),
     )

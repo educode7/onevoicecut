@@ -3923,10 +3923,10 @@ Closes: `clip-rendering` Clip Export to Job Directory (all 3 scenarios). Depends
 — `ClipExport`, its profile key and its variant tuple are the values it round-trips. Independent of
 13a-ii, 13a-iii and 13b-i.
 
-- [ ] 13b.10 RED: `tests/unit/ports/test_transcript_storage.py` — `TranscriptStoragePort` declares
+- [x] 13b.10 RED: `tests/unit/ports/test_transcript_storage.py` — `TranscriptStoragePort` declares
       `save_clip_export`/`load_clip_exports`.
-- [ ] 13b.11 GREEN: `ports/transcript_storage.py` — add the two methods.
-- [ ] 13b.12 RED: `tests/unit/adapters/storage/test_filesystem_transcript_storage.py` —
+- [x] 13b.11 GREEN: `ports/transcript_storage.py` — add the two methods.
+- [x] 13b.12 RED: `tests/unit/adapters/storage/test_filesystem_transcript_storage.py` —
       `save_clip_export`/`load_clip_exports` round-trip a `ClipExport` through
       **`render/{clip_id}/{profile}.json`**; `ClipState` transitions persist per profile.
       **[rev 5]** The clip id is a directory, not a filename: one candidate now yields one export per
@@ -3934,15 +3934,52 @@ Closes: `clip-rendering` Clip Export to Job Directory (all 3 scenarios). Depends
       path component, so it is `resolve_inside`-checked against the job directory like every other
       client-influenced name in this system — it originates in configuration, but configuration is
       not a trust boundary.
-- [ ] 13b.13 GREEN: `adapters/storage/filesystem_transcript_storage.py` — implement both methods, reusing
+- [x] 13b.13 GREEN: `adapters/storage/filesystem_transcript_storage.py` — implement both methods, reusing
       the shipped atomic-write helper.
-- [ ] 13b.13a RED: `load_clip_exports` returns **every** profile's export for a clip, and a clip
+- [x] 13b.13a RED: `load_clip_exports` returns **every** profile's export for a clip, and a clip
       rendered under two profiles yields two — the read side of the same fact 13a-vi pinned on the type.
-- [ ] 13b.14 RED: no-external-service test — the export path makes no network call (structural — no
+- [x] 13b.14 RED: no-external-service test — the export path makes no network call (structural — no
       `httpx`/socket import in the storage module).
-- [ ] 13b.15 GREEN: confirm by construction.
-- [ ] 13b.16 GREEN: `tests/fakes/transcript_storage.py` — add the fake implementation for both methods.
-- [ ] 13b.17 REFACTOR: suite green, `mypy src tests` clean.
+- [x] 13b.15 GREEN: confirm by construction.
+- [x] 13b.16 GREEN: `tests/fakes/transcript_storage.py` — add the fake implementation for both methods.
+- [x] 13b.17 REFACTOR: suite green, `mypy src tests` clean.
+
+### The fake was the gap, and only a mutation found it
+
+Three mutations landed as expected: a flat `{clip_id}.json` instead of a per-clip
+directory fails 6 tests, dropping the profile containment check fails 1, and returning
+only the first export fails 2.
+
+**The fourth failed nothing.** Re-keying the fake's dict by clip alone — collapsing two
+profiles into one — left the entire suite green. That is the precise danger a fake
+carries: use-case tests would have proven a profile fan-out the filesystem does not
+deliver, and 13b-iii is about to be written against exactly that fake.
+
+So `tests/contract/clip_export_storage.py` holds both to one body, mirroring the shape
+`tests/contract/transcription.py` already established for engines. It is the first
+storage contract test in the repo. With it, the mutation fails. Task `13b.16` said "add
+the fake implementation" and stopped there; adding it without a contract is what would
+have shipped the hole.
+
+### Two findings against shipped code
+
+- **`serialization.py`'s module docstring was wrong.** It stated that "no persisted
+  entity carries a `Path` — the one type that would not survive". `RenderedClip.path`
+  is one, and `ClipExport` is the first record to persist it. The field is converted by
+  hand rather than through a default encoder, because a codec that silently stringified
+  any unknown object would accept the next unserialisable type too. Docstring corrected.
+- **`resolve_inside` was not reusable here.** It lives in `adapters/ffmpeg/argv.py` and
+  raises `ExtractionFailed`, so a storage adapter importing it would take a dependency
+  on the ffmpeg adapter to borrow an error that names the wrong subsystem — one of the
+  imprecisions 13b-i already recorded. The containment check is local and raises
+  `RenderProfileInvalid`, which is what a bad profile name actually is: a configuration
+  error that fails identically on every retry.
+
+### Measured cost
+
+**557 lines against the ~475 estimate (1.17x)** — `src` 174, tests 383. Inside the 800
+budget. The overrun is the contract body and its second driver, which the task list did
+not anticipate. Suite **1785 passed / 30 deselected**; mypy clean over 223 files.
 
 ---
 
