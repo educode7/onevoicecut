@@ -3702,24 +3702,24 @@ Target Names Its Render Profile Without Knowing What One Is (both scenarios), Ev
 its target. Depends on 13a-iv (profile names must resolve). **Modifies slice 10's shipped
 `usecases/generate_artifacts.py`.** Independent of 13a-v and 13a-vi.
 
-- [ ] 10c.1 RED: `tests/unit/usecases/test_generate_artifacts.py` — `ScriptTarget` carries `profile:
+- [x] 10c.1 RED: `tests/unit/usecases/test_generate_artifacts.py` — `ScriptTarget` carries `profile:
       str`; `SCRIPT_TARGETS` defines the four confirmed destinations, each naming a profile; two
       destinations naming the same profile is representable and is the case the render dedup relies on.
-- [ ] 10c.2 GREEN: `usecases/generate_artifacts.py` — add the field, populate the registry.
-- [ ] 10c.3 RED: structural — `ScriptTarget`'s field set contains no `width`, `height`, aspect, or
+- [x] 10c.2 GREEN: `usecases/generate_artifacts.py` — add the field, populate the registry.
+- [x] 10c.3 RED: structural — `ScriptTarget`'s field set contains no `width`, `height`, aspect, or
       caption/margin field. Generation decides *which* moments and *what to say*; it must remain unable
       to express an opinion about how a frame is cropped **even by accident**. The link is a name
       precisely so the `Scope Boundary — No Rendering` requirement survives a multi-target delivery.
-- [ ] 10c.4 GREEN: confirm by construction (no production change expected).
-- [ ] 10c.5 RED: cross-validation — every profile named by a configured script target resolves against
+- [x] 10c.4 GREEN: confirm by construction (no production change expected).
+- [x] 10c.5 RED: cross-validation — every profile named by a configured script target resolves against
       the profile registry, and a target naming an unresolvable profile is refused **at composition**,
       before a job runs. A dangling profile name that only fails at render time would fail after the
       transcription hours are already spent.
-- [ ] 10c.6 GREEN: the cross-check in `runtime/settings.py`, beside the existing fail-closed reads.
-- [ ] 10c.7 RED: regression pin — `resolve_script_targets` still refuses an unknown name and an empty
+- [x] 10c.6 GREEN: the cross-check in `runtime/settings.py`, beside the existing fail-closed reads.
+- [x] 10c.7 RED: regression pin — `resolve_script_targets` still refuses an unknown name and an empty
       selection, and still never falls back to a default.
-- [ ] 10c.8 GREEN: confirm by construction.
-- [ ] 10c.9 REFACTOR: suite green, `mypy src tests` clean.
+- [x] 10c.8 GREEN: confirm by construction.
+- [x] 10c.9 REFACTOR: suite green, `mypy src tests` clean.
 
 ### The four destinations are rows; what each one wants is not settled here
 
@@ -3727,6 +3727,71 @@ This unit proves that adding a network is a configuration change. It does **not*
 destination's duration target or which profile it names — those are the same measurement problem
 13a-iv records, and `duration_target_s` on the script side is the operator's editorial choice rather
 than a platform fact. What is settled and tested: the model is never asked for either value.
+
+### The composition cross-check asserts membership, not renderability
+
+10c.5 says a target naming an unresolvable profile must be refused **at composition**. Read as "call
+`resolve_render_profiles` at boot", that check refuses to start the server: every profile the registry
+ships declares `safe_area=None`, 13a-iv refuses an unmeasured profile by design, and populating it is
+an operator task with a measurement step. The transcription pipeline — which renders nothing — would
+be down until somebody sat with four apps and a ruler.
+
+So `check_target_profiles` asserts that the name resolves to a **row**, and stops there. The two
+failures are different in both directions that matter. A dangling name is a typo: fixed by editing a
+row, identical on every retry, unrecoverable downstream — refuse at boot. An unmeasured safe area is a
+recorded, intended state that the render path already refuses **by name**, at the point where a frame
+is genuinely needed. The mutation that proves it is the trap itself: rewriting the check to call the
+resolver fails **29 tests**, most of them app-composition tests that have nothing to do with rendering.
+
+The check reads the whole `SCRIPT_TARGETS` registry rather than `settings.script_targets`, because a
+row nobody selected today is one somebody selects eventually, and the typo would surface then — after
+the transcription hours are already spent.
+
+### What the task text did not settle, decided here
+
+- **`generic` is removed, not kept as a fifth row.** It existed only while Q3 was open. Keeping it
+  beside the answer lets an operator configure a destination that is nowhere, and the prompt would say
+  `Destino: generic` — producing on purpose the unlabelled generic script the requirement refuses.
+- **The four rows are deliberately identical apart from their label**: `format="plain"`,
+  `duration_target_s=45.0`, `profile="vertical"`, all carried over from the single row that shipped
+  rather than guessed per platform. Inventing a different duration per network would ship a product
+  decision made by nobody wearing the authority of a constant, and the task text says the duration is
+  the operator's editorial choice. All four name `vertical` because every destination this change
+  delivers to is 9:16 — which is exactly the sharing render dedup exists for.
+- **`DEFAULT_SCRIPT_TARGETS` is all four.** That is Q3's answer, and it is also a 4x change in billed
+  calls per candidate, named in `settings.py` beside the field so it is a cost decision rather than a
+  discovery.
+- **`ScriptVariant` needed no change.** It has carried `target` since slice 1, so "every variant
+  identifies its target" was already half-closed.
+
+### One task the checklist did not name: `resolve_script_targets` now deduplicates
+
+Rev 5 replaced the old Assumption scenario with "two variants for the same candidate MUST NOT carry
+the same target label", and 10c-i closes it. Nothing enforced it: `resolve_script_targets("tiktok,
+tiktok")` returned two targets, which is two identical variants on one candidate and two billed calls
+for them. A repeated name now resolves once, mirroring `resolve_render_profiles` exactly — distinctness
+made structural rather than left as a rule somebody remembers.
+
+### Two shipped test files had to change, and the scope note did not list them
+
+`ScriptTarget` gaining a required field breaks every construction site, and removing `generic` breaks
+every test that named it. `tests/unit/usecases/test_generation_scope_boundary.py` (one construction)
+and `tests/unit/usecases/test_script_variants.py` (nine assertions, plus one test whose premise — "Q3
+is still open" — this unit falsifies) were updated mechanically. The alternative was giving `profile` a
+default, which is the exact failure the field exists to prevent.
+
+### Measured cost
+
+**498 lines against the ~400 estimate (1.25x)** and well inside the 800 budget — `src` 125, tests 373
+(two new files at 353, plus 20 lines of mechanical repair to the two shipped ones). Suite **1696 passed
+/ 30 deselected**; mypy clean over 215 files.
+
+The overrun is all test: `src` came in at 125 lines for a field, four rows and one guard. The unit's
+own estimate assumed the two shipped test files were not part of it.
+
+Five mutations, all caught: silencing the dangling-name refusal (4 tests), calling the resolver at
+composition (29), giving `ScriptTarget.profile` a default (1), adding an `output_width` field (1), and
+dropping the target dedup (2).
 
 ---
 

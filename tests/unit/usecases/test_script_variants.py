@@ -45,7 +45,7 @@ def _candidate(start_s: float = 10.0, hook: str = "gancho") -> ClipCandidate:
     )
 
 
-def _targets(names: str = DEFAULT_SCRIPT_TARGETS) -> tuple[ScriptTarget, ...]:
+def _targets(names: str = "tiktok") -> tuple[ScriptTarget, ...]:
     return resolve_script_targets(names)
 
 
@@ -71,7 +71,7 @@ class TestOneCallPerCandidateTargetPair:
         write_script_variants(
             (_candidate(10.0), _candidate(50.0), _candidate(90.0)),
             generate=port,
-            targets=_targets("generic,generic"),
+            targets=_targets("tiktok,instagram"),
             max_output_tokens=OUTPUT_TOKENS,
         )
 
@@ -98,7 +98,7 @@ class TestWhatEachCandidateComesBackWith:
         candidates = write_script_variants(
             (_candidate(),),
             generate=port,
-            targets=_targets("generic,generic"),
+            targets=_targets("tiktok,instagram"),
             max_output_tokens=OUTPUT_TOKENS,
         )
 
@@ -154,7 +154,7 @@ class TestWhatEachCandidateComesBackWith:
             max_output_tokens=OUTPUT_TOKENS,
         )
 
-        assert candidates[0].variants[0].target == "generic"
+        assert candidates[0].variants[0].target == "tiktok"
 
     def test_everything_else_about_the_candidate_survives(self) -> None:
         """Times, score and the model's own hook are not re-derived here. This
@@ -201,7 +201,7 @@ class TestThePromptItSends:
             max_output_tokens=OUTPUT_TOKENS,
         )
 
-        assert "generic" in port.prompts[0]
+        assert "tiktok" in port.prompts[0]
         assert str(int(_targets()[0].duration_target_s)) in port.prompts[0]
 
     def test_it_carries_no_timestamp(self) -> None:
@@ -220,27 +220,26 @@ class TestThePromptItSends:
 
 
 class TestResolvingTargets:
-    def test_the_default_is_one_generic_target(self) -> None:
-        """Q3 — what the real targets are — is still open, so shipping a guess
-        at Instagram's preferred length would be a product decision made by
-        nobody."""
-        assert [t.name for t in resolve_script_targets(DEFAULT_SCRIPT_TARGETS)] == [
-            "generic"
-        ]
+    def test_the_default_selection_is_every_confirmed_destination(self) -> None:
+        """Q3 is answered, so the default is the four destinations rather than
+        the placeholder that stood in while it was open. What each one wants is
+        still not a platform fact — see `test_generate_artifacts.py`."""
+        assert len(resolve_script_targets(DEFAULT_SCRIPT_TARGETS)) == 4
 
     def test_names_are_comma_separated_like_the_operator_token_map(self) -> None:
-        assert len(resolve_script_targets("generic,generic")) == 2
+        assert len(resolve_script_targets("tiktok,instagram")) == 2
 
     def test_surrounding_whitespace_is_ignored(self) -> None:
-        assert len(resolve_script_targets(" generic , generic ")) == 2
+        assert len(resolve_script_targets(" tiktok , instagram ")) == 2
 
     def test_an_unknown_target_is_refused_naming_what_exists(self) -> None:
-        """Rather than silently falling back to generic. An operator who asked
-        for a reel script and got a generic one would have no way to tell."""
+        """Rather than silently substituting a default target. An operator who
+        asked for a Reels script and got somebody else's would have no way to
+        tell."""
         with pytest.raises(GenerationFailed) as refusal:
-            resolve_script_targets("tiktok")
+            resolve_script_targets("myspace")
 
-        assert "generic" in str(refusal.value)
+        assert "tiktok" in str(refusal.value)
 
     def test_no_targets_at_all_is_refused(self) -> None:
         """The script artifact is this system's stopping point. A build

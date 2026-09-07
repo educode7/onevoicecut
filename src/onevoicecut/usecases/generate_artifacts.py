@@ -600,21 +600,53 @@ class ScriptTarget:
     script labelled thirty, and the label is what an editor cuts against. Both are
     decided before the model is asked — they are properties of what a target *is*,
     not observations about the text that came back.
+
+    **`profile` is a name and deliberately nothing more.** It says which render
+    profile this destination's clips are delivered under; what that profile means
+    — output dimensions, aspect, caption geometry — is resolved in
+    `clip-rendering`, which is where the frame is known. That keeps the
+    no-rendering scope boundary standing under a multi-target delivery:
+    generation cannot express an opinion about how a frame is cropped even by
+    accident, because there is no field here in which to put one. There is no
+    default for the same reason `RenderProfile.safe_area` has none — a row added
+    without a profile would be delivered under whichever one the default named,
+    and nothing in the artifact would say so.
     """
 
     name: str
     format: str
     duration_target_s: float
+    profile: str
 
 
-# One target, deliberately. Q3 — what the real destinations are and what each
-# one wants — is open, and shipping a guess at a platform's preferred length
-# would be a product decision made by nobody. The shape is here so answering Q3
-# is adding rows.
+# Q3's answer, as data: four destinations, one row each. The four rows are
+# deliberately identical apart from their label, and that is not laziness — the
+# duration is the operator's editorial choice, not a platform fact, and inventing
+# a different number per network would ship a product decision made by nobody
+# wearing the authority of a constant. `45.0` and `"plain"` are carried over from
+# the single row that shipped while Q3 was open rather than guessed per platform.
+# Retuning one destination is an edit to its row.
+#
+# All four name `vertical` because every destination this change delivers to is
+# 9:16, which is exactly the case render dedup exists for: they share a profile,
+# so they share one rendered file and differ only in their scripts. The names are
+# cross-checked against the profile registry at composition — see
+# `runtime/settings.py`.
 SCRIPT_TARGETS = {
-    "generic": ScriptTarget(name="generic", format="plain", duration_target_s=45.0),
+    "tiktok": ScriptTarget(
+        name="tiktok", format="plain", duration_target_s=45.0, profile="vertical"
+    ),
+    "instagram": ScriptTarget(
+        name="instagram", format="plain", duration_target_s=45.0, profile="vertical"
+    ),
+    "youtube": ScriptTarget(
+        name="youtube", format="plain", duration_target_s=45.0, profile="vertical"
+    ),
+    "facebook": ScriptTarget(
+        name="facebook", format="plain", duration_target_s=45.0, profile="vertical"
+    ),
 }
-DEFAULT_SCRIPT_TARGETS = "generic"
+DEFAULT_SCRIPT_TARGETS = "tiktok,instagram,youtube,facebook"
 
 _SCRIPT_INSTRUCTION = (
     "Escribi un guion corto para un clip a partir del momento siguiente. "
@@ -625,13 +657,25 @@ _SCRIPT_INSTRUCTION = (
 def resolve_script_targets(names: str) -> tuple[ScriptTarget, ...]:
     """Comma-separated names, the same shape the operator token map uses.
 
-    An unknown name is refused rather than falling back to `generic`: an
+    An unknown name is refused rather than falling back to a default target: an
     operator who asked for a reel script and silently got a generic one would
     have no way to tell. An empty list is refused too — the script artifact is
     this system's stopping point, so a build configured to write none of them
     produces nothing and should say so at the call.
+
+    A repeated name resolves once. That is the spec's "two variants for the same
+    candidate must not carry the same target label" made structural rather than
+    left as a rule somebody remembers: a candidate carrying two variants both
+    labelled `tiktok` is an artifact nobody can tell apart, and it costs a second
+    billed call to produce. Order stays the operator's, because the operator
+    wrote the list.
     """
-    wanted = [name.strip() for name in names.split(",") if name.strip()]
+    wanted: list[str] = []
+    for name in names.split(","):
+        stripped = name.strip()
+        if stripped and stripped not in wanted:
+            wanted.append(stripped)
+
     if not wanted:
         raise GenerationFailed(
             "no script targets are configured, so no script would be written; "

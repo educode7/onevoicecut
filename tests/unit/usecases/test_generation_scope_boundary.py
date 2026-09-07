@@ -129,7 +129,9 @@ class TestTheModuleCannotRender:
 class TestEveryPromptIsBuiltTheSameWay:
     def _prompts(self) -> list[str]:
         window = MapWindow(segment_ids=(0,), text="[s0000] hola")
-        target = ScriptTarget(name="generic", format="plain", duration_target_s=45.0)
+        target = ScriptTarget(
+            name="tiktok", format="plain", duration_target_s=45.0, profile="vertical"
+        )
         candidate = ClipCandidate(
             start_s=1234.0,
             end_s=1264.0,
