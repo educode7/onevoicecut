@@ -27,6 +27,7 @@ function returns an `OutputQuality`. One module over, in the direction that has
 no cycle.
 """
 
+import math
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -101,6 +102,87 @@ class OutputSpec:
     # Defaulted, unlike the dimensions: frame rate does not decide sharpness,
     # and 30 is what every short-form destination accepts.
     fps: float = 30.0
+
+
+@dataclass(frozen=True, slots=True)
+class SafeArea:
+    """Where a caption may not go, as fractions of the output frame.
+
+    The fifth no-silent-degradation axis, and the least visible of the five. The
+    other four are discoverable by inspecting the file; a caption sitting under a
+    destination's interface overlay is correct in the file, correct in a local
+    player, and wrong only in the app it was made for — which is to say, wrong
+    only after it is published.
+
+    **Fractions, never pixels.** A profile retargeted to another resolution keeps
+    its meaning instead of silently moving the caption, which is the same reason
+    `aspect_of` derives its pair rather than reading a declared one.
+
+    Zero is a measured value, not a missing one: a destination with no overlay on
+    an edge really does have no margin there. "Nobody has measured this yet" is
+    said by `RenderProfile.safe_area` being `None`, and refused at resolution.
+    """
+
+    top: float
+    bottom: float
+    left: float
+    right: float
+
+    def __post_init__(self) -> None:
+        """Arithmetic refusing a nonsensical value, so `ValueError` rather than a
+        domain error — the same boundary `quality_of` draws for a degenerate
+        crop. A job-level refusal belongs at resolution, where a profile has a
+        name to put in the message."""
+        for edge, value in (
+            ("top", self.top),
+            ("bottom", self.bottom),
+            ("left", self.left),
+            ("right", self.right),
+        ):
+            if not 0.0 <= value < 1.0:
+                raise ValueError(
+                    f"safe area {edge} is {value}; margins are fractions of the "
+                    f"output frame and must sit in [0, 1) — 1.0 consumes the "
+                    f"whole frame and a negative one places the caption outside it"
+                )
+
+        for axis, first, second in (
+            ("top", self.top, self.bottom),
+            ("left", self.left, self.right),
+        ):
+            if first + second >= 1.0:
+                raise ValueError(
+                    f"safe area {axis} and its opposite sum to {first + second}; "
+                    f"each is individually legal and the pair leaves no frame to "
+                    f"caption, which no later arithmetic can report honestly"
+                )
+
+
+@dataclass(frozen=True, slots=True)
+class RenderProfile:
+    """What a destination implies about the *file*, and nothing about the script.
+
+    Named, so a script target can reference one without knowing what geometry is,
+    and so two networks wanting the same file share it by naming the same
+    profile — which is what keeps four destinations from meaning four ffmpeg
+    passes and four copies on disk.
+
+    **`safe_area` has no default**, for the reason `OutputSpec.width` has none: a
+    default here is precisely the failure this axis exists to prevent, wearing
+    the shape of a convenience. `None` is statable because "this destination
+    exists and nobody has measured it yet" is a real state the registry must be
+    able to hold — but it can never be reached by omission, and
+    `resolve_render_profiles` refuses it by name.
+
+    **No aspect field.** The pair the trajectory needs is already implied by the
+    output spec; two fields that can disagree about one fact eventually will, and
+    the derived one is the one nobody can contradict. See `aspect_of`.
+    """
+
+    name: str
+    output: OutputSpec
+    safe_area: SafeArea | None
+    max_duration_s: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,3 +281,19 @@ def quality_of(crop: CropRect, target: OutputSpec) -> OutputQuality:
         OutputQualityKind.UPSCALED if factor > 1.0 else OutputQualityKind.NATIVE
     )
     return OutputQuality(kind=kind, factor=factor)
+
+
+def aspect_of(profile: RenderProfile) -> tuple[int, int]:
+    """The output spec reduced to its lowest terms — `1080x1920` is `(9, 16)`.
+
+    The pair feeds `TrajectoryPolicy` directly, which is what makes a second
+    aspect a *value* rather than a code path: the trajectory arithmetic was
+    already parameterised, so per-network delivery costs nothing here.
+
+    Derived rather than declared, on the same argument as `quality_of` reading
+    width only. A configuration restating the ratio would create a second thing
+    to keep true, and the day it disagreed with the dimensions there would be no
+    way to tell which one the operator meant.
+    """
+    divisor = math.gcd(profile.output.width, profile.output.height)
+    return profile.output.width // divisor, profile.output.height // divisor

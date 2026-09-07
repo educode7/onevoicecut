@@ -37,13 +37,27 @@ from onevoicecut.domain.rendering import (
     OutputQualityKind,
     OutputSpec,
     RenderedClip,
+    RenderProfile,
+    SafeArea,
     SubtitleCue,
     SubtitleTimingSource,
+    aspect_of,
     quality_of,
 )
 
 CLIP_ID = make_clip_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 JOB_ID = make_job_id("01BX5ZZKBKACTAV9WEVGEMMVRZ")
+
+# Illustrative only. The real per-destination values are measured against each
+# app's current interface and go stale when that interface changes, which is why
+# the registry ships shapes and the resolver refuses an unmeasured one.
+SAFE_AREA = SafeArea(top=0.06, bottom=0.18, left=0.05, right=0.14)
+PROFILE = RenderProfile(
+    name="vertical",
+    output=OutputSpec(width=1080, height=1920),
+    safe_area=SAFE_AREA,
+    max_duration_s=90.0,
+)
 
 # The authoritative pair from design.md, both derived by `crop_size_for` from a
 # real frame rather than written down here independently.
@@ -110,6 +124,8 @@ class TestEverythingIsFrozen:
             OutputSpec(width=1080, height=1920),
             OutputQuality(kind=OutputQualityKind.NATIVE, factor=1.0),
             SubtitleCue(start_s=0.0, end_s=1.0, text="hola"),
+            SAFE_AREA,
+            PROFILE,
         ],
     )
     def test_a_value_cannot_be_rewritten_after_construction(
@@ -122,7 +138,15 @@ class TestEverythingIsFrozen:
 
     @pytest.mark.parametrize(
         "entity",
-        [OutputSpec, OutputQuality, SubtitleCue, RenderedClip, ClipExport],
+        [
+            OutputSpec,
+            OutputQuality,
+            SubtitleCue,
+            RenderedClip,
+            ClipExport,
+            SafeArea,
+            RenderProfile,
+        ],
     )
     def test_every_entity_is_slotted(self, entity: type) -> None:
         """Every domain entity is. A clip carries per-cue and per-keyframe data,
@@ -257,6 +281,136 @@ class TestTheQualityArithmetic:
         `FrameGeometryUnavailable` before a render is ever dispatched."""
         with pytest.raises(ValueError):
             quality_of(CropRect(0, 0, 0, 0), TARGET)
+
+
+class TestTheSafeArea:
+    """Where a caption may not go, expressed so it survives a resolution change.
+
+    This is the fifth no-silent-degradation axis and the least visible of them.
+    The other four are discoverable by inspecting the file; a caption under a
+    destination's interface overlay is correct in the file, correct in a local
+    player, and wrong only in the app it was made for — which is to say, wrong
+    only after it is published.
+    """
+
+    def test_it_is_expressed_in_fractions_of_the_frame(self) -> None:
+        """Fractions, never pixels. A profile retargeted to another resolution
+        keeps its meaning instead of silently changing where the caption lands."""
+        assert SAFE_AREA.bottom == 0.18
+
+    @pytest.mark.parametrize("value", [1.0, 1.5, -0.01])
+    def test_a_margin_outside_the_frame_is_refused(self, value: float) -> None:
+        """A fraction at or above 1.0 consumes the whole frame, and a negative
+        one places the caption outside it. Both are arithmetic refusing a
+        nonsensical value, so `ValueError` rather than a domain error — the same
+        boundary `quality_of` draws for a degenerate crop."""
+        with pytest.raises(ValueError):
+            SafeArea(top=value, bottom=0.1, left=0.05, right=0.05)
+
+    def test_a_zero_margin_is_allowed(self) -> None:
+        """A destination with no overlay on one edge is a real configuration,
+        not an unmeasured one. Zero says "measured, and it is nothing"."""
+        assert SafeArea(top=0.0, bottom=0.0, left=0.0, right=0.0).top == 0.0
+
+    @pytest.mark.parametrize(
+        ("top", "bottom", "left", "right"),
+        [(0.6, 0.5, 0.0, 0.0), (0.0, 0.0, 0.7, 0.4)],
+    )
+    def test_opposing_margins_must_leave_a_frame_to_caption(
+        self, top: float, bottom: float, left: float, right: float
+    ) -> None:
+        """Each value is individually legal and the pair is not. A top of 0.6
+        with a bottom of 0.5 leaves negative room, which no later arithmetic can
+        report honestly — so it is refused where the pair is first visible."""
+        with pytest.raises(ValueError):
+            SafeArea(top=top, bottom=bottom, left=left, right=right)
+
+
+class TestARenderProfile:
+    """What a destination implies about the file, and nothing about the script."""
+
+    def test_it_declares_output_safe_area_and_duration_ceiling(self) -> None:
+        assert PROFILE.output.width == 1080
+        assert PROFILE.safe_area is SAFE_AREA
+        assert PROFILE.max_duration_s == 90.0
+
+    def test_the_safe_area_has_no_default(self) -> None:
+        """The rule `OutputSpec.width` set: a default here is precisely the
+        failure this axis exists to prevent, wearing the shape of a convenience.
+        An inherited margin is right for the profile it was measured against and
+        silently wrong for every profile that inherited it."""
+        field = {f.name: f for f in dataclasses.fields(RenderProfile)}["safe_area"]
+
+        assert field.default is dataclasses.MISSING
+        assert field.default_factory is dataclasses.MISSING
+
+    def test_an_unmeasured_safe_area_is_statable_but_never_silent(self) -> None:
+        """`None` means "this destination exists and nobody has measured it yet",
+        which is a real state: the registry must be able to record that TikTok is
+        a target before somebody sits down with the app. It is refused at
+        resolution, not at construction, so the gap is recorded rather than
+        unrepresentable — and it can never be reached by omission, because the
+        field has no default."""
+        unmeasured = RenderProfile(
+            name="unmeasured",
+            output=OutputSpec(width=1080, height=1920),
+            safe_area=None,
+            max_duration_s=60.0,
+        )
+
+        assert unmeasured.safe_area is None
+
+    def test_it_carries_no_aspect_field(self) -> None:
+        """Derived, never declared. Two fields that can disagree about one fact
+        eventually will, and the derived one is the one nobody can contradict —
+        the same reasoning that makes `quality_of` read width only."""
+        names = {f.name for f in dataclasses.fields(RenderProfile)}
+
+        assert not names & {"aspect", "aspect_w", "aspect_h", "aspect_ratio"}
+
+
+class TestTheAspectDerivation:
+    @pytest.mark.parametrize(
+        ("width", "height", "expected"),
+        [
+            (1080, 1920, (9, 16)),
+            (1080, 1350, (4, 5)),
+            (1080, 1080, (1, 1)),
+            (1920, 1080, (16, 9)),
+        ],
+    )
+    def test_it_reduces_the_output_spec_to_its_lowest_terms(
+        self, width: int, height: int, expected: tuple[int, int]
+    ) -> None:
+        """`1080x1920` is `9:16` and `1080x1350` is `4:5`. The pair the
+        trajectory needs is already implied by the delivery target, so asking a
+        configuration to restate it would only create a second thing to keep
+        true."""
+        profile = dataclasses.replace(
+            PROFILE, output=OutputSpec(width=width, height=height)
+        )
+
+        assert aspect_of(profile) == expected
+
+    def test_the_derived_aspect_drives_the_crop(self) -> None:
+        """The whole point of deriving it: the pair feeds `TrajectoryPolicy`
+        directly, and `crop_size_for` then yields a crop of that shape. This is
+        what makes a second aspect a value rather than a code path."""
+        from onevoicecut.domain.framing import TrajectoryPolicy, crop_size_for
+        from onevoicecut.domain.media import FrameSize
+
+        four_by_five = dataclasses.replace(
+            PROFILE, output=OutputSpec(width=1080, height=1350)
+        )
+        aspect_w, aspect_h = aspect_of(four_by_five)
+
+        crop_w, crop_h = crop_size_for(
+            FrameSize(1920, 1080),
+            TrajectoryPolicy(aspect_w=aspect_w, aspect_h=aspect_h),
+        )
+
+        assert (crop_w, crop_h) == (864, 1080)
+        assert crop_w * aspect_h == crop_h * aspect_w
 
 
 def test_the_authoritative_crops_come_from_the_real_derivation() -> None:

@@ -3462,6 +3462,197 @@ and mutation-checked the result.
 
 ---
 
+# Rev 5: Per-Network Delivery (Open Question 3 answered)
+
+Four units, inserted here rather than appended, because three of them **gate 13b-i onward** and one
+**modifies code that already landed**. The proposal's Open Question 3 is answered: TikTok, Instagram,
+YouTube and Facebook each get their own script variant, and their own render where the destination
+genuinely differs.
+
+**What the answer costs, unit by unit.** The geometry was free — `TrajectoryPolicy.aspect_w/aspect_h`
+were already parameters, so a second aspect costs no arithmetic. The scripts were nearly free — the
+target set was always meant to be rows. The two that cost something are the ones that touch shipped
+code: caption geometry stops being a module constant, and `ClipExport` stops being keyed by clip
+alone.
+
+**Why 10c-i lives in this block and not up in slice 10.** It modifies `usecases/generate_artifacts.py`,
+which slice 10 shipped. Filing it under slice 10 would put a rev-5 unit three thousand lines from the
+three units it must land beside, and its only real dependency is the profile registry created here.
+Numbered `10c` so the capability it changes stays legible; placed here so the ordering is.
+
+**Ordering.** 13a-iv gates the other three. 13a-v and 13a-vi are independent of each other and may run
+in parallel once it lands. 10c-i needs only the profile *names*, so it too may run in parallel. All
+four gate 13b-ii, 13b-iii and 13b-iv.
+
+---
+
+## Slice 13a-iv: `RenderProfile` + Profile Resolution (~450 lines)
+
+Closes: `clip-rendering` One Render Per Distinct Profile Not Per Network (type-level), Caption Safe Area
+Is Declared Per Profile Never Defaulted (resolution half), Duration Ceiling Is Declared Not Silently
+Trimmed (type-level). Depends on 13a-i (`OutputSpec`). Gates 13a-v, 13a-vi, 10c-i and every 13b unit.
+
+- [x] 13a.34 RED: `tests/unit/domain/test_rendering.py` — `SafeArea` and `RenderProfile` construct,
+      stay frozen and slotted; `RenderProfile` carries `name`, `output: OutputSpec`, `safe_area` and
+      `max_duration_s`. **`safe_area` has no default**, for the reason `OutputSpec.width` has none: a
+      default is the failure this requirement exists to prevent, wearing the shape of a convenience.
+- [x] 13a.35 GREEN: `domain/rendering.py` — the two types.
+- [x] 13a.36 RED: safe-area fractions are fractions — each of the four fields is a float in `[0, 1)`,
+      and opposing pairs MUST sum below 1.0 (a top plus bottom of 1.2 leaves no frame to caption).
+      Pixels are refused by type, so a profile retargeted to another resolution keeps its meaning.
+- [x] 13a.37 GREEN: validation in `__post_init__`, raising `ValueError` — this is arithmetic refusing a
+      nonsensical value, not a job-level refusal, so it stays out of `domain/errors.py` (same boundary
+      `quality_of` draws in 13a-i).
+- [x] 13a.38 RED: `aspect_of(profile)` derives the reduced integer pair from the output spec —
+      `1080×1920 → (9, 16)`, `1080×1350 → (4, 5)` — and the result feeds `TrajectoryPolicy` directly.
+      **Derived, never declared**: two fields that can disagree about one fact eventually will, and the
+      derived one is the one nobody can contradict. Same reasoning as `quality_of` reading width only.
+- [x] 13a.39 GREEN: `domain/rendering.py` — `aspect_of` via `math.gcd`.
+- [x] 13a.40 RED: `resolve_render_profiles(names)` refuses three ways, each naming what is available:
+      an unknown profile name, an empty selection, and a registry entry declaring no safe area. **No
+      fallback to a default profile** — an inherited margin is exactly the silent degradation the spec
+      calls the least visible of the five axes.
+- [x] 13a.41 GREEN: `usecases/render_profiles.py` — the registry and its resolver, mirroring the shape
+      `resolve_script_targets` already established. **Plus `RenderProfileInvalid` in `domain/errors.py`,
+      which this task did not name.** Found while writing the RED: the worker classifies on the type, and
+      a bad profile configuration fails identically on every retry while a render may not. One type would
+      make "retry or refuse" undecidable without reading a message — the same reasoning that already
+      separated `ClipRangeInvalid` from `RenderFailed`.
+- [x] 13a.42 REFACTOR: suite green, `mypy src tests` clean.
+
+### Three decisions the spec and the tasks both left open
+
+- **`safe_area` is `SafeArea | None` with no default.** Only way to satisfy the spec scenario literally:
+  "a render profile configuration that declares no caption safe area ... MUST refuse at resolution". If
+  the type forbade the state, the configuration could not express the thing that must be refused. `None`
+  means "this destination exists and nobody has measured it yet" — a real state, because the registry has
+  to record that TikTok is a target before somebody sits down with the app. No default means it can never
+  be reached by omission; it must be written.
+- **The registry is injected**, `resolve_render_profiles(names, *, registry=...)`. Without it, proving the
+  unmeasured-profile refusal means polluting the shipped registry to reach it.
+- **An unmeasured profile refuses the whole selection, not partially.** Resolving two of three and
+  dropping the third is the silent degradation stated backwards: the operator asked for three
+  destinations and would get two files with nothing saying why.
+
+### Measured cost
+
+**496 lines against the ~450 estimate (1.10x)** and well inside the 800 budget — `src` 208, tests 289.
+Suite **1668 passed / 30 deselected**; mypy clean over 213 files.
+
+### The registry ships with profile *shapes*, not measured values
+
+The safe-area fractions and duration ceilings per destination are **measurement against each app's
+current interface**, and they go stale when that interface changes. The spec fixes that they MUST be
+declared and per profile; it deliberately does not fix what they are. This unit ships the registry and
+the refusal path — a profile whose safe area has not been measured fails loudly at resolution rather
+than rendering with somebody else's margin. Populating it is an operator task with a measurement step,
+not a coding task, and 13b-v is where a real render makes a wrong value visible.
+
+---
+
+## Slice 13a-v: Profile-Aware Caption Geometry + ASS Reference Resolution (~475 lines)
+
+Closes: `clip-rendering` Caption Safe Area Is Declared Per Profile Never Defaulted (rendering half),
+Typography resolves against the output frame, Every eligible segment yields at least one cue. Depends
+on 13a-iv. **Modifies 13a-ii's shipped `adapters/ffmpeg/subtitles.py`.** Independent of 13a-vi and
+10c-i.
+
+- [ ] 13a.43 RED: `tests/unit/adapters/ffmpeg/test_subtitles.py` — the generated ASS header declares
+      `PlayResX`/`PlayResY` matching the profile's output spec. Without it a font size resolves against
+      a renderer default, which is invisible while one profile exists and becomes a different apparent
+      caption size per profile the moment a second one does.
+- [ ] 13a.44 GREEN: `adapters/ffmpeg/subtitles.py` — `_HEADER` stops being a module constant and
+      becomes a function of the profile.
+- [ ] 13a.45 RED: `MarginL`/`MarginR`/`MarginV` derive from the profile's safe-area fractions times the
+      output dimensions, rounded to integers.
+- [ ] 13a.46 GREEN: implement the derivation.
+- [ ] 13a.47 RED: two profiles declaring different safe areas produce different margins for the *same*
+      cue set — the assertion that fails if a margin ever gets shared again.
+- [ ] 13a.48 GREEN: confirm by construction.
+- [ ] 13a.49 RED: `tests/unit/usecases/test_build_subtitle_cues.py` — totality: every eligible segment
+      yields at least one cue, including a segment carrying no word timing, and a clip declaring
+      confirmed-speech or unverified coverage therefore carries a non-empty cue set.
+- [ ] 13a.50 GREEN: **expected to pass on first run.** `_cues_for` is already total and its docstring
+      says so; the spec's `SHOULD` was a botched edit, corrected to `MUST` in the rev-5 delta. This
+      pins behaviour 13a-ii shipped **without a test**, so a later refactor cannot quietly break the
+      condition that lets `CaptionCoverage.NONE` mean anything. Characterization, not a new behaviour —
+      the same treatment 13a.10 got.
+- [ ] 13a.51 REFACTOR: suite green, `mypy src tests` clean.
+
+### Font size is the one that will bite
+
+Margins are checked by reading the `.ass` file. Typography is not: `PlayRes` being absent produces a
+file that parses, renders, and looks correct at one resolution. It is the same shape as every other
+axis in this change — the artifact looks fine — which is why 13b-v's real render is where a wrong
+value actually surfaces, and why this unit pins the declaration rather than the appearance.
+
+---
+
+## Slice 13a-vi: `ClipExport` Re-Keying (~400 lines)
+
+Closes: `clip-rendering` An export is addressable by clip and profile, A shared file records every
+variant it delivers. Depends on 13a-iv. **Modifies 13a-i's shipped `ClipExport`.** Independent of
+13a-v and 10c-i.
+
+- [ ] 13a.52 RED: `tests/unit/domain/test_rendering.py` — `ClipExport` carries `profile: str` and
+      `variants: tuple[ScriptVariant, ...]`. The plural is load-bearing: networks sharing a profile
+      share a file, and a file serving three networks with one variant recorded loses the other two.
+      Reconstructing them later means re-running generation against a transcript that may have been
+      re-stitched since — the same reasoning that put title and description on the export.
+- [ ] 13a.53 GREEN: `domain/rendering.py` — replace `variant: ScriptVariant` with the tuple, add
+      `profile`.
+- [ ] 13a.54 RED: `export_key(clip_id, profile)` resolves to exactly one export, and `clip_id` alone
+      does not identify a rendered file.
+- [ ] 13a.55 GREEN: implement the key helper.
+- [ ] 13a.56 RED: an export declaring confirmed coverage carries at least one variant — an export
+      delivering no variant is a file nobody can post, which is what `ClipExport` exists to prevent.
+- [ ] 13a.57 GREEN: validation in `__post_init__`.
+- [ ] 13a.58 REFACTOR: update every construction site; suite green, `mypy src tests` clean.
+
+### This is the unit whose cost depends entirely on when it runs
+
+`ClipExport` currently appears in `domain/rendering.py` **and nowhere else** — not in the storage port,
+not in the filesystem adapter, not in any route. So this is a type edit plus its construction sites.
+Run it after 13b-ii and 13b-iv instead and it becomes a disk migration of persisted JSON plus a
+breaking change to a published HTTP contract. The estimate above assumes it runs here.
+
+---
+
+## Slice 10c-i: Script Targets Name a Render Profile (~400 lines)
+
+Closes: `script-generation` Target Networks Are Configuration Data Not Structure (all 3 scenarios), A
+Target Names Its Render Profile Without Knowing What One Is (both scenarios), Every variant identifies
+its target. Depends on 13a-iv (profile names must resolve). **Modifies slice 10's shipped
+`usecases/generate_artifacts.py`.** Independent of 13a-v and 13a-vi.
+
+- [ ] 10c.1 RED: `tests/unit/usecases/test_generate_artifacts.py` — `ScriptTarget` carries `profile:
+      str`; `SCRIPT_TARGETS` defines the four confirmed destinations, each naming a profile; two
+      destinations naming the same profile is representable and is the case the render dedup relies on.
+- [ ] 10c.2 GREEN: `usecases/generate_artifacts.py` — add the field, populate the registry.
+- [ ] 10c.3 RED: structural — `ScriptTarget`'s field set contains no `width`, `height`, aspect, or
+      caption/margin field. Generation decides *which* moments and *what to say*; it must remain unable
+      to express an opinion about how a frame is cropped **even by accident**. The link is a name
+      precisely so the `Scope Boundary — No Rendering` requirement survives a multi-target delivery.
+- [ ] 10c.4 GREEN: confirm by construction (no production change expected).
+- [ ] 10c.5 RED: cross-validation — every profile named by a configured script target resolves against
+      the profile registry, and a target naming an unresolvable profile is refused **at composition**,
+      before a job runs. A dangling profile name that only fails at render time would fail after the
+      transcription hours are already spent.
+- [ ] 10c.6 GREEN: the cross-check in `runtime/settings.py`, beside the existing fail-closed reads.
+- [ ] 10c.7 RED: regression pin — `resolve_script_targets` still refuses an unknown name and an empty
+      selection, and still never falls back to a default.
+- [ ] 10c.8 GREEN: confirm by construction.
+- [ ] 10c.9 REFACTOR: suite green, `mypy src tests` clean.
+
+### The four destinations are rows; what each one wants is not settled here
+
+This unit proves that adding a network is a configuration change. It does **not** settle each
+destination's duration target or which profile it names — those are the same measurement problem
+13a-iv records, and `duration_target_s` on the script side is the operator's editorial choice rather
+than a platform fact. What is settled and tested: the model is never asked for either value.
+
+---
+
 ## Slice 13b-i: Real `VideoRenderPort` Adapter + Render Guards (~575 lines)
 
 Closes: `clip-rendering` VideoRenderPort Contract (adapter half), Clip Cut From Source Time Range Only;
@@ -3487,19 +3678,27 @@ threat-matrix row **render resource exhaustion** (guard half). Depends on 13a-i/
 
 ---
 
-## Slice 13b-ii: `ClipExport` Storage (~400 lines)
+## Slice 13b-ii: `ClipExport` Storage, Keyed by Clip and Profile (~475 lines)
 
-Closes: `clip-rendering` Clip Export to Job Directory (both scenarios). Depends on 13a-i — `ClipExport`
-and `ClipState` are the values it round-trips. Independent of 13a-ii, 13a-iii and 13b-i.
+Closes: `clip-rendering` Clip Export to Job Directory (all 3 scenarios). Depends on 13a-i and **13a-vi**
+— `ClipExport`, its profile key and its variant tuple are the values it round-trips. Independent of
+13a-ii, 13a-iii and 13b-i.
 
 - [ ] 13b.10 RED: `tests/unit/ports/test_transcript_storage.py` — `TranscriptStoragePort` declares
       `save_clip_export`/`load_clip_exports`.
 - [ ] 13b.11 GREEN: `ports/transcript_storage.py` — add the two methods.
 - [ ] 13b.12 RED: `tests/unit/adapters/storage/test_filesystem_transcript_storage.py` —
-      `save_clip_export`/`load_clip_exports` round-trip a `ClipExport` through `render/{clip_id}.json`;
-      `ClipState` transitions persist.
+      `save_clip_export`/`load_clip_exports` round-trip a `ClipExport` through
+      **`render/{clip_id}/{profile}.json`**; `ClipState` transitions persist per profile.
+      **[rev 5]** The clip id is a directory, not a filename: one candidate now yields one export per
+      distinct profile, and a flat `{clip_id}.json` cannot hold two of them. The profile name is a
+      path component, so it is `resolve_inside`-checked against the job directory like every other
+      client-influenced name in this system — it originates in configuration, but configuration is
+      not a trust boundary.
 - [ ] 13b.13 GREEN: `adapters/storage/filesystem_transcript_storage.py` — implement both methods, reusing
       the shipped atomic-write helper.
+- [ ] 13b.13a RED: `load_clip_exports` returns **every** profile's export for a clip, and a clip
+      rendered under two profiles yields two — the read side of the same fact 13a-vi pinned on the type.
 - [ ] 13b.14 RED: no-external-service test — the export path makes no network call (structural — no
       `httpx`/socket import in the storage module).
 - [ ] 13b.15 GREEN: confirm by construction.
@@ -3508,13 +3707,14 @@ and `ClipState` are the values it round-trips. Independent of 13a-ii, 13a-iii an
 
 ---
 
-## Slice 13b-iii: `render_worker` Entrypoint (~575 lines)
+## Slice 13b-iii: `render_worker` Entrypoint (~975 lines — **split into 13b-iii-a / 13b-iii-b**)
 
 Closes: `clip-rendering` Crop Trajectory Applied As Given (orchestration half), Low-Confidence Trajectory
 Is Not Delivered as an Ordinary Success; `subject-tracking` Detection is scoped to the clip (orchestration
 half). Depends on 11a (`probe.frame`, `FrameGeometryUnavailable`), 12a-ii (`SubjectTrackerPort`,
 `TrackingUnavailable`), 12b-i (`build_trajectory`), 12b-ii (`LOW_CONFIDENCE`), 13a-i, 13a-ii, 13b-i,
-13b-ii. It is the only unit that calls the trajectory pipeline rather than merely naming its types.
+13b-ii, **13a-iv, 13a-v, 13a-vi, 10c-i**. It is the only unit that calls the trajectory pipeline rather
+than merely naming its types, and **[rev 5]** the only one that fans a single clip out across profiles.
 
 - [ ] 13b.18 RED: `tests/unit/runtime/test_render_worker.py` — the happy path calls `probe`→`detect`→
       `build_trajectory`→`load_transcript`→`build_subtitle_cues`→`render`→`quality_of` in order, against
@@ -3534,25 +3734,82 @@ half). Depends on 11a (`probe.frame`, `FrameGeometryUnavailable`), 12a-ii (`Subj
 - [ ] 13b.25 GREEN: propagate `TrackingConfidence` from `build_trajectory`'s output, and
       `SubtitleTimingSource`/`CaptionCoverage` from `build_subtitle_cues`'s output, onto the assembled
       `RenderedClip` — all four declarations computed above the port.
+- [ ] 13b.25a RED **[rev 5]**: profile fan-out — a clip whose script variants name four networks
+      resolving to **two** distinct profiles produces **two** renders and two `ClipExport`s, and the
+      three variants sharing a profile all land on that profile's single export. Dedup is on the
+      profile, never on the network.
+- [ ] 13b.25b GREEN: resolve the clip's variants to their distinct profiles and loop the render over
+      them.
+- [ ] 13b.25c RED **[rev 5]**: detection is invariant across profiles — `SubjectTrackerPort.detect` is
+      called **at most once** for the clip span however many profiles are rendered. This is the unit's
+      sharpest cost assertion: detection is the only step model weights dominate, and re-running it per
+      profile would multiply it to obtain an identical answer. `detect(media, span, sample_hz)` takes
+      no aspect and no policy, so the answer cannot differ.
+- [ ] 13b.25d GREEN: hoist the single `detect` call above the profile loop.
+- [ ] 13b.25e RED **[rev 5]**: trajectory planning is **not** invariant — two profiles whose output
+      specs imply different aspects each get their own `CropTrajectory` from the one shared detection
+      set, and neither is reused for the other aspect. Two profiles sharing an aspect share one
+      trajectory. Aspect enters at `build_trajectory` through the policy, where it decides crop size
+      and therefore clamping.
+- [ ] 13b.25f GREEN: key the trajectory by `aspect_of(profile)` inside the loop.
+- [ ] 13b.25g RED **[rev 5]**: per-profile quality — one crop against two output widths yields two
+      declarations, and one MUST be able to read `NATIVE` while the other reads `UPSCALED`. Both are
+      true at once, which is why a single quality value per clip could only be wrong for one profile
+      without saying so.
+- [ ] 13b.25h GREEN: compute `quality_of` per profile, above the port as the other three declarations
+      already are.
+- [ ] 13b.25i RED **[rev 5]**: duration ceiling — a candidate range exceeding a profile's ceiling
+      renders at the **candidate's full range** and declares the overrun with its magnitude. It MUST
+      NOT be trimmed: cutting to fit removes either the setup or the payoff, and which one is a
+      judgement about the material no rule here is positioned to make.
+- [ ] 13b.25j GREEN: compute and attach the overrun declaration.
 - [ ] 13b.26 REFACTOR: suite green, `mypy src tests` clean.
+
+### The fan-out is where rev 5's cost actually lands, and where it is contained
+
+Every other rev-5 unit is types, configuration or a module constant becoming a parameter. This one
+decides whether four destinations mean four vision passes or one. The split it relies on is not a
+choice made here — it is what `SubjectTrackerPort` already is. `detect` answers *where a person was
+found in the source frame*, which is the same answer whatever shape gets cropped around it; aspect
+enters only at `build_trajectory`. So the expensive half is hoisted out of the loop by construction
+and the repeated half is pure arithmetic provable against a fake detector.
+
+**This unit is now the largest in slice 13.** Ten added tasks on top of nine, all orchestration, in the
+unit the slice-13 forecast already flagged as trending toward the 5c-style upper bound. If it overruns,
+the seam is clean: `13b.18`–`13b.26` (single-profile orchestration) and `13b.25a`–`13b.25j` (fan-out)
+are each green alone, which is this repo's stated rule for when two halves are two units.
 
 ---
 
-## Slice 13b-iv: HTTP Clip Routes (~525 lines)
+## Slice 13b-iv: HTTP Clip Routes (~675 lines)
 
 Closes: `clip-rendering` Clip Export to Job Directory (HTTP surface). Depends on 13b-ii, 13b-iii.
 
 - [ ] 13b.27 RED: `tests/unit/adapters/web/test_clip_routes.py` — `POST /api/jobs/{id}/clips
-      {candidate_index, variant}` against a job not `COMPLETED` returns `409`; against a `COMPLETED` job
-      returns `202 {clip_id}` and writes a `PENDING` `ClipExport` before responding.
+      {candidate_index, targets}` against a job not `COMPLETED` returns `409`; against a `COMPLETED` job
+      returns `202 {clip_id, profiles}` and writes a `PENDING` `ClipExport` **per distinct profile**
+      before responding. **[rev 5]** The request names *networks*; the response reports the *profiles*
+      they resolved to, so an operator who asked for four destinations and is getting two files learns
+      it at request time rather than by counting files afterwards.
 - [ ] 13b.28 GREEN: `adapters/web/routers/jobs.py` — the `POST .../clips` route + `adapters/web/schemas.py`
       request/response models.
 - [ ] 13b.29 RED: spawn test — admitting a clip request spawns `render_worker` with the same mechanism
       used for the transcription worker, and the HTTP response returns before the render completes.
 - [ ] 13b.30 GREEN: wire the spawn call, mirroring the shipped upload-triggers-worker pattern.
-- [ ] 13b.31 RED: `GET /api/jobs/{id}/clips/{clip_id}` — returns `{state, quality, subtitle_timing,
-      captions, tracking}` read-only; a test enforces it writes nothing.
+- [ ] 13b.31 RED: `GET /api/jobs/{id}/clips/{clip_id}` — returns the clip's exports **as a list, one
+      per profile**, each carrying `{profile, state, quality, subtitle_timing, captions, tracking,
+      variants}` read-only; a test enforces it writes nothing. **[rev 5]** A single-object response
+      would have to pick one profile to report and would be wrong about the other.
 - [ ] 13b.32 GREEN: the status-read route over `load_clip_exports`.
+- [ ] 13b.32a RED **[rev 5]**: `GET /api/jobs/{id}/clips/{clip_id}/{profile}` resolves to exactly one
+      export; an unknown profile on a known clip returns `404`, distinct from an unknown clip. Clip id
+      alone MUST NOT be treated as identifying a single rendered file — the HTTP half of 13a-vi's key.
+- [ ] 13b.32b GREEN: the per-profile read route.
+- [ ] 13b.32c RED **[rev 5]**: authorization parity — both clip routes join the generated 401 and 403
+      route-table checks, and a non-owner is refused with the shipped `401 → 404 → 403` precedence.
+      The generated checks mean a route added without auth wiring fails the default run the day it is
+      written; this task exists to confirm the new routes are *seen* by them, not to re-implement them.
+- [ ] 13b.32d GREEN: confirm by construction (no production change expected).
 - [ ] 13b.33 REFACTOR: suite green, `mypy src tests` clean.
 
 ---

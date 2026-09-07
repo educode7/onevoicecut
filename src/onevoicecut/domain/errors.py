@@ -165,3 +165,18 @@ class ContextLengthExceeded(DomainError):
 
 class GenerationFailed(DomainError):
     pass
+
+
+class RenderProfileInvalid(DomainError):
+    """Raised when the configured render profiles cannot be resolved at all.
+
+    Distinct from `RenderFailed` for the reason `ClipRangeInvalid` is: this is a
+    configuration mistake, so it fails identically on every retry, and the
+    worker decides "retry or refuse" on the type rather than on a message.
+
+    It is also the refusal that keeps the caption safe area honest. A profile
+    that declares no safe area is refused here rather than given another
+    profile's margin — an inherited margin is right for the profile it was
+    measured against and silently wrong for every profile that inherited it,
+    and that failure is only visible once the clip is published.
+    """
