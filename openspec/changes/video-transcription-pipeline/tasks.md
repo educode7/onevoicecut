@@ -3800,23 +3800,120 @@ dropping the target dedup (2).
 Closes: `clip-rendering` VideoRenderPort Contract (adapter half), Clip Cut From Source Time Range Only;
 threat-matrix row **render resource exhaustion** (guard half). Depends on 13a-i/ii/iii.
 
-- [ ] 13b.1 RED: `tests/unit/adapters/ffmpeg/test_video_render.py` — the adapter spawns exactly one
+- [x] 13b.1 RED: `tests/unit/adapters/ffmpeg/test_video_render.py` — the adapter spawns exactly one
       process via an injected `RenderProcessRunner` with `cwd` set to the job's `render/` subdirectory
       (`resolve_inside`-checked against the job directory), which is the directory it wrote `.cmds` and
       `.ass` into, so the graph's bare filenames resolve; argv matches `build_render_argv()`'s output.
-- [ ] 13b.2 GREEN: `adapters/ffmpeg/video_render.py` — implements `VideoRenderPort`; declares its own
+      **Amended in flight:** the adapter writes the `.cmds` and requires a caller-written `.ass` — see the
+      retro below.
+- [x] 13b.2 GREEN: `adapters/ffmpeg/video_render.py` — implements `VideoRenderPort`; declares its own
       `RenderProcessRunner` protocol.
-- [ ] 13b.3 RED: `tests/unit/usecases/test_render_clip.py` — `0 <= start_s < end_s <= probe.duration_s`
+- [x] 13b.3 RED: `tests/unit/usecases/test_render_clip.py` — `0 <= start_s < end_s <= probe.duration_s`
       and `end_s - start_s <= max_clip_seconds` violations each raise `ClipRangeInvalid` before any spawn.
-- [ ] 13b.4 GREEN: `usecases/render_clip.py` — the pre-spawn guard clauses.
-- [ ] 13b.5 RED: timeout test — a render exceeding `max(60.0, 20 * clip_duration_s)` surfaces as
+- [x] 13b.4 GREEN: `usecases/render_clip.py` — the pre-spawn guard clauses.
+- [x] 13b.5 RED: timeout test — a render exceeding `max(60.0, 20 * clip_duration_s)` surfaces as
       `RenderFailed`, never a raw `TimeoutExpired`.
-- [ ] 13b.6 GREEN: implement the timeout translation in the adapter.
-- [ ] 13b.7 RED: `FfmpegUnavailable` test — the adapter reuses the shipped PATH check before spawning.
-- [ ] 13b.8 GREEN: wire the shared PATH-check helper (from `adapters/ffmpeg/extractor.py`) into the render
+- [x] 13b.6 GREEN: implement the timeout translation in the adapter.
+- [x] 13b.7 RED: `FfmpegUnavailable` test — the adapter reuses the shipped PATH check before spawning.
+- [x] 13b.8 GREEN: wire the shared PATH-check helper (from `adapters/ffmpeg/extractor.py`) into the render
       adapter.
-- [ ] 13b.9 REFACTOR: extract the subprocess-invocation helper shared with `extractor.py`, now three call
+- [x] 13b.9 REFACTOR: extract the subprocess-invocation helper shared with `extractor.py`, now three call
       sites; suite green.
+
+### The two sidecars turned out to have different authors
+
+`13b.1` says the adapter spawns from "the directory it wrote `.cmds` and `.ass` into". It writes one of them.
+
+`render_ass` now takes a **required** `RenderProfile`, because a caption safe area is per destination and is
+never inherited. `RenderRequest` carries an `OutputSpec` — geometry alone — so the adapter has no profile to
+pass, and there is no profile it *could* pass: every entry in the shipped registry declares `safe_area=None`
+and `resolve_render_profiles` refuses it by name. A renderer that supplied a margin of its own would be
+introducing exactly the inherited default that axis exists to refuse.
+
+So the split is: `.cmds` is written here, because `RenderRequest.trajectory` determines it completely and
+nothing outside the request is consulted; the `.ass` is written by the caller that resolved the profile, and
+the adapter **refuses to spawn without it** rather than shipping a clip with no captions. The spec says the
+port MUST accept the profile, so when `RenderRequest` grows one this moves back beside the command file —
+one function, `_write_command_file`'s neighbour. **13b-iii owns writing the `.ass`**, which is the unit that
+already resolves profiles.
+
+### `max_clip_seconds` is a parameter, not a setting, and nothing wires it yet
+
+design.md fixes 180 s and `slice-13-tasks.md` says "that setting arrives with `render_clip`'s guards in
+13b-i". No such setting exists in `runtime/settings.py`, so it is `DEFAULT_MAX_CLIP_SECONDS` in
+`usecases/render_clip.py` with the guard taking it as a keyword. Two things want to say it — a profile's own
+`max_duration_s` and a deployment resource bound — and `RenderCapabilities.max_clip_seconds` is the same
+number seen from the renderer's side. **Open for whoever composes this**: an
+`ONEVOICECUT_MAX_CLIP_SECONDS` setting passed to both the guard and the adapter's declaration. 13c-i needs
+the same value for its pre-decode span refusal.
+
+The guard's parameter is a plain `float`, not `float | None`, deliberately: the capability type may declare
+`None` for "this renderer states no bound of its own", but a guard that can be switched off is not a guard.
+
+### The clip id comes from the destination's stem
+
+`RenderRequest` carries no clip id — it is source-derived material only — and the filter graph needs one.
+So the destination names the clip, and `build_render_argv` validates it as a ULID before composing, which is
+what keeps an arbitrary stem out of a string ffmpeg parses. The `.mp4`, the `.cmds` and the `.ass` therefore
+share a stem, which is the whole reason the bare filenames find each other.
+
+### What it reports, it commanded
+
+`RenderedFile` carries the geometry the argv asked for and the span's own duration. Measuring the output
+would mean a second process, and `13b.1`'s own assertion — exactly one — forbids it. Existence *is* checked:
+a zero exit that wrote nothing is a failure, not an empty clip. 13b-v is where the commanded numbers become
+measured ones.
+
+### Mutations, and one the exercise caught in a fixture rather than in the code
+
+| Mutation | Caught by |
+| --- | --- |
+| `resolve_inside(job_dir, dest)` → `dest.resolve()` in the composer | 1 test — and **only the new one**; the shipped `test_render_argv.py` never covered a destination outside the job directory |
+| `resolve_inside(job_dir, source)` → `source.resolve()` | 1 test, likewise new |
+| `subprocess.TimeoutExpired` left to propagate | 3 tests, across both adapters |
+| the `max_clip_seconds` guard removed | 4 tests |
+| the `probe.duration_s` guard removed | 4 tests — **after a fixture fix** |
+| the `.ass` precondition removed | 1 test |
+
+The probe-duration mutation initially failed only one assertion, on a message. Its parametrised span was
+`7100..7300` — 200 s, which the 180 s ceiling refuses anyway, so the case never reached the guard it was
+named for. Changed to `7190..7250`: 60 s, inside the ceiling, past the end of the source. **A fixture that
+breaks two rules at once tests neither.**
+
+**One containment check has no distinguishing case in this suite and is left as defence in depth**:
+`cwd=resolve_inside(job_dir, job_dir / RENDER_DIRNAME)` differs from a plain `.resolve()` only if `render/`
+is a symlink out of the job directory, which needs privileges to create on Windows and would be a flaky
+test. Recorded rather than faked.
+
+### Shape notes
+
+`RenderProcessRunner` is declared in the adapter, not in `ports/`: it names `subprocess.CompletedProcess`,
+and a port naming it would put process spawning into the core's vocabulary. It is deliberately a **separate
+shape** from the extractor's `ProcessRunner` rather than a widening of it — only a render has a working
+directory to set, and adding the argument to the shipped protocol would churn the fakes in four test modules
+to carry something audio slicing never uses. `13b.9` therefore shares the *policy* (PATH check, the three
+translations) through `adapters/ffmpeg/process.py` and lets each adapter keep its own call, passing a
+closure. `require_binaries` stayed in `extractor.py` only because `runtime/app.py` imports it from there and
+that file is another unit's; its home is `process.py`.
+
+### Two error types are less precise than the code needs, both recorded rather than invented around
+
+A path outside the job directory raises `ExtractionFailed` from the shipped `resolve_inside`, and the port
+docstring's raises-list says `RenderFailed, ClipRangeInvalid`. An empty trajectory and a missing `.ass` are
+both raised as `RenderFailed`, which advertises "retryable" for two conditions that fail identically every
+time. Both want a "this request was prepared wrong" error in `domain/errors.py`; adding one is a domain
+change this unit does not own.
+
+### Measured
+
+**1,345 added / 52 removed against a ~575 estimate and an 800 budget — 2.3x the estimate.** Split at the
+seam the unit was already carrying: the adapter with its process plumbing (~957) and the use-case guards
+(~388), each green alone. The first half is still over budget, and the honest reason is that it is one
+adapter with one 597-line test file — 62% of the half, and not separable from its subject. A third cut was
+available (landing `process.py` as a preparatory extraction first, ~132 lines) but would have put the
+REFACTOR ahead of the code it was extracted from, which is not what happened and not what TDD did.
+
+Suite **1668 → 1720**, mypy clean over **218** source files (213 before).
 
 ---
 
