@@ -20,11 +20,11 @@
 
 | Field | Value |
 |-------|-------|
-| Estimated changed lines | ~4,900 (13a-i ~525 · 13a-ii ~525 · 13a-iii ~575 · 13b-i ~575 · 13b-ii ~400 · 13b-iii ~575 · 13b-iv ~525 · 13b-v ~425 · 13c-i ~475 · 13c-ii ~300) |
+| Estimated changed lines | **~7,250** (13a-i ~525 · 13a-ii ~525 · 13a-iii ~575 · **13a-iv ~450** · **13a-v ~475** · **13a-vi ~400** · **10c-i ~400** · 13b-i ~575 · 13b-ii ~475 · 13b-iii ~975 · 13b-iv ~675 · 13b-v ~425 · 13c-i ~475 · 13c-ii ~300) |
 | Test share expectation | 65–80%, with the render-worker orchestration unit (13b-iii) and the HTTP wiring unit (13b-iv) likely trending toward the 5c-style upper bound — first end-to-end assembly is where adapter gaps surface |
-| 800-line budget risk | Low per-unit — every unit individually estimated 300–575 lines, with margin; High in aggregate across all ten |
+| 800-line budget risk | **Low per-unit once 13b-iii is split** (see below) — every unit then sits at 300–675 with margin. High in aggregate across all fifteen |
 | Chained PRs recommended | Yes |
-| Suggested split | 10 work units, PR 49 → PR 58 (shifted from PR 32–41 by the rev-5 re-baseline of slices 7a–10b) |
+| Suggested split | **15 work units, PR 49 → PR 63.** PR 49–51 (13a-i/ii/iii) have landed; the four rev-5 units take PR 52–55, 13b-iii splits into two, and everything from 13b-i shifts accordingly |
 | Delivery strategy | auto-chain |
 | Chain strategy | stacked-to-main |
 
@@ -32,8 +32,40 @@
 Decision needed before apply: No
 Chained PRs recommended: Yes
 Chain strategy: stacked-to-main
-800-line budget risk: Low
+800-line budget risk: Medium
 ```
+
+### Rev 5 re-baseline (Open Question 3 answered)
+
+Four units added, three revised. The addition is **~1,725 lines** of new units plus **~625** of growth
+in the three unwritten 13b units that per-network delivery reaches into — call it **~2,350 over the
+rev-4 forecast**, which is 48% growth on a slice that was already the largest in the change.
+
+**Where the growth is not.** Geometry cost nothing: `TrajectoryPolicy.aspect_w/aspect_h` were already
+parameters, so a second aspect is a value, not a code path. Detection cost nothing: `detect` takes no
+aspect, so the vision pass is hoisted out of the profile loop by construction rather than by
+optimisation. Both are the hexagon's boundary paying for itself — the two places rev 5 could have
+become expensive were already parameterised by decisions made before the requirement existed.
+
+**Where it is.** Orchestration. `13b-iii` absorbs the whole fan-out (ten added tasks) and is the only
+unit that goes over budget.
+
+**13b-iii is split here rather than at apply time.** Unsplit it estimates ~975, over budget. The seam
+was already visible and this repo's stated rule applies — two halves that are each green alone are two
+units — so the split is taken now and carried in the table above:
+
+| Sub-unit | Tasks | Est. | PR |
+| --- | --- | --- | --- |
+| 13b-iii-a — single-profile orchestration | `13b.18`–`13b.26` | ~575 | 58 |
+| 13b-iii-b — profile fan-out, shared detection, per-profile declarations | `13b.25a`–`13b.25j` | ~400 | 59 |
+
+This is the fourth time in this change that splitting at the seam rather than at the line count landed
+both halves inside budget (7a-ii at 504, 7c at 986, 13a at three units). The rule keeps holding.
+
+**One estimate carries no comparable and should be read as a lower bound.** `13a-v` changes a shipped
+module constant into a parameter and touches typography, which nothing in this change has measured
+before. The `PlayRes` declaration in particular is the kind of thing that looks like one line and
+turns out to be a coordinate-system question across every existing subtitle test.
 
 ### Suggested Work Units
 
@@ -42,13 +74,18 @@ Chain strategy: stacked-to-main
 | 13a-i | `VideoRenderPort`, `RenderRequest`/`RenderedFile`, `domain/rendering.py` (9 types), `ClipId`, `quality_of` arithmetic, structural no-external-asset test | PR 49 | `pytest tests/unit/domain/test_ids.py tests/unit/domain/test_rendering.py tests/unit/ports/test_video_render.py tests/unit/domain/test_framing.py -m "not paid and not localmodel"` | N/A — pure types + arithmetic | `domain/rendering.py`, `domain/ids.py` (`ClipId`), `ports/video_render.py`, `domain/framing.py` (`quality_of`) |
 | 13a-ii | ASS subtitle escaping + cue building (`SegmentKind` eligibility, word-boundary splitting, `WORD_LEVEL`/`SEGMENT_LEVEL` and `CaptionCoverage` declarations) | PR 50 | `pytest tests/unit/adapters/ffmpeg/test_subtitles.py tests/unit/usecases/test_build_subtitle_cues.py -m "not paid and not localmodel"` | N/A — pure modules, no ffmpeg | `adapters/ffmpeg/subtitles.py`, `usecases/build_subtitle_cues.py` |
 | 13a-iii | Filter-graph composition (`build_render_argv`) + `sendcmd` densification, ULID-filename containment | PR 51 | `pytest tests/unit/adapters/ffmpeg/test_argv_composition.py tests/unit/adapters/ffmpeg/test_sendcmd.py -m "not paid and not localmodel"` | N/A — pure argv/command-file composition, no ffmpeg spawned | `adapters/ffmpeg/argv.py` (`build_render_argv`), `adapters/ffmpeg/sendcmd.py` |
-| 13b-i | Real `VideoRenderPort` adapter + `render_clip` pre-spawn guards (`ClipRangeInvalid`, timeout, `FfmpegUnavailable`) | PR 52 | `pytest tests/unit/adapters/ffmpeg/test_video_render.py tests/unit/usecases/test_render_clip.py -m "not paid and not localmodel"` | N/A — injected fake `RenderProcessRunner`, real ffmpeg proven in 13b-v | `adapters/ffmpeg/video_render.py`, `usecases/render_clip.py` guard clauses |
-| 13b-ii | `ClipExport` storage: `save_clip_export`/`load_clip_exports` on the port, filesystem adapter, fake | PR 53 | `pytest tests/unit/ports/test_transcript_storage.py tests/unit/adapters/storage/test_filesystem_transcript_storage.py -m "not paid and not localmodel"` | `pytest -m integration` — round-trip against real files on disk | `ports/transcript_storage.py` (two new methods), `adapters/storage/filesystem_transcript_storage.py`, `tests/fakes/transcript_storage.py` |
-| 13b-iii | `render_worker` entrypoint: orchestration + the two pre-render refusal branches + low-confidence propagation | PR 54 | `pytest tests/unit/runtime/test_render_worker.py -m "not paid and not localmodel"` | `python -m onevoicecut.runtime.render_worker --job-id <fake-job> --clip-id <fake-clip>` against fakes | `runtime/render_worker.py` |
-| 13b-iv | HTTP clip routes: `POST /api/jobs/{id}/clips`, `GET /api/jobs/{id}/clips/{clip_id}` | PR 55 | `pytest tests/unit/adapters/web/test_clip_routes.py -m "not paid and not localmodel"` | Real HTTP client against the composed app, fake render worker spawn | `adapters/web/routers/jobs.py` (clip routes), `adapters/web/schemas.py` (clip schemas) |
-| 13b-v | Real ffmpeg render integration + graph-composition-under-hostile-path + real timeout | PR 56 | `pytest tests/unit -m "not paid and not localmodel"` (no new unit tests; verifies prior units) | `pytest -m integration` — real ffmpeg render of a tiny synthesized fixture, real burned-in text visible | `tests/integration/test_render_clip.py` (new), no production rollback — proves PR 49–55 against reality |
-| 13c-i | Real vision-backed `SubjectTrackerPort` adapter: in-process span-bounded decode, capability probe | PR 57 | `pytest tests/unit -m "not paid and not localmodel"` (adapter is `localmodel`-marked) | `pytest -m localmodel` — real vision weights, real span-bounded decode | `adapters/vision/*_tracker_adapter.py` |
-| 13c-ii | Real adapter contract test + never-synthesized-centre proof | PR 58 | `pytest tests/unit -m "not paid and not localmodel"` (contract body is `localmodel`-marked) | `pytest -m localmodel` — real adapter against the shared contract body | `tests/contract/test_subject_tracker_contract.py` |
+| **13a-iv** | **[rev 5]** `RenderProfile`/`SafeArea`, aspect derived from the output spec, `resolve_render_profiles` with its three refusals | PR 52 | `pytest tests/unit/domain/test_rendering.py tests/unit/usecases/test_render_profiles.py -m "not paid and not localmodel"` | N/A — pure types + resolution | `domain/rendering.py` (two types, `aspect_of`), `usecases/render_profiles.py` |
+| **13a-v** | **[rev 5]** Profile-aware ASS geometry: `PlayRes` declaration, safe-area-derived margins; totality characterization test | PR 53 | `pytest tests/unit/adapters/ffmpeg/test_subtitles.py tests/unit/usecases/test_build_subtitle_cues.py -m "not paid and not localmodel"` | N/A — pure module, no ffmpeg | `adapters/ffmpeg/subtitles.py` (header becomes a function) |
+| **13a-vi** | **[rev 5]** `ClipExport` re-keying: `profile` field, `variants` tuple, `export_key` | PR 54 | `pytest tests/unit/domain/test_rendering.py -m "not paid and not localmodel"` | N/A — pure types | `domain/rendering.py` (`ClipExport`) |
+| **10c-i** | **[rev 5]** `ScriptTarget` names a profile; the four destinations become registry rows; composition-time cross-validation | PR 55 | `pytest tests/unit/usecases/test_generate_artifacts.py tests/unit/runtime/test_settings.py -m "not paid and not localmodel"` | N/A — pure config + resolution | `usecases/generate_artifacts.py` (`ScriptTarget`, `SCRIPT_TARGETS`), `runtime/settings.py` (cross-check) |
+| 13b-i | Real `VideoRenderPort` adapter + `render_clip` pre-spawn guards (`ClipRangeInvalid`, timeout, `FfmpegUnavailable`) | PR 56 | `pytest tests/unit/adapters/ffmpeg/test_video_render.py tests/unit/usecases/test_render_clip.py -m "not paid and not localmodel"` | N/A — injected fake `RenderProcessRunner`, real ffmpeg proven in 13b-v | `adapters/ffmpeg/video_render.py`, `usecases/render_clip.py` guard clauses |
+| 13b-ii | `ClipExport` storage keyed by **clip and profile** (`render/{clip_id}/{profile}.json`): port methods, filesystem adapter, fake | PR 57 | `pytest tests/unit/ports/test_transcript_storage.py tests/unit/adapters/storage/test_filesystem_transcript_storage.py -m "not paid and not localmodel"` | `pytest -m integration` — round-trip against real files on disk | `ports/transcript_storage.py` (two new methods), `adapters/storage/filesystem_transcript_storage.py`, `tests/fakes/transcript_storage.py` |
+| 13b-iii-a | `render_worker` entrypoint: single-profile orchestration + the two pre-render refusal branches + low-confidence propagation | PR 58 | `pytest tests/unit/runtime/test_render_worker.py -m "not paid and not localmodel"` | `python -m onevoicecut.runtime.render_worker --job-id <fake-job> --clip-id <fake-clip>` against fakes | `runtime/render_worker.py` |
+| **13b-iii-b** | **[rev 5]** Profile fan-out: shared detection, per-aspect trajectory, per-profile quality and duration-ceiling declarations | PR 59 | `pytest tests/unit/runtime/test_render_worker.py -m "not paid and not localmodel"` | Same entrypoint, a clip whose variants resolve to two profiles | `runtime/render_worker.py` (the profile loop) |
+| 13b-iv | HTTP clip routes: `POST /api/jobs/{id}/clips`, `GET .../clips/{clip_id}`, `GET .../clips/{clip_id}/{profile}` | PR 60 | `pytest tests/unit/adapters/web/test_clip_routes.py -m "not paid and not localmodel"` | Real HTTP client against the composed app, fake render worker spawn | `adapters/web/routers/jobs.py` (clip routes), `adapters/web/schemas.py` (clip schemas) |
+| 13b-v | Real ffmpeg render integration + graph-composition-under-hostile-path + real timeout | PR 61 | `pytest tests/unit -m "not paid and not localmodel"` (no new unit tests; verifies prior units) | `pytest -m integration` — real ffmpeg render of a tiny synthesized fixture, real burned-in text visible, **captions inside the profile's declared safe area** | `tests/integration/test_render_clip.py` (new), no production rollback — proves PR 49–60 against reality |
+| 13c-i | Real vision-backed `SubjectTrackerPort` adapter: in-process span-bounded decode, capability probe | PR 62 | `pytest tests/unit -m "not paid and not localmodel"` (adapter is `localmodel`-marked) | `pytest -m localmodel` — real vision weights, real span-bounded decode | `adapters/vision/*_tracker_adapter.py` |
+| 13c-ii | Real adapter contract test + never-synthesized-centre proof | PR 63 | `pytest tests/unit -m "not paid and not localmodel"` (contract body is `localmodel`-marked) | `pytest -m localmodel` — real adapter against the shared contract body | `tests/contract/test_subject_tracker_contract.py` |
 
 ## Dependency Notes
 

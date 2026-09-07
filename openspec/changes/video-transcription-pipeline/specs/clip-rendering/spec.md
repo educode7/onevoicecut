@@ -8,20 +8,35 @@ transcript, declaring output quality rather than silently upscaling, and exporti
 plus its metadata to the job directory. [BINDING: every frame and word in the output comes from the
 source sermon — no synthesis, no dubbing, no composited footage]
 
+**[rev 5 — proposal Open Question 3 answered]** Delivery is to more than one network, and the networks
+do not want identical files. Rendering is therefore parameterised by a **render profile**: the output
+spec, the caption safe area, and the duration ceiling that a destination implies. Profiles are named
+by script targets (see `script-generation`) and resolved here, where the frame is known. A clip is
+rendered once per *distinct profile*, never once per network — two networks that want the same file
+share it.
+
 ## Requirements
 
 ### Requirement: VideoRenderPort Contract
 
-`VideoRenderPort` MUST accept a source media reference, a time range, a `CropTrajectory`, and subtitle
-cues, and MUST return a rendered vertical clip file. The port MUST know nothing about why the
-trajectory says what it says — trajectory construction is a separate concern owned by
-`subject-tracking`.
+`VideoRenderPort` MUST accept a source media reference, a time range, a `CropTrajectory`, subtitle
+cues, and the **render profile** the output is being delivered under, and MUST return a rendered clip
+file matching that profile's output spec. The port MUST know nothing about why the trajectory says
+what it says, nor which networks the profile serves — trajectory construction is owned by
+`subject-tracking`, and the network-to-profile mapping by `script-generation`.
 
-#### Scenario: Render produces a vertical file
+Every profile delivered by this change is vertical 9:16. The port MUST NOT hardcode that: the aspect
+is a property of the profile's output spec, and a profile declaring another shape MUST render to it
+without a change to the port. The trajectory arithmetic is already aspect-parametric, so this costs
+nothing to honour and prevents an assumption from being welded into the adapter.
 
-- GIVEN a source media reference, a clip time range, a `CropTrajectory`, and subtitle cues
+#### Scenario: Render matches the profile's output spec
+
+- GIVEN a source media reference, a clip time range, a `CropTrajectory`, subtitle cues, and a render
+  profile
 - WHEN the port renders the clip
-- THEN it MUST produce a 9:16 vertical video file covering that time range
+- THEN it MUST produce a video file covering that time range at the profile's declared output
+  dimensions
 
 ### Requirement: Single Native ffmpeg Pass
 
@@ -61,6 +76,135 @@ trajectory-building use case.
 - WHEN the clip is rendered
 - THEN the applied crop geometry MUST match the trajectory's keyframes
 - AND the renderer MUST NOT independently recompute smoothing, dead-zone, or clamping
+
+### Requirement: One Render Per Distinct Profile, Not Per Network
+
+A clip candidate MUST be rendered once for each **distinct** render profile among its script targets,
+not once per target. Where several networks name the same profile, one rendered file MUST serve all of
+them.
+
+This is a correctness requirement before it is an efficiency one. Rendering per network would put N
+byte-identical files in a job directory with nothing to distinguish them, and an operator with four
+copies of one clip has no way to know they are the same — which is how the wrong one gets published
+after a re-render. It is also the cost control: a render is a full ffmpeg pass over the clip range,
+and multi-hour sources with no retention policy (proposal Open Question 6) already make disk the
+sharpest operational constraint in this change.
+
+A render profile MUST declare its output spec, its caption safe area, and its duration ceiling. Its
+aspect ratio MUST be derived from the output spec rather than declared alongside it — two fields that
+can disagree about one fact will eventually disagree, and the derived one is the one nobody can
+contradict.
+
+#### Scenario: Networks sharing a profile share one file
+
+- GIVEN a clip candidate with script variants for four networks, three of which name the same render
+  profile
+- WHEN the clip is rendered
+- THEN exactly two rendered files MUST be produced
+- AND the three variants naming the shared profile MUST reference the same rendered file
+
+#### Scenario: Distinct profiles produce distinct files
+
+- GIVEN a clip candidate with script variants naming two different render profiles
+- WHEN the clip is rendered
+- THEN each profile MUST produce its own rendered file
+- AND each file MUST carry its own quality, caption and tracking declarations
+
+### Requirement: Detection Is Shared Across Profiles; Trajectory Planning Is Not
+
+Subject detection MUST run at most once per clip span regardless of how many profiles that clip is
+rendered under. Trajectory planning MUST run once per distinct aspect ratio among those profiles.
+
+The split is not an optimisation choice — it is what `SubjectTrackerPort` already is.
+`detect(media, span, sample_hz)` takes no aspect and no policy: it answers where a person was found in
+the source frame, which is the same answer whatever shape is cropped around it. Aspect enters only at
+`build_trajectory`, through the policy, where it decides the crop size and therefore the clamping.
+
+So the expensive half (vision weights, span-bounded decode) is invariant across profiles, and the half
+that must be repeated is pure arithmetic provable against a fake detector. Re-detecting per profile
+would multiply the one cost in this pipeline that model weights dominate, to obtain an identical
+answer.
+
+#### Scenario: Multiple profiles do not multiply detection
+
+- GIVEN a clip rendered under three profiles
+- WHEN rendering runs
+- THEN `SubjectTrackerPort.detect` MUST be invoked at most once for that clip span
+
+#### Scenario: A differing aspect gets its own trajectory
+
+- GIVEN two profiles whose output specs imply different aspect ratios
+- WHEN trajectories are planned from one shared detection set
+- THEN each aspect MUST receive its own `CropTrajectory`
+- AND neither trajectory MUST be reused for the other aspect
+
+### Requirement: Caption Safe Area Is Declared Per Profile, Never Defaulted
+
+Burned-in caption placement MUST be derived from the rendering profile's declared safe area. A profile
+MUST NOT inherit a caption margin from another profile, and a profile that declares no safe area MUST
+be refused at configuration time rather than rendered with a fallback margin.
+
+**This is a fifth no-silent-degradation axis, and it is the least visible of the five.** The other four
+are discoverable by inspecting the file. A caption sitting under a destination's interface overlay is
+correct in the file, correct in a local player, and wrong only in the app it was made for — which is
+to say, wrong only after it is published, and only to the audience. Nothing in the rendered artifact
+announces it. A shared default margin is exactly how that failure gets introduced: it is right for the
+profile it was measured against and silently wrong for every profile that inherited it.
+
+The safe area MUST be expressed as fractions of the output frame rather than pixels, so that a profile
+retargeted to another resolution keeps its meaning instead of silently changing where the caption
+lands.
+
+The burned-in subtitle script MUST declare the resolution its typography is measured against, so that
+font size resolves against the profile's actual output frame. Without that declaration a font size is
+interpreted against a renderer default, which is invisible while one profile exists and becomes a
+different apparent caption size per profile the moment a second one does.
+
+The concrete safe-area values per destination are configuration, not specification: they are measured
+against a destination's current interface and change when that interface does. This requirement fixes
+that they MUST be declared, measured, and per profile — not what they are.
+
+#### Scenario: Caption placement follows the profile
+
+- GIVEN two profiles declaring different caption safe areas
+- WHEN a clip is rendered under each
+- THEN each rendered file's caption placement MUST derive from its own profile's safe area
+- AND neither MUST use the other's margin
+
+#### Scenario: A profile without a declared safe area is refused
+
+- GIVEN a render profile configuration that declares no caption safe area
+- WHEN profiles are resolved
+- THEN the system MUST refuse with an error naming that profile
+- AND it MUST NOT render it with a default or inherited margin
+
+#### Scenario: Typography resolves against the output frame
+
+- GIVEN a rendered clip carrying burned-in captions
+- WHEN the generated subtitle script is inspected
+- THEN it MUST declare the reference resolution its font sizing is measured against
+- AND that resolution MUST match the profile's output spec
+
+### Requirement: Duration Ceiling Is Declared, Not Silently Trimmed
+
+A render profile MUST declare the maximum clip duration its destination accepts. Where a selected clip
+candidate's range exceeds that ceiling, the render result MUST declare the overrun rather than trim the
+range to fit.
+
+Trimming is an editorial act. Cutting eight seconds off a clip to satisfy a limit removes either the
+setup or the payoff, and which one is a judgement about the material that no rule in this system is
+positioned to make. A silently trimmed clip is also the familiar shape: it plays cleanly, it is the
+right length, and the sentence it was built around is gone.
+
+The candidate's range remains the source of truth. This requirement adds a declaration, never a second
+place where a timestamp changes.
+
+#### Scenario: An over-length clip is declared, not cut
+
+- GIVEN a clip candidate whose range exceeds its profile's declared duration ceiling
+- WHEN the clip is rendered under that profile
+- THEN the render result MUST declare that it exceeds the ceiling, and by how much
+- AND the rendered range MUST still be the candidate's full range
 
 ### Requirement: Low-Confidence Trajectory Is Not Delivered as an Ordinary Success
 
@@ -116,7 +260,7 @@ The render result MUST therefore declare its caption coverage, and that declarat
 segment was confirmed speech, that at least one was unverified audio, or that the span carried no eligible
 segment at all.
 
-Cue construction SHOULD be total over that same eligible set. Where an eligible segment yields no cue, the clip MUST still declare its coverage honestly rather than report captions it does not carry.
+Cue construction MUST be total over that same eligible set: every eligible segment MUST yield at least
 one cue. Totality is what makes the declaration describe the delivered captions: zero cues and no eligible
 segment are then the same condition, so a clip with zero cues MUST be reachable only because the span
 contained no eligible segment, and MUST be declared as such rather than delivered as an ordinarily
@@ -144,6 +288,13 @@ one cue.
 - WHEN the clip is rendered
 - THEN the render result MUST declare that every eligible segment was confirmed speech
 - AND the declared coverage MUST match the cues the clip actually carries
+
+#### Scenario: Every eligible segment yields at least one cue
+
+- GIVEN a clip span containing eligible segments, including one carrying no word-level timing
+- WHEN subtitle cues are built
+- THEN every eligible segment MUST contribute at least one cue
+- AND a clip declaring confirmed-speech or unverified coverage MUST therefore carry a non-empty cue set
 
 #### Scenario: A clip with no eligible segment declares zero coverage
 
@@ -185,6 +336,24 @@ Crop dimensions MUST be even, and MUST be produced by rounding **down** to the n
 that the crop is never wider than the frame it is taken from. The reference derivations are `1214×2160`
 from a 3840×2160 source and `606×1080` from a 1920×1080 source.
 
+**The declaration is per profile, because the factor is.** Quality is `target_width / crop_width`, and
+the target is the profile's. One clip cut from one crop can be native under a profile that asks for
+fewer pixels and upscaled under one that asks for more, and both statements are true at once. A single
+quality value per clip would have to pick one of them to report, which makes it wrong for the other
+profile without saying so.
+
+This is also where the 1080p ceiling stops being a single number and becomes one per destination. It
+does not get better with more profiles: a 606-pixel-wide crop is the camera's limit, and every profile
+targeting more than that width declares its own upscale factor over the same soft pixels. Adding
+profiles multiplies the reporting of that constraint, never relieves it.
+
+#### Scenario: One clip declares quality per profile
+
+- GIVEN a clip rendered under two profiles whose output widths differ
+- WHEN both render results are inspected
+- THEN each MUST carry its own quality declaration computed against its own profile's target width
+- AND one MUST be able to read native while the other reads upscaled
+
 #### Scenario: 4K source declared native
 
 - GIVEN a source whose 9:16 crop meets or exceeds the target output resolution
@@ -207,16 +376,40 @@ from a 3840×2160 source and `606×1080` from a 1920×1080 source.
 
 ### Requirement: Clip Export to Job Directory
 
-The rendered clip file and its metadata (title, description, the script variant used, source
-timestamps, and the output-quality declaration) MUST be written to the job directory, keyed by job id,
+The rendered clip file and its metadata (title, description, source timestamps, the output-quality
+declaration, and the script variants the file delivers) MUST be written to the job directory,
 consistent with the per-job storage isolation already required of transcript artifacts.
+
+**An export MUST be identified by clip and profile together, not by clip alone.** One clip candidate
+now yields one export per distinct profile, so a clip-only key cannot name a file. This applies to the
+persisted export, to its retrieval, and to any route that addresses a rendered clip.
+
+Because networks sharing a profile share a file, an export MUST carry **the set** of script variants
+delivered by it, not a single variant. A file serving three networks with one variant recorded loses
+the other two, and reconstructing them later means re-running generation against a transcript that may
+have been re-stitched since — the same reasoning that put title and description on the export rather
+than leaving them derivable.
 
 #### Scenario: Clip and metadata land in the job directory
 
 - GIVEN a completed render for a job
 - WHEN the export runs
 - THEN the rendered clip file MUST be written under that job's directory
-- AND its metadata MUST be written alongside it, retrievable by job id
+- AND its metadata MUST be written alongside it, retrievable by job id, clip id and profile
+
+#### Scenario: An export is addressable by clip and profile
+
+- GIVEN a clip rendered under two profiles
+- WHEN each export is retrieved
+- THEN clip id and profile together MUST resolve to exactly one export
+- AND clip id alone MUST NOT be treated as identifying a single rendered file
+
+#### Scenario: A shared file records every variant it delivers
+
+- GIVEN a rendered file serving three networks that name one profile
+- WHEN its export metadata is inspected
+- THEN it MUST carry all three script variants
+- AND each variant MUST remain attributable to the network it was written for
 
 #### Scenario: No external service is written to
 

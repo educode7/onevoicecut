@@ -1,6 +1,6 @@
 # Proposal: Video Transcription Pipeline
 
-> Phase: `sdd-propose` (rev 4 — vertical clip rendering) · Artifact store: hybrid (mirror of Engram `sdd/video-transcription-pipeline/proposal`)
+> Phase: `sdd-propose` (rev 5 — per-network delivery; rev 4 — vertical clip rendering) · Artifact store: hybrid (mirror of Engram `sdd/video-transcription-pipeline/proposal`)
 > Inputs: `exploration.md`, Engram 637/639/640/641, the answered proposal question round (rev 2), the
 > **rev 3 answer to Open Question 8** (music and singing in the source audio), plus the **rev 4 scope
 > decision** taken after slice 4a shipped: the operator's real outcome is a publishable vertical clip,
@@ -82,8 +82,19 @@ slice 1 onward.
   A sidecar `.srt` is not a substitute — vertical social video is watched muted, and the caption is the
   clip's only channel in that state. This requires **word-level timestamps**, which the current domain
   model does not carry; see the retrofit risk below.
-- **Clip export to disk** **[rev 4]** — the rendered clip plus its metadata (title, description, the
-  script variant, source timestamps) written to the job directory, ready for the operator to upload.
+- **Per-network delivery** **[rev 5 — Open Question 3 answered]** — TikTok, Instagram, YouTube and
+  Facebook each receive their own script variant, and their own render *where the destination
+  genuinely differs*. A **render profile** carries what a destination implies about the file (output
+  spec, caption safe area, duration ceiling); a script target names one. **Renders are keyed by
+  profile, not by network**, so destinations wanting the same file share it. Both halves stay
+  configuration: adding a network is a row, not a contract change. The caption safe area becomes a
+  **fifth no-silent-degradation axis** — a caption under a destination's interface overlay is correct
+  in the file and wrong only once published, so a profile that declares no safe area is refused rather
+  than given a default margin.
+- **Clip export to disk** **[rev 4]** — the rendered clip plus its metadata (title, description,
+  source timestamps, and **[rev 5]** the set of script variants that file delivers) written to the job
+  directory, ready for the operator to upload. **[rev 5]** An export is keyed by **clip and profile
+  together** — a clip-only key can no longer name a file.
   **Automatic publishing to social networks is a declared seam, not in this delivery** — see
   Open Question 11.
 - **Bootstrapping**: dependency manager = **venv + pip + `requirements.txt`** (skill default — no
@@ -451,6 +462,9 @@ miss:
 | **Rev 4 roughly doubles the change**, and it is being added to a change already running 3-5x over every estimate | **High** | Estimate honesty section above; slice 13 split mandated at `sdd-tasks` time; the alternative of shipping rev 1-3 first and rendering as a separate change stays available |
 | Render time on multi-hour source: detection sampling plus a native ffmpeg pass, per clip | Med | Detection runs only over the selected clip range, never the whole sermon — the clip candidates already narrowed it to minutes |
 | Chunk-boundary word loss when stitching | Med | Overlap handling is an explicit spec requirement, not adapter discretion |
+| **[rev 5] Per-profile export keying is a change to types that already landed.** `ClipExport` carries one `RenderedClip` and one `ScriptVariant`, and `ClipId` alone identifies a render — all three shipped in slice 13a-i (PR 49) | **High if deferred, Low now** | **The timing is the mitigation.** `save_clip_export`/`load_clip_exports` (13b-ii, PR 53) and the clip routes (13b-iv, PR 55) are **not written yet**, and `ClipExport` currently appears in `domain/rendering.py` and nowhere else. Landing the keying change before the storage codec and the HTTP contract freeze makes it a type edit; after them it is a disk migration plus a breaking route change |
+| **[rev 5] Render count and disk multiply per distinct profile**, on multi-hour sources that already have no retention policy | Med | Keying renders by *profile* rather than by network is the control — destinations that want the same file share it. Detection is invariant across profiles (one vision pass per clip span); only trajectory planning repeats, and that is pure arithmetic. **Open Question 6 gets sharper again**: rendered clips now accumulate per profile |
+| **[rev 5] Safe-area and duration-ceiling values go stale silently.** They are measured against a destination's current interface, and that interface changes without notice | Med | Kept as **configuration, never specification** — the spec fixes that they MUST be declared and per profile, not what they are. A profile declaring no safe area is refused rather than defaulted, so a missing measurement fails loudly instead of inheriting another destination's margin |
 
 ## Rollback Plan
 
@@ -491,7 +505,7 @@ miss:
 | --- | --- | --- |
 | 1 | Source audio language(s)? Multi-language / code-switching? | **ANSWERED — Spanish only.** No multi-language, no code-switching. Promoted to a stated requirement in scope. |
 | 2 | Is speaker diarization needed? | **ANSWERED — conditional and opt-in.** Mostly one voice to camera; multi-speaker material exists but is rare. Default is single-voice/talking-head; a per-job option declares two or more speakers. No longer a non-goal. |
-| 3 | Which social networks/formats matter for script variants? | **OPEN — and it stays data, not structure, only because publishing is out.** With export-to-disk as the delivery, the answer sets duration and aspect presets and the number of script variants. It would become structural the moment Open Question 11 flips to automatic publishing, since each network is then its own adapter and its own credential. |
+| 3 | Which social networks/formats matter for script variants? | **ANSWERED (rev 5) — TikTok, Instagram, YouTube and Facebook, with a distinct script per network *and* a distinct render where the destination actually differs.** The operator confirmed both halves. It stays **data, not structure**: networks are configuration rows, and a **render profile** (output spec, caption safe area, duration ceiling) is named by a script target and resolved in `clip-rendering`. Renders are keyed by *profile*, not by network — networks that want the same file share it, which is what keeps four destinations from meaning four ffmpeg passes and four copies on disk. Two things stay open and are **measurement, not design**: the safe-area fractions per destination and the duration ceiling per destination, both of which change when a destination's interface does. Still becomes structural if Open Question 11 flips, since each network would then need its own adapter and credential. |
 | 4 | Typical and worst-case video duration? | **ANSWERED — always multi-hour.** Multi-hour is the normal case, not the tail. Supersedes the previous "typical 10–60 min" assumption and drives the whole job model. |
 | 5 | Where do transcripts and outputs live between steps? | **OPEN.** Assumed local filesystem, per-job directory behind `TranscriptStoragePort`, no database. Now also has to hold intermediate chunk results. |
 | 6 | Is retention/cleanup of uploaded video required? | **OPEN — and sharper now.** With multi-hour video as the normal case, each job stores a large source file plus extracted audio plus chunk files. Without a retention policy, disk consumption grows without bound. Assumed for now: no automatic deletion. This assumption is the most likely to cause a real operational problem. |
@@ -526,4 +540,10 @@ miss:
 - [ ] `MediaProbe` reports frame dimensions, and the render declares whether the delivered clip is native or upscaled — a 1080p source never yields a soft clip that is presented as a successful render.
 - [ ] Every frame and every word in a rendered clip comes from the source sermon — nothing synthesized, dubbed, or composited from elsewhere.
 - [ ] The rendered clip and its metadata land in the job directory, and no external service is written to.
+- [ ] Each configured network receives its own script variant, and adding a network is a configuration row rather than a change to `ClipCandidate`, `ScriptVariant` or `GenerationResult`.
+- [ ] A clip is rendered once per distinct render profile, not once per network: networks naming the same profile resolve to one file, and that file records every script variant it delivers.
+- [ ] Subject detection runs at most once per clip span however many profiles the clip is rendered under, while a differing aspect ratio gets its own trajectory.
+- [ ] Caption placement derives from the profile's declared safe area, a profile that declares none is refused rather than defaulted, and the subtitle script declares the resolution its typography is measured against.
+- [ ] A clip exceeding a profile's duration ceiling is declared as over-length and still rendered at the candidate's full range, never silently trimmed.
+- [ ] A rendered export is addressable by clip **and** profile, and clip id alone never identifies a single rendered file.
 - [ ] **The default `pytest` run invokes no paid API and no real local model — including no vision weights.** This criterion predates rev 4 and survives it unchanged; it is the one rev 4 was most likely to break.

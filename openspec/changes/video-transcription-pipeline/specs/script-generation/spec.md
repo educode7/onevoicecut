@@ -85,13 +85,80 @@ to the contract.
 - WHEN more than one script variant is requested for it
 - THEN the candidate MUST be able to carry a list of variants without changing its schema
 
-#### Scenario: Target networks/formats (Assumption)
+#### Scenario: Every variant identifies its target
 
-- GIVEN the proposal leaves target networks/formats open (proposal Open Question 3)
-- WHEN a variant is generated
-- THEN the variant MUST carry an identifying label for its target format
-- AND (Assumption: the concrete set of target networks/formats is undetermined and MAY resolve to a
-  single default variant until answered)
+- GIVEN a clip candidate and a configured set of target networks
+- WHEN variants are generated
+- THEN each variant MUST carry an identifying label naming the target it was written for
+- AND two variants for the same candidate MUST NOT carry the same target label
+
+### Requirement: Target Networks Are Configuration Data, Not Structure
+
+**[ANSWERED — proposal Open Question 3]** The operator publishes to more than one network, and each
+network wants a differently-written script. The set of targets MUST therefore be configuration data:
+adding, removing, or retuning a network MUST be a change to that data, never a change to the
+generation contract, the clip-candidate schema, or any type crossing a port.
+
+Each target MUST declare three things before the model is asked: the label it is known by, the script
+format, and its duration target. **None of the three may be obtained from the model.** An LLM asked
+for a duration produces a plausible number, and a fabricated duration is a ninety-second script
+labelled forty-five — the label being the thing an operator cuts against. These are properties of what
+a target *is*, not observations about the text that came back.
+
+A target name the configuration does not define MUST be refused at resolution time, and an empty
+target set MUST be refused likewise. Falling back to a default target would hand an operator who asked
+for a Reels script a generic one with nothing in the artifact to say so — the same silent-degradation
+shape this change refuses on every other axis.
+
+#### Scenario: A network is added without a structural change
+
+- GIVEN a configured set of target networks
+- WHEN a further network is added to that configuration
+- THEN generation MUST produce a variant for it without any change to `ClipCandidate`,
+  `ScriptVariant`, or `GenerationResult`
+
+#### Scenario: Duration and format are decided before the model is asked
+
+- GIVEN a target declaring a script format and a duration target
+- WHEN a variant is generated for it
+- THEN the variant's format and duration target MUST be the target's declared values
+- AND neither value MUST be parsed or inferred from the model's response
+
+#### Scenario: Unknown or empty target selection is refused
+
+- GIVEN a configured target set
+- WHEN resolution is requested for a name that set does not define, or for an empty selection
+- THEN the system MUST refuse with an error naming the available targets
+- AND it MUST NOT substitute a default target
+
+### Requirement: A Target Names Its Render Profile Without Knowing What One Is
+
+A script target MUST carry the **name** of the render profile its clips are delivered under, and MUST
+carry nothing else about rendering. Generation MUST NOT hold output dimensions, aspect ratio, caption
+geometry, or any other pixel-level property.
+
+This is the `Scope Boundary — No Rendering` requirement holding under a multi-target delivery. Two
+networks whose clips are cut and framed identically differ only in their scripts, and the way that
+fact is expressed is that both targets name the same profile. Resolving that name to actual geometry
+belongs to `clip-rendering`, which is where the frame is known.
+
+The linkage is a name precisely so the boundary survives: generation decides *which* moments are worth
+cutting and *what to say about them*, and remains unable to express an opinion about how a frame is
+cropped even by accident.
+
+#### Scenario: Target carries a profile name, not geometry
+
+- GIVEN a configured script target
+- WHEN its declared fields are inspected
+- THEN it MUST carry the name of a render profile
+- AND it MUST NOT carry output width, height, aspect ratio, or caption placement
+
+#### Scenario: Two networks may share one render profile
+
+- GIVEN two script targets whose clips are delivered identically framed
+- WHEN their configurations are inspected
+- THEN both MUST be able to name the same render profile
+- AND each MUST still produce its own script variant
 
 ### Requirement: Scope Boundary — No Rendering
 
