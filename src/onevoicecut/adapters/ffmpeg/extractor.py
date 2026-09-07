@@ -27,8 +27,14 @@ from onevoicecut.adapters.ffmpeg.argv import (
     build_slice_argv,
     resolve_inside,
 )
+from onevoicecut.adapters.ffmpeg.process import (
+    BinaryInvoker,
+    missing_binary_message,
+    real_process,
+)
 from onevoicecut.domain.chunking import AudioChunk, PlannedChunk
 from onevoicecut.domain.errors import (
+    DomainError,
     ExtractionFailed,
     FfmpegUnavailable,
     UnsupportedContainer,
@@ -41,16 +47,6 @@ from onevoicecut.domain.media import AudioTrack, FrameSize, MediaProbe, SourceMe
 DEFAULT_TIMEOUT_S = 4 * 60 * 60.0
 
 
-def _missing_binary_message(binary: str) -> str:
-    return (
-        f"{binary} was not found on PATH. ffmpeg is a system binary and is NOT a "
-        f"pip dependency, so `pip install -r requirements.txt` does not provide "
-        f"it. Install ffmpeg (https://ffmpeg.org/download.html — on Windows, "
-        f"`winget install Gyan.FFmpeg`) and make sure {binary} is on PATH, then "
-        f"retry the job."
-    )
-
-
 def require_binaries() -> None:
     """Check both binaries once, at startup, rather than at first use.
 
@@ -61,7 +57,7 @@ def require_binaries() -> None:
     """
     for binary in (FFMPEG_BINARY, FFPROBE_BINARY):
         if shutil.which(binary) is None:
-            raise FfmpegUnavailable(_missing_binary_message(binary))
+            raise FfmpegUnavailable(missing_binary_message(binary))
 
 
 class ProcessRunner(Protocol):
@@ -73,15 +69,9 @@ class ProcessRunner(Protocol):
 def _run(
     argv: list[str], timeout_s: float | None
 ) -> subprocess.CompletedProcess[str]:
-    """The real runner. List form, and `shell` is never passed — not even False,
-    so no future edit can flip it without appearing in a diff."""
-    return subprocess.run(
-        argv,
-        capture_output=True,
-        text=True,
-        timeout=timeout_s,
-        check=False,
-    )
+    """This adapter's runner shape over the shared spawn. Audio work has no
+    working directory to set: only a filter graph naming bare filenames does."""
+    return real_process(argv, cwd=None, timeout_s=timeout_s)
 
 
 class FfmpegAudioExtractor:
@@ -101,7 +91,7 @@ class FfmpegAudioExtractor:
         self._job_dir = job_dir
         self._runner = runner
         self._timeout_s = timeout_s
-        self._verified: set[str] = set()
+        self._invoker = BinaryInvoker()
 
     def probe(self, media: SourceMedia) -> MediaProbe:
         source = resolve_inside(self._job_dir, media.stored_path)
@@ -173,40 +163,22 @@ class FfmpegAudioExtractor:
             size_bytes=destination.stat().st_size,
         )
 
-    def _require_available(self, binary: str) -> None:
-        """Fail with an instruction, not a stack trace, when the binary is gone.
-
-        Cached per instance: a three-hour job slices dozens of chunks, and
-        re-scanning PATH before each one is pure waste.
-        """
-        if binary in self._verified:
-            return
-        if shutil.which(binary) is None:
-            raise FfmpegUnavailable(_missing_binary_message(binary))
-        self._verified.add(binary)
-
     def _invoke(
-        self, argv: list[str], failure: type[Exception]
+        self, argv: list[str], failure: type[DomainError]
     ) -> subprocess.CompletedProcess[str]:
-        binary = argv[0]
-        self._require_available(binary)
-        try:
-            completed = self._runner(argv, self._timeout_s)
-        except FileNotFoundError as error:
-            # `which` succeeded but the spawn did not: the binary can vanish in
-            # between, and a stale PATH entry can point at a deleted directory.
-            raise FfmpegUnavailable(_missing_binary_message(binary)) from error
-        except subprocess.TimeoutExpired as error:
-            raise ExtractionFailed(
-                f"{argv[0]} timed out after {self._timeout_s}s"
-            ) from error
+        """An overrun is an `ExtractionFailed` whatever `failure` says.
 
-        if completed.returncode != 0:
-            raise failure(
-                f"{argv[0]} exited {completed.returncode}: "
-                f"{completed.stderr.strip() or 'no diagnostics'}"
-            )
-        return completed
+        A probe that hung did not find a malformed container -- it found a wedged
+        machine -- and answering `UnsupportedContainer` would send an operator to
+        re-encode a file that was fine.
+        """
+        return self._invoker.invoke(
+            argv,
+            spawn=lambda: self._runner(argv, self._timeout_s),
+            timeout_s=self._timeout_s,
+            on_timeout=ExtractionFailed,
+            on_failure=failure,
+        )
 
 
 def _frame_size(streams: list[dict[str, object]]) -> FrameSize | None:
