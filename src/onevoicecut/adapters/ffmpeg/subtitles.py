@@ -26,9 +26,16 @@ The backslash matters more than it looks. `\\N` is a hard line break, so the tex
 That is why escaping runs **before** intended breaks are inserted, and why the
 break constant is applied by this module rather than by a caller who might apply
 it first.
+
+**Geometry is a function of the render profile, never a module constant.** The
+margins come from the profile's safe area and the sizes are measured against the
+resolution the header declares. A constant here is invisible while one profile
+ships and is the wrong answer for every profile after it — silently, because the
+file parses, renders, and looks correct at the one resolution it was written for.
 """
 
-from onevoicecut.domain.rendering import SubtitleCue
+from onevoicecut.domain.errors import RenderProfileInvalid
+from onevoicecut.domain.rendering import RenderProfile, SubtitleCue
 
 # ASS's hard line break. The only one that reaches a rendered file, because
 # `escape_cue_text` has already removed every backslash the source could carry.
@@ -45,14 +52,55 @@ _SUBSTITUTIONS = str.maketrans({"{": "(", "}": ")", "\\": "/"})
 # event early and turns the remainder into a malformed line libass will refuse.
 _STRIPPED = str.maketrans({"\r": " ", "\n": " "})
 
-_HEADER = """[Script Info]
+# Of the output height. Typography is expressed as a fraction for the same reason
+# the safe area is: a pixel size means nothing without the frame it is measured
+# in, and a profile retargeted to another resolution should keep its apparent
+# size rather than silently shrink. The value is a shape, not a measurement —
+# 13b-v's real render is where a wrong one becomes visible.
+FONT_HEIGHT_FRACTION = 0.05
+
+# Of the font size. An outline that stayed absolute while the font scaled would
+# read as a heavy border on a small frame and as no border at all on a large one.
+OUTLINE_FONT_FRACTION = 1 / 16
+
+
+def _header(profile: RenderProfile) -> str:
+    """The document preamble, as a function of the profile rather than a constant.
+
+    **`PlayRes` is the load-bearing line.** Without it libass measures typography
+    against its own default frame, which is invisible while one profile ships and
+    becomes a different apparent caption size per profile the moment a second one
+    does. Declaring it makes every size below mean output pixels.
+
+    **`MarginV` comes from `bottom` because the caption is bottom-anchored.**
+    Alignment 2 places the text against the bottom edge, and ASS carries one
+    vertical margin, which for that alignment is the distance from it. The
+    profile's `top` is a real measurement — destinations put interface over the
+    top of the frame too — but it constrains nothing a bottom-anchored caption
+    does, so it is declared and unused here rather than folded into a number it
+    has no part in.
+    """
+    safe_area = profile.safe_area
+    if safe_area is None:
+        raise RenderProfileInvalid(
+            f"render profile {profile.name!r} declares no caption safe area, so "
+            f"there is no margin to place a caption against; a margin is never "
+            f"inherited from another profile"
+        )
+
+    width, height = profile.output.width, profile.output.height
+    font_size = round(FONT_HEIGHT_FRACTION * height)
+    outline = max(1, round(OUTLINE_FONT_FRACTION * font_size))
+    return f"""[Script Info]
 ScriptType: v4.00+
+PlayResX: {width}
+PlayResY: {height}
 WrapStyle: 0
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,48,&H00FFFFFF,&H00000000,&H80000000,-1,0,3,3,0,2,40,40,80,1
+Style: Default,Arial,{font_size},&H00FFFFFF,&H00000000,&H80000000,-1,0,3,{outline},0,2,{round(safe_area.left * width)},{round(safe_area.right * width)},{round(safe_area.bottom * height)},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -70,7 +118,9 @@ def escape_cue_text(text: str) -> str:
     return text.translate(_SUBSTITUTIONS).translate(_STRIPPED)
 
 
-def render_ass(cues: tuple[SubtitleCue, ...]) -> str:
+def render_ass(
+    cues: tuple[SubtitleCue, ...], *, profile: RenderProfile
+) -> str:
     """One dialogue event per cue, escaped on the way in.
 
     Escaping here rather than at the call site is deliberate: a caller who
@@ -80,13 +130,18 @@ def render_ass(cues: tuple[SubtitleCue, ...]) -> str:
     No cues is a valid document. A clip whose span held no eligible segment
     renders without captions rather than failing the burn-in on a malformed
     file — the coverage declaration is what tells an operator why.
+
+    **The profile is required and keyword-only.** There is no signature that
+    renders a document without one, which is what makes "a margin is never
+    shared between profiles" a property of the wiring rather than of two call
+    sites agreeing.
     """
     events = "".join(
         f"Dialogue: 0,{_stamp(cue.start_s)},{_stamp(cue.end_s)},Default,,0,0,0,,"
         f"{_wrap(escape_cue_text(cue.text))}\n"
         for cue in cues
     )
-    return _HEADER + events
+    return _header(profile) + events
 
 
 def _wrap(text: str) -> str:

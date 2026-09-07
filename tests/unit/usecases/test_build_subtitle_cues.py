@@ -368,3 +368,29 @@ class TestTotality:
 
         assert cues
         assert coverage is not CaptionCoverage.NONE
+
+    def test_a_declared_coverage_always_has_cues_behind_it(self) -> None:
+        """The converse of the two above, and the half that was missing.
+
+        Coverage is computed from the eligible segments, never from the cues, so
+        nothing in the types stops a build that declares confirmed speech and
+        delivers an empty caption channel -- a muted clip with no captions and
+        metadata saying it has them. Totality is what makes that unreachable,
+        and this is the assertion that fails if it ever stops holding.
+        """
+        cases = (
+            (
+                (_segment(100.0, 105.0, "hermanos"),),
+                CaptionCoverage.CONFIRMED_SPEECH,
+            ),
+            (
+                (_segment(100.0, 105.0, "hermanos", SegmentKind.UNCERTAIN),),
+                CaptionCoverage.INCLUDES_UNVERIFIED,
+            ),
+        )
+
+        for segments, expected in cases:
+            cues, _, coverage = build_subtitle_cues(segments, SPAN)
+
+            assert coverage is expected
+            assert cues

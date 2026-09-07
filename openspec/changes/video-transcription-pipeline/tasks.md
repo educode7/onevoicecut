@@ -3557,27 +3557,65 @@ Typography resolves against the output frame, Every eligible segment yields at l
 on 13a-iv. **Modifies 13a-ii's shipped `adapters/ffmpeg/subtitles.py`.** Independent of 13a-vi and
 10c-i.
 
-- [ ] 13a.43 RED: `tests/unit/adapters/ffmpeg/test_subtitles.py` — the generated ASS header declares
+- [x] 13a.43 RED: `tests/unit/adapters/ffmpeg/test_subtitles.py` — the generated ASS header declares
       `PlayResX`/`PlayResY` matching the profile's output spec. Without it a font size resolves against
       a renderer default, which is invisible while one profile exists and becomes a different apparent
       caption size per profile the moment a second one does.
-- [ ] 13a.44 GREEN: `adapters/ffmpeg/subtitles.py` — `_HEADER` stops being a module constant and
+- [x] 13a.44 GREEN: `adapters/ffmpeg/subtitles.py` — `_HEADER` stops being a module constant and
       becomes a function of the profile.
-- [ ] 13a.45 RED: `MarginL`/`MarginR`/`MarginV` derive from the profile's safe-area fractions times the
+- [x] 13a.45 RED: `MarginL`/`MarginR`/`MarginV` derive from the profile's safe-area fractions times the
       output dimensions, rounded to integers.
-- [ ] 13a.46 GREEN: implement the derivation.
-- [ ] 13a.47 RED: two profiles declaring different safe areas produce different margins for the *same*
+- [x] 13a.46 GREEN: implement the derivation.
+- [x] 13a.47 RED: two profiles declaring different safe areas produce different margins for the *same*
       cue set — the assertion that fails if a margin ever gets shared again.
-- [ ] 13a.48 GREEN: confirm by construction.
-- [ ] 13a.49 RED: `tests/unit/usecases/test_build_subtitle_cues.py` — totality: every eligible segment
+- [x] 13a.48 GREEN: confirm by construction.
+- [x] 13a.49 RED: `tests/unit/usecases/test_build_subtitle_cues.py` — totality: every eligible segment
       yields at least one cue, including a segment carrying no word timing, and a clip declaring
       confirmed-speech or unverified coverage therefore carries a non-empty cue set.
-- [ ] 13a.50 GREEN: **expected to pass on first run.** `_cues_for` is already total and its docstring
-      says so; the spec's `SHOULD` was a botched edit, corrected to `MUST` in the rev-5 delta. This
-      pins behaviour 13a-ii shipped **without a test**, so a later refactor cannot quietly break the
-      condition that lets `CaptionCoverage.NONE` mean anything. Characterization, not a new behaviour —
-      the same treatment 13a.10 got.
-- [ ] 13a.51 REFACTOR: suite green, `mypy src tests` clean.
+- [x] 13a.50 GREEN: passed on first run, as predicted. **But the premise was wrong**: 13a-ii did not
+      ship this untested — `TestTotality` already exists in `test_build_subtitle_cues.py` with three
+      tests, including one over a segment carrying no word timing. The half genuinely missing was the
+      **converse**: nothing asserted that a clip *declaring* confirmed-speech or unverified coverage
+      carries a non-empty cue set. Coverage is computed from the eligible segments and never from the
+      cues, so the types alone permit a clip that declares captions and delivers none. One assertion
+      added rather than a duplicate characterization suite.
+- [x] 13a.51 REFACTOR: suite green, `mypy src tests` clean.
+
+### Typography had to move too, and that is beyond the task text
+
+`PlayRes` is not a declaration that can be added alone. Absent it, libass measures typography against
+its own default frame; declaring the real output frame makes every size in the style line mean output
+pixels, and the shipped `Fontsize: 48` — sized against that default — becomes 2.5% of a 1920-tall frame.
+So the same edit that closes the requirement opens a caption nobody can read.
+
+Font size and outline width are therefore derived from the output frame as fractions
+(`FONT_HEIGHT_FRACTION`, `OUTLINE_FONT_FRACTION`), on exactly the reasoning that makes the safe area
+fractional: a pixel size means nothing without the frame it is measured in. The **values** are shapes,
+not measurements, and 13b-v is still where a wrong one becomes visible — the tasks' note that this unit
+pins the declaration rather than the appearance survives. What did not survive is the assumption that
+the declaration could be pinned without touching the numbers it reinterprets.
+
+### `MarginV` comes from `bottom`, and `top` is declared and unused
+
+Alignment 2 anchors the caption to the bottom edge, and ASS carries one vertical margin, which for that
+alignment is the distance from it. A profile's `top` is a real measurement — destinations put interface
+over the top of the frame too — but it constrains nothing a bottom-anchored caption does. Folding it
+into `MarginV` would have produced a number describing neither edge.
+
+### Mutation-checked, all four caught
+
+Sharing the margin again (back to the shipped `40,40,80`) fails 2 tests; dropping the `PlayRes` lines
+fails 2; returning the font size to an absolute constant fails 1; and replacing the unmeasured-safe-area
+refusal with an inherited margin fails 1. The last is the one that mattered — the first attempt at it
+was a syntax error rather than a mutation, which fails everything and proves nothing.
+
+### Measured cost
+
+**221 lines against the ~475 estimate (0.47x)** — `src` 65, tests 156. The estimate warned it carried no
+comparable and should be read as a lower bound; it was an upper one. The `PlayRes` coordinate-system
+question it feared did not materialise because no shipped test asserted a margin or a font size, so
+reinterpreting both cost nothing in churn. Suite **1675 passed / 30 deselected**; mypy clean over 213
+files.
 
 ### Font size is the one that will bite
 
