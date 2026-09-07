@@ -42,6 +42,7 @@ from onevoicecut.domain.rendering import (
     SubtitleCue,
     SubtitleTimingSource,
     aspect_of,
+    export_key,
     quality_of,
 )
 
@@ -80,6 +81,31 @@ def _clip(**overrides: object) -> RenderedClip:
     }
     fields.update(overrides)
     return RenderedClip(**fields)  # type: ignore[arg-type]
+
+
+def _variants(*targets: str) -> tuple[ScriptVariant, ...]:
+    return tuple(
+        ScriptVariant(
+            target=target,
+            format="plain",
+            body=f"guion {target}",
+            duration_target_s=45.0,
+        )
+        for target in targets
+    )
+
+
+def _export(**overrides: object) -> ClipExport:
+    fields: dict[str, object] = {
+        "clip": _clip(),
+        "profile": "vertical",
+        "title": "Un titulo",
+        "description": "Una descripcion",
+        "variants": _variants("tiktok"),
+        "state": ClipState.DONE,
+    }
+    fields.update(overrides)
+    return ClipExport(**fields)  # type: ignore[arg-type]
 
 
 class TestTheEnumerations:
@@ -196,35 +222,142 @@ class TestARenderedClipDeclaresFourThings:
 
 class TestTheExportRecord:
     def test_it_carries_the_clip_and_what_an_operator_publishes_with_it(self) -> None:
-        """Title, description and the script variant that was used — the spec
-        names those alongside the file, and an export without them is a video
-        nobody can post."""
-        export = ClipExport(
-            clip=_clip(),
-            title="Un titulo",
-            description="Una descripcion",
-            variant=ScriptVariant(
-                target="generic", format="plain", body="guion", duration_target_s=45.0
-            ),
-            state=ClipState.DONE,
-        )
+        """Title, description and the scripts the file delivers — the spec names
+        those alongside the file, and an export without them is a video nobody
+        can post."""
+        export = _export()
 
         assert export.clip.clip_id == CLIP_ID
-        assert export.variant.target == "generic"
+        assert export.variants[0].target == "tiktok"
         assert export.state is ClipState.DONE
 
     def test_the_quality_declaration_travels_with_the_export(self) -> None:
         """Reachable without opening the video, which is the spec's third
         quality scenario stated as a structural fact."""
-        export = ClipExport(
-            clip=_clip(quality=OutputQuality(OutputQualityKind.UPSCALED, 1.78)),
-            title="t",
-            description="d",
-            variant=ScriptVariant("generic", "plain", "g", 45.0),
-            state=ClipState.DONE,
+        export = _export(
+            clip=_clip(quality=OutputQuality(OutputQualityKind.UPSCALED, 1.78))
         )
 
         assert export.clip.quality.factor == 1.78
+
+    def test_it_names_the_profile_it_was_rendered_under(self) -> None:
+        """The other half of the identity. One candidate now yields one export
+        per distinct profile, so an export that did not say which profile it is
+        would be indistinguishable from its own sibling."""
+        assert _export(profile="square").profile == "square"
+
+    def test_the_profile_is_a_name_rather_than_a_resolved_profile(self) -> None:
+        """A name, for the reason a script target names one. The resolved object
+        carries a measured safe area and a duration ceiling that go stale when a
+        destination changes its interface, and an export is a record read back
+        long after it was written — embedding them would resurrect last month's
+        margin as though the registry still agreed with it. The registry stays
+        the one place that geometry lives, and the name is what 13b-ii uses as a
+        path component."""
+        field = {f.name: f for f in dataclasses.fields(ClipExport)}["profile"]
+
+        assert field.type is str
+
+    def test_it_records_every_variant_the_file_delivers(self) -> None:
+        """The spec's shared-file scenario: three networks naming one profile
+        share one render, and each variant stays attributable to the network it
+        was written for."""
+        export = _export(variants=_variants("tiktok", "instagram", "facebook"))
+
+        assert [v.target for v in export.variants] == [
+            "tiktok",
+            "instagram",
+            "facebook",
+        ]
+
+    def test_no_single_variant_field_survives_the_re_keying(self) -> None:
+        """The plural is load-bearing. A file serving three networks with one
+        variant recorded loses the other two, and reconstructing them later means
+        re-running generation against a transcript that may have been re-stitched
+        since — the same reasoning that put title and description here rather
+        than leaving them derivable."""
+        names = {f.name for f in dataclasses.fields(ClipExport)}
+
+        assert "variants" in names
+        assert "variant" not in names
+
+
+class TestAnExportDeliversSomething:
+    """An export exists to make a rendered file postable. One delivering no
+    variant is a video nobody can post, which is the exact failure the type was
+    introduced to prevent — so it is refused where it is first expressible."""
+
+    @pytest.mark.parametrize("coverage", list(CaptionCoverage))
+    def test_an_export_delivering_no_variant_is_refused(
+        self, coverage: CaptionCoverage
+    ) -> None:
+        """Unconditional across caption coverage, not scoped to the confirmed
+        case the task named. Coverage says what the captions were built from and
+        a variant says what the operator posts; a clip whose span carried no
+        eligible segment is still perfectly postable material, and tying the two
+        axes together is the inference `SegmentKind` and diarization are already
+        forbidden from making. Scoping the check would leave the same unpostable
+        export legal under two of the three values."""
+        with pytest.raises(ValueError):
+            _export(clip=_clip(captions=coverage), variants=())
+
+    @pytest.mark.parametrize("state", list(ClipState))
+    def test_the_refusal_does_not_wait_for_the_render_to_finish(
+        self, state: ClipState
+    ) -> None:
+        """A `PENDING` export is written when the render is dispatched, and the
+        profiles it is dispatched under are derived from the variants' targets —
+        so an export with none was requested by nobody, whatever its state. A
+        check that only ran at `DONE` would let the empty record reach disk and
+        refuse it after the ffmpeg pass was already paid for."""
+        with pytest.raises(ValueError):
+            _export(state=state, variants=())
+
+    def test_one_variant_is_enough(self) -> None:
+        """The boundary on the legal side: a profile named by a single network
+        delivers one script, and that is a complete export."""
+        assert len(_export(variants=_variants("tiktok")).variants) == 1
+
+
+class TestTheExportKey:
+    """One candidate now yields one export per distinct profile, so the clip id
+    stopped being an identity the day a second profile became expressible."""
+
+    def test_clip_and_profile_together_resolve_to_exactly_one_export(self) -> None:
+        """The spec scenario stated as a lookup: two exports of one clip, keyed,
+        and each key finding its own."""
+        vertical = _export(profile="vertical")
+        square = _export(profile="square")
+
+        by_key = {export_key(e.clip.clip_id, e.profile): e for e in (vertical, square)}
+
+        assert len(by_key) == 2
+        assert by_key[export_key(CLIP_ID, "square")] is square
+
+    def test_the_clip_id_alone_does_not_identify_a_rendered_file(self) -> None:
+        """Two renders of one clip differ only by profile, and a key that ignored
+        the profile would collapse them — which is how an operator ends up
+        publishing the wrong one of two different files bearing one name."""
+        assert export_key(CLIP_ID, "vertical") != export_key(CLIP_ID, "square")
+
+    def test_the_profile_alone_does_not_identify_one_either(self) -> None:
+        """The other half, so neither component is asserted alone. Every clip in
+        a job is rendered under the same profile set."""
+        other_clip = make_clip_id("01ARZ3NDEKTSV4RRFFQ69G5FBW")
+
+        assert export_key(CLIP_ID, "vertical") != export_key(other_clip, "vertical")
+
+    def test_it_is_the_relative_path_the_stored_export_lands_at(self) -> None:
+        """13b-ii persists an export at `render/{clip_id}/{profile}.json`, and
+        this key is that path without its suffix rather than a second spelling of
+        one identity. Two derivations of one fact eventually disagree, and on the
+        day they did there would be no way to tell which one named the operator's
+        file. A storage adapter still resolves what it builds from this inside
+        the job directory: a domain string is not a trust boundary."""
+        assert (
+            Path("render") / f"{export_key(CLIP_ID, 'vertical')}.json"
+            == Path("render") / str(CLIP_ID) / "vertical.json"
+        )
 
 
 class TestTheQualityArithmetic:

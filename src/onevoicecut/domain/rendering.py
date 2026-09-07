@@ -236,19 +236,56 @@ class RenderedClip:
 
 @dataclass(frozen=True, slots=True)
 class ClipExport:
-    """The clip plus what an operator needs to publish it.
+    """The clip plus what an operator needs to publish it, keyed by clip *and*
+    profile.
 
-    The spec names title, description and the script variant alongside the file.
-    An export without them is a video nobody can post, and reconstructing them
+    The spec names title, description and the scripts alongside the file. An
+    export without them is a video nobody can post, and reconstructing them
     later would mean re-running generation against a transcript that may have
     been re-stitched since.
+
+    **`profile` is a name, not a `RenderProfile`.** The resolved object carries a
+    measured safe area and a duration ceiling, and those are measurements against
+    a destination's current interface — they go stale. An export is read back
+    long after it was written, so embedding them would resurrect last month's
+    margin as though the registry still agreed with it. The registry stays the
+    one place that geometry lives; the name is the stable identity, and it is
+    what a storage adapter can use as a path component.
+
+    **`variants` is plural, and that is the whole point of the re-keying.**
+    Networks sharing a profile share one file, so a file serving three of them
+    with a single variant recorded loses the other two — the same reasoning that
+    put title and description here rather than leaving them derivable.
     """
 
     clip: RenderedClip
+    profile: str
     title: str
     description: str
-    variant: ScriptVariant
+    variants: tuple[ScriptVariant, ...]
     state: ClipState
+
+    def __post_init__(self) -> None:
+        """An export delivering nothing is the failure this type exists to
+        prevent, so it is refused where it is first expressible — a `ValueError`,
+        the boundary `SafeArea` and `quality_of` already draw, because there is
+        no job here to name in a domain error.
+
+        Unconditional, rather than scoped to the confirmed-coverage case task
+        13a.56 named. Coverage says what the captions were built from; a variant
+        says what an operator posts. A span carrying no eligible segment is still
+        postable material, and inferring one axis from the other is what this
+        system refuses everywhere else. Nor does it wait for `DONE`: the profiles
+        a render is dispatched under are derived from the variants' targets, so
+        an empty export was requested by nobody even at `PENDING`.
+        """
+        if not self.variants:
+            raise ValueError(
+                f"export {export_key(self.clip.clip_id, self.profile)} delivers no "
+                f"script variant; a rendered file nobody can post is what this "
+                f"record exists to prevent, and the variants cannot be "
+                f"reconstructed from a transcript that may have been re-stitched"
+            )
 
 
 def quality_of(crop: CropRect, target: OutputSpec) -> OutputQuality:
@@ -297,3 +334,25 @@ def aspect_of(profile: RenderProfile) -> tuple[int, int]:
     """
     divisor = math.gcd(profile.output.width, profile.output.height)
     return profile.output.width // divisor, profile.output.height // divisor
+
+
+def export_key(clip_id: ClipId, profile: str) -> str:
+    """What identifies a rendered file now that a clip id no longer does.
+
+    One candidate yields one export per distinct profile, so the pair is the
+    identity and either half alone names a set.
+
+    **The key is the relative path the export is stored at, minus its suffix.**
+    13b-ii persists at `render/{clip_id}/{profile}.json`, which is this key with
+    `render/` in front and `.json` behind — one derivation of the identity rather
+    than two spellings of it, on the argument `aspect_of` already makes. Two
+    things that can disagree about one fact eventually will, and the day a key
+    and a path disagreed there would be no way to tell which one named the
+    operator's file.
+
+    Path-shaped is not path-safe. A storage adapter still resolves what it builds
+    from this inside the job directory, the way every other name in this system
+    is checked: the profile originates in configuration, and configuration is not
+    a trust boundary.
+    """
+    return f"{clip_id}/{profile}"

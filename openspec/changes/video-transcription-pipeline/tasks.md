@@ -3632,20 +3632,20 @@ Closes: `clip-rendering` An export is addressable by clip and profile, A shared 
 variant it delivers. Depends on 13a-iv. **Modifies 13a-i's shipped `ClipExport`.** Independent of
 13a-v and 10c-i.
 
-- [ ] 13a.52 RED: `tests/unit/domain/test_rendering.py` — `ClipExport` carries `profile: str` and
+- [x] 13a.52 RED: `tests/unit/domain/test_rendering.py` — `ClipExport` carries `profile: str` and
       `variants: tuple[ScriptVariant, ...]`. The plural is load-bearing: networks sharing a profile
       share a file, and a file serving three networks with one variant recorded loses the other two.
       Reconstructing them later means re-running generation against a transcript that may have been
       re-stitched since — the same reasoning that put title and description on the export.
-- [ ] 13a.53 GREEN: `domain/rendering.py` — replace `variant: ScriptVariant` with the tuple, add
+- [x] 13a.53 GREEN: `domain/rendering.py` — replace `variant: ScriptVariant` with the tuple, add
       `profile`.
-- [ ] 13a.54 RED: `export_key(clip_id, profile)` resolves to exactly one export, and `clip_id` alone
+- [x] 13a.54 RED: `export_key(clip_id, profile)` resolves to exactly one export, and `clip_id` alone
       does not identify a rendered file.
-- [ ] 13a.55 GREEN: implement the key helper.
-- [ ] 13a.56 RED: an export declaring confirmed coverage carries at least one variant — an export
+- [x] 13a.55 GREEN: implement the key helper.
+- [x] 13a.56 RED: an export declaring confirmed coverage carries at least one variant — an export
       delivering no variant is a file nobody can post, which is what `ClipExport` exists to prevent.
-- [ ] 13a.57 GREEN: validation in `__post_init__`.
-- [ ] 13a.58 REFACTOR: update every construction site; suite green, `mypy src tests` clean.
+- [x] 13a.57 GREEN: validation in `__post_init__`.
+- [x] 13a.58 REFACTOR: update every construction site; suite green, `mypy src tests` clean.
 
 ### This is the unit whose cost depends entirely on when it runs
 
@@ -3653,6 +3653,45 @@ variant it delivers. Depends on 13a-iv. **Modifies 13a-i's shipped `ClipExport`.
 not in the filesystem adapter, not in any route. So this is a type edit plus its construction sites.
 Run it after 13b-ii and 13b-iv instead and it becomes a disk migration of persisted JSON plus a
 breaking change to a published HTTP contract. The estimate above assumes it runs here.
+
+**Verified, and it held.** The only `ClipExport(` construction site in the tree was
+`tests/unit/domain/test_rendering.py`'s own fixture. Task 13a.58's "update every construction site" cost
+one helper.
+
+### Three decisions the task text did not settle
+
+- **`export_key` returns `f"{clip_id}/{profile}"` — the storage path minus `render/` and `.json`.** A
+  `tuple[ClipId, str]` would identify just as well and be the more obvious Python key, but 13b-ii
+  persists at `render/{clip_id}/{profile}.json` and would then derive that path independently. Two
+  derivations of one identity eventually disagree, and on the day they did there would be no way to tell
+  which one named the operator's file — the argument `aspect_of` already makes against a declared aspect.
+  A test pins the agreement rather than a comment claiming it. Path-shaped is not path-safe: the
+  docstring says so, and 13b-ii still resolves what it builds inside the job directory.
+- **`profile` stays the name.** The resolved `RenderProfile` carries a measured safe area and a duration
+  ceiling, and 13a-iv already recorded that those are measurements against a destination's current
+  interface which go stale. An export is read back long after it was written, so embedding them would
+  resurrect last month's margin as though the registry still agreed with it. The registry stays the one
+  place that geometry lives; the name is also what can be a path component, and it is the same link
+  10c-i gives `ScriptTarget`.
+- **The empty-variants refusal is unconditional, not scoped to `CONFIRMED_SPEECH`.** The task named the
+  confirmed case; scoping the check to it would leave the identical unpostable export legal under the
+  other two coverage values. Coverage says what the captions were built from and a variant says what an
+  operator posts — a span carrying no eligible segment is still postable material, and inferring one
+  axis from the other is what this system refuses everywhere else. Nor does it wait for `DONE`: the
+  profiles a render is dispatched under are derived from the variants' targets, so an export with none
+  was requested by nobody even at `PENDING`. `ValueError`, on `SafeArea`'s boundary — there is no job
+  here to name in a domain error.
+
+### Measured cost
+
+**215 lines against the ~400 estimate (0.54x)** — `src` 63, tests 152. Suite **1684 passed / 30
+deselected**; mypy clean over 213 files. The cheapest rev-5 unit, and the note above is why: run after
+13b-ii it would have carried a disk migration and a route change instead.
+
+Mutation-checked: `export_key` dropping the profile fails 3 tests, a separator that disagrees with the
+storage path fails 1, removing the `__post_init__` refusal fails 7, scoping it to `CONFIRMED_SPEECH`
+fails 2, keeping a single `variant` field behind a `variants` property fails 14, and declaring
+`profile: RenderProfile` fails 1.
 
 ---
 
