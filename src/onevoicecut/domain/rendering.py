@@ -258,12 +258,23 @@ class ClipExport:
     put title and description here rather than leaving them derivable.
     """
 
-    clip: RenderedClip
+    # The identity lives here rather than on the clip, because a render that was
+    # refused has no clip and still has to be recorded and addressed. Storage
+    # needs both halves to place the file, and reading them off a value that may
+    # be `None` would make a failure unstorable.
+    job_id: JobId
+    clip_id: ClipId
     profile: str
     title: str
     description: str
     variants: tuple[ScriptVariant, ...]
     state: ClipState
+    # `None` until ffmpeg has actually produced something. A refusal that had to
+    # invent a quality and a tracking confidence to be written down would be
+    # fabricating exactly the four declarations `RenderedClip` exists to make
+    # honest.
+    clip: RenderedClip | None
+    failure: str | None
 
     def __post_init__(self) -> None:
         """An export delivering nothing is the failure this type exists to
@@ -279,12 +290,31 @@ class ClipExport:
         a render is dispatched under are derived from the variants' targets, so
         an empty export was requested by nobody even at `PENDING`.
         """
+        key = export_key(self.clip_id, self.profile)
         if not self.variants:
             raise ValueError(
-                f"export {export_key(self.clip.clip_id, self.profile)} delivers no "
-                f"script variant; a rendered file nobody can post is what this "
-                f"record exists to prevent, and the variants cannot be "
-                f"reconstructed from a transcript that may have been re-stitched"
+                f"export {key} delivers no script variant; a rendered file "
+                f"nobody can post is what this record exists to prevent, and the "
+                f"variants cannot be reconstructed from a transcript that may "
+                f"have been re-stitched"
+            )
+        if self.state is ClipState.DONE and self.clip is None:
+            raise ValueError(
+                f"export {key} is done and names no file; a finished render an "
+                f"operator cannot open is worse than a refused one, because "
+                f"nothing about it says to look again"
+            )
+        if self.state is ClipState.FAILED and not self.failure:
+            raise ValueError(
+                f"export {key} failed and says nothing about why; the worker's "
+                f"own message already reaches only the server log, and a record "
+                f"repeating that silence sends an operator nowhere"
+            )
+        if self.clip is not None and self.clip.clip_id != self.clip_id:
+            raise ValueError(
+                f"export {key} carries a clip named {self.clip.clip_id}; two "
+                f"places holding one identity eventually disagree, and the day "
+                f"they did neither would name the operator's file"
             )
 
 

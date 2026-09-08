@@ -196,6 +196,9 @@ def an_export(
     clip_id: ClipId = CLIP_ID,
 ) -> ClipExport:
     return ClipExport(
+        job_id=JOB_ID,
+        clip_id=clip_id,
+        failure=None,
         clip=RenderedClip(
             clip_id=clip_id,
             job_id=JOB_ID,

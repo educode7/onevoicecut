@@ -97,7 +97,10 @@ def _variants(*targets: str) -> tuple[ScriptVariant, ...]:
 
 def _export(**overrides: object) -> ClipExport:
     fields: dict[str, object] = {
+        "job_id": JOB_ID,
+        "clip_id": CLIP_ID,
         "clip": _clip(),
+        "failure": None,
         "profile": "vertical",
         "title": "Un titulo",
         "description": "Una descripcion",
@@ -227,7 +230,7 @@ class TestTheExportRecord:
         can post."""
         export = _export()
 
-        assert export.clip.clip_id == CLIP_ID
+        assert export.clip is not None and export.clip.clip_id == CLIP_ID
         assert export.variants[0].target == "tiktok"
         assert export.state is ClipState.DONE
 
@@ -238,7 +241,7 @@ class TestTheExportRecord:
             clip=_clip(quality=OutputQuality(OutputQualityKind.UPSCALED, 1.78))
         )
 
-        assert export.clip.quality.factor == 1.78
+        assert export.clip is not None and export.clip.quality.factor == 1.78
 
     def test_it_names_the_profile_it_was_rendered_under(self) -> None:
         """The other half of the identity. One candidate now yields one export
@@ -329,7 +332,7 @@ class TestTheExportKey:
         vertical = _export(profile="vertical")
         square = _export(profile="square")
 
-        by_key = {export_key(e.clip.clip_id, e.profile): e for e in (vertical, square)}
+        by_key = {export_key(e.clip_id, e.profile): e for e in (vertical, square)}
 
         assert len(by_key) == 2
         assert by_key[export_key(CLIP_ID, "square")] is square
@@ -564,3 +567,59 @@ def test_the_authoritative_crops_come_from_the_real_derivation() -> None:
         TEN_EIGHTY_CROP.width,
         TEN_EIGHTY_CROP.height,
     )
+
+
+class TestAnExportThatNeverRendered:
+    """A refusal has to be recordable without inventing what it never measured.
+
+    `RenderedClip` carries four declarations and none has a default, because a
+    clip that never stated one of them is a gap no reader can reason about. A
+    render refused before ffmpeg was spawned has no honest value for any of the
+    four -- so the export names the failure and carries no clip, rather than
+    fabricating a quality and a tracking confidence for a file that does not
+    exist. Fabricating them is precisely the silent degradation those four
+    declarations were added to prevent.
+    """
+
+    def test_the_identity_no_longer_depends_on_a_rendered_clip(self) -> None:
+        """`job_id` and `clip_id` move onto the export itself. Storage needs both
+        to place the file, and reading them off a clip that may not exist would
+        make a failed render unrecordable."""
+        names = {f.name for f in dataclasses.fields(ClipExport)}
+
+        assert {"job_id", "clip_id"} <= names
+
+    def test_a_failed_export_carries_no_clip_and_says_why(self) -> None:
+        failed = _export(
+            clip=None, state=ClipState.FAILED, failure="FrameGeometryUnavailable"
+        )
+
+        assert failed.clip is None
+        assert "FrameGeometryUnavailable" in (failed.failure or "")
+
+    def test_a_finished_export_must_name_a_file(self) -> None:
+        """`DONE` with no clip is an export claiming a render nobody can open."""
+        with pytest.raises(ValueError):
+            _export(clip=None, state=ClipState.DONE)
+
+    def test_a_failed_export_must_say_what_went_wrong(self) -> None:
+        """`FAILED` with no reason sends an operator to a log that may say
+        nothing -- the gap the worker reaping already has, not one to repeat."""
+        with pytest.raises(ValueError):
+            _export(clip=None, state=ClipState.FAILED, failure=None)
+
+    def test_a_clip_that_disagrees_with_the_export_is_refused(self) -> None:
+        """Two places holding one identity eventually disagree, and the day they
+        did there would be no way to tell which named the operator's file."""
+        other = make_clip_id("01ARZ3NDEKTSV4RRFFQ69G5FAW")
+
+        with pytest.raises(ValueError):
+            _export(clip=_clip(), clip_id=other)
+
+    def test_the_key_reads_the_export_not_the_clip(self) -> None:
+        """So a refused render is addressable exactly like a finished one."""
+        failed = _export(
+            clip=None, state=ClipState.FAILED, failure="TrackingUnavailable"
+        )
+
+        assert export_key(failed.clip_id, failed.profile) == f"{CLIP_ID}/vertical"

@@ -31,6 +31,9 @@ CLIP_ID = make_clip_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFG")
 
 def an_export(profile: str) -> ClipExport:
     return ClipExport(
+        job_id=JOB_ID,
+        clip_id=CLIP_ID,
+        failure=None,
         clip=RenderedClip(
             clip_id=CLIP_ID,
             job_id=JOB_ID,

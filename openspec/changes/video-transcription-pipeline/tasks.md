@@ -3997,14 +3997,14 @@ than merely naming its types, and **[rev 5]** the only one that fans a single cl
       fakes, and writes a `RENDERED` `ClipExport`.
 - [ ] 13b.19 GREEN: `runtime/render_worker.py` — headless entrypoint `python -m
       onevoicecut.runtime.render_worker --job-id <id> --clip-id <id>`.
-- [ ] 13b.20 RED: frame-geometry-refusal test — two cases, both writing a `FAILED` `ClipExport` naming
+- [x] 13b.20 RED: frame-geometry-refusal test — two cases, both writing a `FAILED` `ClipExport` naming
       `FrameGeometryUnavailable` and never calling the tracker: (a) `probe.frame is None`; (b) a degenerate
       frame such as `FrameSize(1920, 1)`, for which `crop_size_for` returns a non-positive dimension
       (`12a.8`'s property) — refused here so `quality_of` never divides by a zero crop width.
-- [ ] 13b.21 GREEN: implement the first `alt` branch from the design's sequence diagram.
-- [ ] 13b.22 RED: tracking-unavailable-refusal test — when `capabilities().detection != AVAILABLE`, the
+- [x] 13b.21 GREEN: implement the first `alt` branch from the design's sequence diagram.
+- [x] 13b.22 RED: tracking-unavailable-refusal test — when `capabilities().detection != AVAILABLE`, the
       worker writes `FAILED(TrackingUnavailable)` naming remediation, and never calls `detect()`.
-- [ ] 13b.23 GREEN: implement the second `alt` branch.
+- [x] 13b.23 GREEN: implement the second `alt` branch.
 - [x] 13b.24 RED: low-confidence-propagation test — a `LOW_CONFIDENCE` trajectory produces a
       `RenderedClip.tracking` that is not silently reported as ordinary success.
 - [x] 13b.25 GREEN: propagate `TrackingConfidence` from `build_trajectory`'s output, and
@@ -4041,13 +4041,25 @@ than merely naming its types, and **[rev 5]** the only one that fans a single cl
 - [ ] 13b.25j GREEN: compute and attach the overrun declaration.
 - [ ] 13b.26 REFACTOR: suite green, `mypy src tests` clean.
 
-### 13b-iii-a is PARTIAL, and the blocker is a type, not an omission
+### 13b-iii-a: the type blocking it was reshaped, and only `13b.19` stays open
 
 Delivered and green: `render_clip_for_profile` — the whole orchestration, all four declarations
-assembled above the port, and both refusals firing **before detection**. `13b.18`, `13b.24` and `13b.25`
-are closed.
+assembled above the port, both refusals firing **before detection**, and every refusal recorded as a
+`FAILED` export. `13b.18`, `13b.20`–`13b.25` are closed.
 
-**Left open: `13b.19`, `13b.20`–`13b.23`.** Three gaps block them, all found while writing this unit.
+**`ClipExport` was reshaped rather than worked around.** It now carries its own `job_id` and `clip_id`,
+an optional `clip`, and a `failure`. A refusal has no file and no honest value for any of
+`RenderedClip`'s four undefaulted declarations — whose own docstring says a clip that never stated one
+is a gap no reader can reason about — so fabricating a quality and a tracking confidence to make a
+failure storable would have been exactly the silent degradation those declarations exist to prevent.
+Three invariants replace what the shape used to guarantee: `DONE` requires a clip, `FAILED` requires a
+reason, and a clip carried by an export must agree with its `clip_id`. All three are mutation-checked.
+
+The identity had to move for a second reason: `save_clip_export` takes only the export, so storage read
+the job and clip ids off `export.clip`. With the clip optional that path disappears, which is what makes
+this a reshape rather than one nullable field.
+
+**Left open: `13b.19` alone**, the CLI entrypoint. Two gaps still block it, both found here.
 
 1. **Nothing maps a `ClipId` to a `ClipCandidate`.** `ClipCandidate` carries no id, and
    `new_clip_id()` is called by nobody. The entrypoint `13b.19` specifies —
@@ -4055,17 +4067,8 @@ are closed.
 2. **`TranscriptStoragePort` has `save_artifacts` and no `load_artifacts`.** Even given an id, the
    worker cannot read back the `GenerationResult` holding the candidates. The asymmetry looks like an
    oversight rather than a decision; every other saved record has a reader.
-3. **A `FAILED` `ClipExport` cannot be written honestly.** `ClipExport.clip` is a non-optional
-   `RenderedClip`, and `RenderedClip` requires quality, subtitle timing, caption coverage and tracking
-   with no defaults — its own docstring says a clip that never stated one of these "is a gap no reader
-   can reason about". Tasks `13b.20` and `13b.22` ask for a `FAILED` export on a clip that was never
-   rendered, and there is no honest value for any of the four. Fabricating them is precisely the
-   silent degradation the four declarations exist to prevent.
-
-   So the refusals **raise** their domain errors, fully tested — the tracker is never touched, and the
-   remediation is named. Persisting them needs `ClipExport` to carry its own `clip_id` and an optional
-   `clip`, which is a fourth edit to a type this slice has already changed twice. That belongs in a
-   decision, not in a worker.
+Both are about *identifying* a clip from outside, not about rendering one, so the orchestration is
+complete without them.
 
 ### The range guard ran too late, and a hanging test found it
 

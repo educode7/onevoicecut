@@ -121,7 +121,7 @@ class FakeTranscriptStoragePort:
 
     def save_clip_export(self, export: ClipExport) -> None:
         self.calls.append(f"save_clip_export:{export.profile}")
-        key = (export.clip.job_id, export.clip.clip_id, export.profile)
+        key = (export.job_id, export.clip_id, export.profile)
         self._clip_exports[key] = export
 
     def load_clip_exports(

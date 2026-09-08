@@ -18,11 +18,6 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.errors import (
-    ClipRangeInvalid,
-    FrameGeometryUnavailable,
-    TrackingUnavailable,
-)
 from onevoicecut.domain.framing import TimeSpan, TrackingConfidence
 from onevoicecut.domain.generation import ClipCandidate, ScriptVariant
 from onevoicecut.domain.ids import make_clip_id, make_job_id, make_media_id
@@ -30,6 +25,7 @@ from onevoicecut.domain.media import FrameSize, MediaProbe, SourceMedia
 from onevoicecut.domain.rendering import (
     CaptionCoverage,
     ClipExport,
+    RenderedClip,
     ClipState,
     OutputQualityKind,
     OutputSpec,
@@ -185,6 +181,17 @@ def run(
     )
 
 
+def rendered(export: ClipExport) -> RenderedClip:
+    """The clip off a finished export.
+
+    `ClipExport.clip` is optional so a refused render can be recorded at all, and
+    `__post_init__` already refuses a `DONE` export without one -- so this
+    narrows for the type checker rather than testing anything.
+    """
+    assert export.clip is not None
+    return export.clip
+
+
 class TestTheHappyPath:
     def test_it_writes_a_finished_export(self, tmp_path: Path) -> None:
         export = run(tmp_path)
@@ -252,24 +259,24 @@ class TestTheDeclarations:
 
         export = run(tmp_path, tracker=every_sample_missed)
 
-        assert export.clip.tracking is TrackingConfidence.LOW_CONFIDENCE
+        assert rendered(export).tracking is TrackingConfidence.LOW_CONFIDENCE
 
     def test_a_tracked_clip_stays_well_tracked(self, tmp_path: Path) -> None:
         export = run(tmp_path)
 
-        assert export.clip.tracking is TrackingConfidence.WELL_TRACKED
+        assert rendered(export).tracking is TrackingConfidence.WELL_TRACKED
 
     def test_caption_coverage_comes_from_the_segments(self, tmp_path: Path) -> None:
         export = run(tmp_path, transcript=a_transcript(SegmentKind.UNCERTAIN))
 
-        assert export.clip.captions is CaptionCoverage.INCLUDES_UNVERIFIED
+        assert rendered(export).captions is CaptionCoverage.INCLUDES_UNVERIFIED
 
     def test_segment_level_timing_is_declared_when_no_words_arrived(
         self, tmp_path: Path
     ) -> None:
         export = run(tmp_path)
 
-        assert export.clip.subtitle_timing is SubtitleTimingSource.SEGMENT_LEVEL
+        assert rendered(export).subtitle_timing is SubtitleTimingSource.SEGMENT_LEVEL
 
     def test_quality_is_computed_against_this_profiles_target_width(
         self, tmp_path: Path
@@ -278,26 +285,40 @@ class TestTheDeclarations:
         upscales it -- and the operator reads that rather than watching for it."""
         export = run(tmp_path)
 
-        assert export.clip.quality.kind is OutputQualityKind.UPSCALED
-        assert export.clip.quality.factor > 1.0
+        assert rendered(export).quality.kind is OutputQualityKind.UPSCALED
+        assert rendered(export).quality.factor > 1.0
 
     def test_the_source_range_survives_onto_the_clip(self, tmp_path: Path) -> None:
         """The only place the original coordinate survives -- everything inside
         the render is clip-local."""
         export = run(tmp_path)
 
-        assert (export.clip.source_start_s, export.clip.source_end_s) == (120.0, 150.0)
+        assert (rendered(export).source_start_s, rendered(export).source_end_s) == (120.0, 150.0)
 
 
 class TestTheRefusalsThatComeFirst:
+    """A refusal is recorded, not merely raised.
+
+    The worker's own message reaches the server log and nowhere an operator
+    looks -- a gap this project already has for the transcription worker and did
+    not want to repeat. So every refusal becomes a `FAILED` export under the same
+    clip-and-profile key a success would have used, naming what went wrong.
+
+    It carries no clip, and that is what the reshaping was for. `RenderedClip`
+    declares quality, subtitle timing, caption coverage and tracking with no
+    defaults, and a render refused before ffmpeg was spawned has no honest value
+    for any of them.
+    """
+
     def test_a_source_with_no_picture_is_refused_before_detection(
         self, tmp_path: Path
     ) -> None:
         tracker = FakeSubjectTrackerPort()
 
-        with pytest.raises(FrameGeometryUnavailable):
-            run(tmp_path, tracker=tracker, probe=a_probe(frame=None))
+        export = run(tmp_path, tracker=tracker, probe=a_probe(frame=None))
 
+        assert export.state is ClipState.FAILED
+        assert "FrameGeometryUnavailable" in (export.failure or "")
         assert tracker.spans == []
 
     def test_a_degenerate_frame_is_refused_before_detection(
@@ -308,42 +329,66 @@ class TestTheRefusalsThatComeFirst:
         quality_of never divides by a zero crop width."""
         tracker = FakeSubjectTrackerPort()
 
-        with pytest.raises(FrameGeometryUnavailable):
-            run(tmp_path, tracker=tracker, probe=a_probe(frame=FrameSize(1920, 1)))
+        export = run(tmp_path, tracker=tracker, probe=a_probe(frame=FrameSize(1920, 1)))
 
+        assert export.state is ClipState.FAILED
         assert tracker.spans == []
 
     def test_a_build_that_cannot_track_is_refused_before_detection(
         self, tmp_path: Path
     ) -> None:
-        """Asserting the type alone proves nothing here, and a mutation showed it.
-
-        `UnavailableSubjectTrackerPort.detect` raises `TrackingUnavailable`
-        itself, so a worker that ignored the declaration and called through would
-        still surface the right exception -- having paid for the refusal, which on
-        a vision adapter is most of the cost of the clip. The spy is what makes
-        the ordering observable.
+        """Asserting the error type alone proves nothing here, and a mutation
+        showed it. `UnavailableSubjectTrackerPort.detect` raises
+        `TrackingUnavailable` itself, so a worker that ignored the declaration
+        and called through would record the identical failure -- having paid for
+        it, which on a vision adapter is most of the cost of the clip. The spy is
+        what makes the ordering observable.
         """
         tracker = _SpyingUnavailableTracker()
 
-        with pytest.raises(TrackingUnavailable) as caught:
-            run(tmp_path, tracker=tracker)
+        export = run(tmp_path, tracker=tracker)
 
         assert tracker.detect_calls == 0
-        assert "install" in str(caught.value)
+        assert export.state is ClipState.FAILED
+        assert "TrackingUnavailable" in (export.failure or "")
+        assert "install" in (export.failure or "")
+
+    def test_a_failure_is_persisted_under_the_same_key_a_success_would_use(
+        self, tmp_path: Path
+    ) -> None:
+        """So a caller polling one clip finds the refusal where it would have
+        found the file, rather than finding nothing and having to guess."""
+        storage = FakeTranscriptStoragePort(tmp_path)
+
+        run(tmp_path, storage=storage, probe=a_probe(frame=None))
+        stored = storage.load_clip_exports(JOB_ID, CLIP_ID)
+
+        assert [export.state for export in stored] == [ClipState.FAILED]
+
+    def test_a_failed_export_still_carries_what_the_operator_would_publish(
+        self, tmp_path: Path
+    ) -> None:
+        """The variants are why the render was requested, and they do not stop
+        being true because it was refused -- reconstructing them means re-running
+        generation against a transcript that may have been re-stitched since."""
+        export = run(tmp_path, probe=a_probe(frame=None))
+
+        assert [variant.target for variant in export.variants] == ["tiktok"]
 
     def test_nothing_is_rendered_when_a_refusal_fires(self, tmp_path: Path) -> None:
         renderer = RecordingRenderer()
 
-        with pytest.raises(FrameGeometryUnavailable):
-            run(tmp_path, renderer=renderer, probe=a_probe(frame=None))
+        run(tmp_path, renderer=renderer, probe=a_probe(frame=None))
 
         assert renderer.requests == []
 
-    def test_an_impossible_range_goes_through_the_guarded_use_case(
+    def test_an_impossible_range_is_refused_by_the_guarded_use_case(
         self, tmp_path: Path
     ) -> None:
-        """The worker does not re-implement the range guards. render_clip is the
-        only way into the port, so its refusals are the worker's too."""
-        with pytest.raises(ClipRangeInvalid):
-            run(tmp_path, candidate=a_candidate(end_s=99_999.0))
+        """The worker does not re-implement the range guards. `check_clip_range`
+        is one definition with two call sites, so the port-side guarantee and
+        this early refusal cannot drift."""
+        export = run(tmp_path, candidate=a_candidate(end_s=99_999.0))
+
+        assert export.state is ClipState.FAILED
+        assert "ClipRangeInvalid" in (export.failure or "")

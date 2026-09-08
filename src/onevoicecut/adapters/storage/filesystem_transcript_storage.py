@@ -211,8 +211,8 @@ class FilesystemTranscriptStorage:
         could hold only the last one written -- silently, since a render that
         finished would leave no trace of the render it overwrote.
         """
-        directory = self._writable(export.clip.job_id) / RENDER_DIRNAME
-        path = self._export_path(directory, export.clip.clip_id, export.profile)
+        directory = self._writable(export.job_id) / RENDER_DIRNAME
+        path = self._export_path(directory, export.clip_id, export.profile)
         self._write(path, encode_clip_export(export))
 
     def load_clip_exports(

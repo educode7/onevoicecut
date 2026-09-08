@@ -380,35 +380,18 @@ def _clip_id(record: Record) -> ClipId:
 
 def encode_clip_export(export: ClipExport) -> str:
     record = asdict(export)
-    record["clip"]["path"] = str(export.clip.path)
+    if export.clip is not None:
+        record["clip"]["path"] = str(export.clip.path)
     return _dumps(record)
 
 
 def decode_clip_export(payload: str) -> ClipExport:
     record = _loads(payload)
-    clip = _field(record, "clip")
-    if not isinstance(clip, dict):
-        raise CorruptedRecord("field 'clip' is not an object")
-    quality = _field(clip, "quality")
-    if not isinstance(quality, dict):
-        raise CorruptedRecord("field 'quality' is not an object")
     return ClipExport(
-        clip=RenderedClip(
-            clip_id=_clip_id(clip),
-            job_id=_job_id(clip),
-            path=Path(_text(clip, "path")),
-            source_start_s=_number(clip, "source_start_s"),
-            source_end_s=_number(clip, "source_end_s"),
-            quality=OutputQuality(
-                kind=_member(quality, "kind", OutputQualityKind),
-                factor=_number(quality, "factor"),
-            ),
-            subtitle_timing=_member(
-                clip, "subtitle_timing", SubtitleTimingSource
-            ),
-            captions=_member(clip, "captions", CaptionCoverage),
-            tracking=_member(clip, "tracking", TrackingConfidence),
-        ),
+        job_id=_job_id(record),
+        clip_id=_clip_id(record),
+        clip=_rendered_clip(record),
+        failure=_optional_text(record, "failure"),
         profile=_text(record, "profile"),
         title=_text(record, "title"),
         description=_text(record, "description"),
@@ -422,4 +405,36 @@ def decode_clip_export(payload: str) -> ClipExport:
             for variant in _objects(record, "variants")
         ),
         state=_member(record, "state", ClipState),
+    )
+
+
+def _rendered_clip(record: Record) -> RenderedClip | None:
+    """`None` is a render that was refused, not a corrupted record.
+
+    A refusal has no file and no honest value for any of the four declarations,
+    so the absence is the fact being stored rather than a field that went
+    missing -- which is why this is the codec's second key-tolerant read, and
+    why it still validates every field once a clip is actually present.
+    """
+    clip = record.get("clip")
+    if clip is None:
+        return None
+    if not isinstance(clip, dict):
+        raise CorruptedRecord("field 'clip' is not an object")
+    quality = _field(clip, "quality")
+    if not isinstance(quality, dict):
+        raise CorruptedRecord("field 'quality' is not an object")
+    return RenderedClip(
+        clip_id=_clip_id(clip),
+        job_id=_job_id(clip),
+        path=Path(_text(clip, "path")),
+        source_start_s=_number(clip, "source_start_s"),
+        source_end_s=_number(clip, "source_end_s"),
+        quality=OutputQuality(
+            kind=_member(quality, "kind", OutputQualityKind),
+            factor=_number(quality, "factor"),
+        ),
+        subtitle_timing=_member(clip, "subtitle_timing", SubtitleTimingSource),
+        captions=_member(clip, "captions", CaptionCoverage),
+        tracking=_member(clip, "tracking", TrackingConfidence),
     )

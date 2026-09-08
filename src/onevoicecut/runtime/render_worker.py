@@ -25,7 +25,11 @@ from pathlib import Path
 
 from onevoicecut.adapters.ffmpeg.subtitles import render_ass
 from onevoicecut.adapters.storage.filesystem_transcript_storage import RENDER_DIRNAME
-from onevoicecut.domain.errors import FrameGeometryUnavailable, TrackingUnavailable
+from onevoicecut.domain.errors import (
+    DomainError,
+    FrameGeometryUnavailable,
+    TrackingUnavailable,
+)
 from onevoicecut.domain.framing import TimeSpan, TrajectoryPolicy, crop_size_for
 from onevoicecut.domain.generation import ClipCandidate
 from onevoicecut.domain.ids import ClipId, JobId
@@ -77,11 +81,62 @@ def render_clip_for_profile(
     `render_clip` is the only way into the port, so its refusals are this
     worker's refusals too rather than a second set of guards free to drift from
     them.
+
+    **Always returns an export, never raises a domain error.** A refusal that
+    only propagated would reach the server log and nowhere an operator looks --
+    the gap this project already carries for the transcription worker, and did
+    not want to repeat one subsystem later. The failure is recorded under the
+    same clip-and-profile key a success would have used, so a caller polling one
+    clip finds the refusal where it expected the file.
     """
     span = TimeSpan(candidate.start_s, candidate.end_s)
     aspect_w, aspect_h = aspect_of(profile)
     policy = TrajectoryPolicy(aspect_w=aspect_w, aspect_h=aspect_h)
 
+    try:
+        return _render(
+            job_id,
+            clip_id,
+            candidate,
+            span=span,
+            policy=policy,
+            profile=profile,
+            media=media,
+            probe=probe,
+            tracker=tracker,
+            renderer=renderer,
+            storage=storage,
+            job_dir=job_dir,
+            sample_hz=sample_hz,
+            max_clip_seconds=max_clip_seconds,
+        )
+    except DomainError as error:
+        # Every failure crossing a port is already a domain error, so the worker
+        # records it rather than letting a traceback reach an operator. A
+        # non-domain exception is a defect here and is left to propagate.
+        return _record(
+            _failed(job_id, clip_id, candidate, profile, error), storage=storage
+        )
+
+
+def _render(
+    job_id: JobId,
+    clip_id: ClipId,
+    candidate: ClipCandidate,
+    *,
+    span: TimeSpan,
+    policy: TrajectoryPolicy,
+    profile: RenderProfile,
+    media: SourceMedia,
+    probe: MediaProbe,
+    tracker: SubjectTrackerPort,
+    renderer: VideoRenderPort,
+    storage: TranscriptStoragePort,
+    job_dir: Path,
+    sample_hz: float,
+    max_clip_seconds: float,
+) -> ClipExport:
+    """The path that produces a file. Every refusal on it is a domain error."""
     # Before detection, not merely before the spawn. `render_clip` checks again
     # at the port, which is where the guarantee belongs -- but a vision pass runs
     # in between, and a ruinous range refused only at the spawn would already
@@ -120,6 +175,9 @@ def render_clip_for_profile(
     )
 
     export = ClipExport(
+        job_id=job_id,
+        clip_id=clip_id,
+        failure=None,
         clip=RenderedClip(
             clip_id=clip_id,
             job_id=job_id,
@@ -137,8 +195,7 @@ def render_clip_for_profile(
         variants=candidate.variants,
         state=ClipState.DONE,
     )
-    storage.save_clip_export(export)
-    return export
+    return _record(export, storage=storage)
 
 
 def _croppable_frame(
@@ -182,3 +239,38 @@ def _require_detection(tracker: SubjectTrackerPort) -> None:
             f"{capabilities.detection.value}; install the vision extras and let "
             f"the weights download, or choose another tracker"
         )
+
+
+def _failed(
+    job_id: JobId,
+    clip_id: ClipId,
+    candidate: ClipCandidate,
+    profile: RenderProfile,
+    error: DomainError,
+) -> ClipExport:
+    """A refusal, recorded with no clip and with the type that caused it.
+
+    The type name leads the message because the operator's next move depends on
+    it and not on the prose: `ClipRangeInvalid` and `FrameGeometryUnavailable`
+    fail identically on every retry, while `RenderFailed` may not.
+
+    The variants travel onto it. They are why the render was requested and do not
+    stop being true because it was refused -- reconstructing them later means
+    re-running generation against a transcript that may have been re-stitched.
+    """
+    return ClipExport(
+        job_id=job_id,
+        clip_id=clip_id,
+        profile=profile.name,
+        title=candidate.hook,
+        description=candidate.quote,
+        variants=candidate.variants,
+        state=ClipState.FAILED,
+        clip=None,
+        failure=f"{type(error).__name__}: {error}",
+    )
+
+
+def _record(export: ClipExport, *, storage: TranscriptStoragePort) -> ClipExport:
+    storage.save_clip_export(export)
+    return export
