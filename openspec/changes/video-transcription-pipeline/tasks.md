@@ -3992,7 +3992,7 @@ half). Depends on 11a (`probe.frame`, `FrameGeometryUnavailable`), 12a-ii (`Subj
 13b-ii, **13a-iv, 13a-v, 13a-vi, 10c-i**. It is the only unit that calls the trajectory pipeline rather
 than merely naming its types, and **[rev 5]** the only one that fans a single clip out across profiles.
 
-- [ ] 13b.18 RED: `tests/unit/runtime/test_render_worker.py` — the happy path calls `probe`→`detect`→
+- [x] 13b.18 RED: `tests/unit/runtime/test_render_worker.py` — the happy path calls `probe`→`detect`→
       `build_trajectory`→`load_transcript`→`build_subtitle_cues`→`render`→`quality_of` in order, against
       fakes, and writes a `RENDERED` `ClipExport`.
 - [ ] 13b.19 GREEN: `runtime/render_worker.py` — headless entrypoint `python -m
@@ -4005,9 +4005,9 @@ than merely naming its types, and **[rev 5]** the only one that fans a single cl
 - [ ] 13b.22 RED: tracking-unavailable-refusal test — when `capabilities().detection != AVAILABLE`, the
       worker writes `FAILED(TrackingUnavailable)` naming remediation, and never calls `detect()`.
 - [ ] 13b.23 GREEN: implement the second `alt` branch.
-- [ ] 13b.24 RED: low-confidence-propagation test — a `LOW_CONFIDENCE` trajectory produces a
+- [x] 13b.24 RED: low-confidence-propagation test — a `LOW_CONFIDENCE` trajectory produces a
       `RenderedClip.tracking` that is not silently reported as ordinary success.
-- [ ] 13b.25 GREEN: propagate `TrackingConfidence` from `build_trajectory`'s output, and
+- [x] 13b.25 GREEN: propagate `TrackingConfidence` from `build_trajectory`'s output, and
       `SubtitleTimingSource`/`CaptionCoverage` from `build_subtitle_cues`'s output, onto the assembled
       `RenderedClip` — all four declarations computed above the port.
 - [ ] 13b.25a RED **[rev 5]**: profile fan-out — a clip whose script variants name four networks
@@ -4040,6 +4040,64 @@ than merely naming its types, and **[rev 5]** the only one that fans a single cl
       judgement about the material no rule here is positioned to make.
 - [ ] 13b.25j GREEN: compute and attach the overrun declaration.
 - [ ] 13b.26 REFACTOR: suite green, `mypy src tests` clean.
+
+### 13b-iii-a is PARTIAL, and the blocker is a type, not an omission
+
+Delivered and green: `render_clip_for_profile` — the whole orchestration, all four declarations
+assembled above the port, and both refusals firing **before detection**. `13b.18`, `13b.24` and `13b.25`
+are closed.
+
+**Left open: `13b.19`, `13b.20`–`13b.23`.** Three gaps block them, all found while writing this unit.
+
+1. **Nothing maps a `ClipId` to a `ClipCandidate`.** `ClipCandidate` carries no id, and
+   `new_clip_id()` is called by nobody. The entrypoint `13b.19` specifies —
+   `--job-id <id> --clip-id <id>` — therefore cannot resolve a clip at all.
+2. **`TranscriptStoragePort` has `save_artifacts` and no `load_artifacts`.** Even given an id, the
+   worker cannot read back the `GenerationResult` holding the candidates. The asymmetry looks like an
+   oversight rather than a decision; every other saved record has a reader.
+3. **A `FAILED` `ClipExport` cannot be written honestly.** `ClipExport.clip` is a non-optional
+   `RenderedClip`, and `RenderedClip` requires quality, subtitle timing, caption coverage and tracking
+   with no defaults — its own docstring says a clip that never stated one of these "is a gap no reader
+   can reason about". Tasks `13b.20` and `13b.22` ask for a `FAILED` export on a clip that was never
+   rendered, and there is no honest value for any of the four. Fabricating them is precisely the
+   silent degradation the four declarations exist to prevent.
+
+   So the refusals **raise** their domain errors, fully tested — the tracker is never touched, and the
+   remediation is named. Persisting them needs `ClipExport` to carry its own `clip_id` and an optional
+   `clip`, which is a fourth edit to a type this slice has already changed twice. That belongs in a
+   decision, not in a worker.
+
+### The range guard ran too late, and a hanging test found it
+
+`render_clip` checks the range immediately before the spawn, which is where the guarantee belongs. But
+the worker runs a **vision pass** in between. A test with a 99,999-second range hung: detection at 4 Hz
+produced roughly four hundred thousand samples before the guard it was written to exercise ever fired.
+
+Extracted `check_clip_range` and called it first. One definition, two call sites, so the port-side
+guarantee and the worker's early refusal cannot drift.
+
+### A mutation caught a test that proved nothing
+
+Asserting `TrackingUnavailable` is raised does not prove the capability was read:
+`UnavailableSubjectTrackerPort.detect` raises it itself, so a worker that ignored the declaration and
+called through surfaced the identical exception — having paid for the refusal. Disabling the capability
+check failed **no test**. A spy counting `detect` calls is what makes the ordering observable, and the
+mutation now fails.
+
+Other mutations, all caught: detecting before the frame-geometry refusal fails 2; reporting every
+trajectory as `WELL_TRACKED` fails 1; skipping the `.ass` write fails 1; removing the degenerate-crop
+guard fails 1.
+
+### Task text corrected
+
+`13b.18` says the happy path writes a "`RENDERED`" `ClipExport`. `ClipState` has no such member — the
+four are `PENDING`, `RENDERING`, `DONE`, `FAILED`. Read as `DONE`.
+
+### Measured cost
+
+**551 lines against the ~575 estimate for this half** — `src` 202, tests 349. Suite **1802 passed / 30
+deselected**; mypy clean over 225 files. The three blocked tasks are the cheap half; what they need
+first is a decision about how a failed render is recorded.
 
 ### The fan-out is where rev 5's cost actually lands, and where it is contained
 

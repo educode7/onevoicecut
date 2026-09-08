@@ -30,6 +30,7 @@ enforce it.
 from pathlib import Path
 
 from onevoicecut.domain.errors import ClipRangeInvalid
+from onevoicecut.domain.framing import TimeSpan
 from onevoicecut.domain.media import MediaProbe
 from onevoicecut.ports.video_render import (
     RenderedFile,
@@ -64,8 +65,24 @@ def render_clip(
     off is not a guard, and this one is the whole of the render-resource-
     exhaustion answer.
     """
-    span = request.span
+    check_clip_range(request.span, probe, max_clip_seconds=max_clip_seconds)
+    return renderer.render(request, dest)
 
+
+def check_clip_range(
+    span: TimeSpan,
+    probe: MediaProbe,
+    *,
+    max_clip_seconds: float = DEFAULT_MAX_CLIP_SECONDS,
+) -> None:
+    """The guards alone, so a caller can refuse before it spends anything.
+
+    Extracted when the render worker landed. `render_clip` runs these
+    immediately before the spawn, which is the last moment they matter -- but the
+    worker runs a vision pass *earlier* than that, and a ruinous range that only
+    failed at the spawn would already have paid for detection over the whole
+    absurd span. One definition, two call sites, so the two cannot drift.
+    """
     if span.start_s < 0:
         raise ClipRangeInvalid(
             f"clip range {span.start_s}s..{span.end_s}s starts before the "
@@ -87,5 +104,3 @@ def render_clip(
             f"is refused rather than trimmed, because which end to cut is a "
             f"judgement about the material"
         )
-
-    return renderer.render(request, dest)
