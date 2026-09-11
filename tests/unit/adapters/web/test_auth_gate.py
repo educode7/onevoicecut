@@ -21,6 +21,7 @@ from tests.unit.adapters.web.conftest import (
     accepting_extractor,
     auth_headers,
     fake_authenticate,
+    route_request_body,
 )
 
 PROBE_JOB_ID = "01HQ3M8XKJ7VNPQR2ZYWB4TCFD"
@@ -101,12 +102,8 @@ async def test_every_route_refuses_unauthenticated_requests_with_one_shape(
     starter is called, or a cancellation is recorded."""
     client, storage = gate
 
-    if method == "POST":
-        response = await client.request(method, path, json={"engine": "local"})
-    elif method == "PUT":
-        response = await client.request(method, path, content=b"x")
-    else:
-        response = await client.request(method, path)
+    content, json_body = route_request_body(method, path)
+    response = await client.request(method, path, content=content, json=json_body)
 
     assert response.status_code == 401
     assert response.content == UNAUTHENTICATED_BODY

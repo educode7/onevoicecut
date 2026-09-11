@@ -4523,32 +4523,180 @@ reported that while it stayed.
 
 Closes: `clip-rendering` Clip Export to Job Directory (HTTP surface). Depends on 13b-ii, 13b-iii.
 
-- [ ] 13b.27 RED: `tests/unit/adapters/web/test_clip_routes.py` — `POST /api/jobs/{id}/clips
+- [x] 13b.27 RED: `tests/unit/adapters/web/test_clip_routes.py` — `POST /api/jobs/{id}/clips
       {candidate_index, targets}` against a job not `COMPLETED` returns `409`; against a `COMPLETED` job
       returns `202 {clip_id, profiles}` and writes a `PENDING` `ClipExport` **per distinct profile**
       before responding. **[rev 5]** The request names *networks*; the response reports the *profiles*
       they resolved to, so an operator who asked for four destinations and is getting two files learns
       it at request time rather than by counting files afterwards.
-- [ ] 13b.28 GREEN: `adapters/web/routers/jobs.py` — the `POST .../clips` route + `adapters/web/schemas.py`
+- [x] 13b.28 GREEN: `adapters/web/routers/jobs.py` — the `POST .../clips` route + `adapters/web/schemas.py`
       request/response models.
-- [ ] 13b.29 RED: spawn test — admitting a clip request spawns `render_worker` with the same mechanism
-      used for the transcription worker, and the HTTP response returns before the render completes.
-- [ ] 13b.30 GREEN: wire the spawn call, mirroring the shipped upload-triggers-worker pattern.
-- [ ] 13b.31 RED: `GET /api/jobs/{id}/clips/{clip_id}` — returns the clip's exports **as a list, one
+- [~] 13b.29 **MOVED to 13b-iv-b** — see the note below. Its two halves contradict each other.
+- [~] 13b.30 **MOVED to 13b-iv-b**.
+- [x] 13b.31 RED: `GET /api/jobs/{id}/clips/{clip_id}` — returns the clip's exports **as a list, one
       per profile**, each carrying `{profile, state, quality, subtitle_timing, captions, tracking,
       variants}` read-only; a test enforces it writes nothing. **[rev 5]** A single-object response
       would have to pick one profile to report and would be wrong about the other.
-- [ ] 13b.32 GREEN: the status-read route over `load_clip_exports`.
-- [ ] 13b.32a RED **[rev 5]**: `GET /api/jobs/{id}/clips/{clip_id}/{profile}` resolves to exactly one
+- [x] 13b.32 GREEN: the status-read route over `load_clip_exports`.
+- [x] 13b.32a RED **[rev 5]**: `GET /api/jobs/{id}/clips/{clip_id}/{profile}` resolves to exactly one
       export; an unknown profile on a known clip returns `404`, distinct from an unknown clip. Clip id
       alone MUST NOT be treated as identifying a single rendered file — the HTTP half of 13a-vi's key.
-- [ ] 13b.32b GREEN: the per-profile read route.
-- [ ] 13b.32c RED **[rev 5]**: authorization parity — both clip routes join the generated 401 and 403
+- [x] 13b.32b GREEN: the per-profile read route.
+- [x] 13b.32c RED **[rev 5]**: authorization parity — both clip routes join the generated 401 and 403
       route-table checks, and a non-owner is refused with the shipped `401 → 404 → 403` precedence.
       The generated checks mean a route added without auth wiring fails the default run the day it is
       written; this task exists to confirm the new routes are *seen* by them, not to re-implement them.
-- [ ] 13b.32d GREEN: confirm by construction (no production change expected).
-- [ ] 13b.33 REFACTOR: suite green, `mypy src tests` clean.
+- [x] 13b.32d GREEN: confirm by construction — **not** by construction alone, see the note below; the
+      generators needed a fix once the new routes were seen.
+- [x] 13b.33 REFACTOR: suite green, `mypy src tests` clean.
+
+### The generators saw the routes and refused them for the wrong reason
+
+`13b.32c/d`'s own text expected "no production change" once the clip routes joined the route table, and
+that half held: `POST .../clips` and both `GET` routes appear in `_registered_route_cases()` and
+`_mutating_job_routes()` automatically, no line changed in either generator to make that true. But running
+the suite with the new routes present did not turn green by construction — three parametrized cases
+failed with `422`, not `401`/`403`.
+
+The cause was in the *test* infrastructure, not the routes. `test_auth_gate.py`'s unauthenticated check and
+`test_mutation_ownership_matrix.py`'s two non-owner checks sent one canned body to every `POST` route —
+`{"engine": "local"}` for JSON, `b"x"` for everything else. That body satisfies `AdmitJobRequest`, the one
+`POST` route that existed before this slice, but not `ClipExportRequest`. FastAPI resolves a declared
+pydantic body model before a handler's first statement — including `_authorized` — ever runs, so a request
+whose body fails that model comes back `422` regardless of whether the caller ever authenticated. The
+canned body had been silently coupled to `AdmitJobRequest`'s shape the whole time; nothing exposed it
+because no second `POST` route existed to disagree with it.
+
+Fixed by keying the request body on the *route*, not the method: `conftest.py` gained
+`route_request_body(method, path)`, returning `(content, json)` shaped for whichever body model (if any)
+that route declares, and both generators now build their request from it. No change to
+`adapters/web/routers/jobs.py`'s authentication ordering — the fix is that the checks now reach it.
+`test_clip_route_authorization_parity.py` pins both halves: that the three clip routes are seen by the two
+generators, and that the old admit-shaped body would have failed `ClipExportRequest` validation, so the
+gap cannot reintroduce itself silently the next time a `POST` route ships.
+
+What actually keeps a future `POST` honest is the gate's `assert response.status_code == 401`, not the
+keying. A route whose body shape `route_request_body` does not know about returns `422`, the assertion
+fails, and whoever added it must extend the table. That is the "fails the default run the day it is
+written" guarantee working exactly as specified — this slice is the first time anything exercised it.
+
+### The 422 is also production behaviour, and it is older than these routes
+
+The fix above is test infrastructure, and the note as first written stopped there. The ordering it
+describes is not confined to tests: an unauthenticated request with a malformed body gets `422` from the
+live app too, measured against a real `InvalidCredential`-raising authenticator.
+
+| request | status |
+| --- | --- |
+| `POST /api/jobs` — no credential, malformed body | `422` |
+| `POST /api/jobs/{id}/clips` — no credential, malformed body | `422` |
+| `POST /api/jobs/{id}/clips` — no credential, well-formed body | `401` |
+| both `GET` clip routes, `POST .../cancel` — no credential | `401` |
+
+So the new routes hold the documented `401 → 404 → 403` precedence exactly as the shipped ones do, and
+they inherit the one exception the shipped ones already had. `POST /api/jobs` has behaved this way since
+the auth slice; nothing here introduced it.
+
+It is worth recording rather than fixing in passing, because it is a real if narrow leak: `docs_url` and
+`redoc_url` are `None` on purpose, so request schemas are deliberately unpublished, and a caller who
+never authenticates can still map them by reading `422` against `401`. What leaks is the shape of a
+request, never whether a job exists — that separation is what the precedence rule was written to protect,
+and it holds. Closing it means every `POST` handler taking a raw `Request` and parsing its body after
+`_authorized`, which trades FastAPI's declarative validation for hand-rolled parsing on every route. That
+is a decision about the whole web adapter, not a line in a clip-routes slice.
+
+### A mutation proved the not-`COMPLETED` test was reading two axes at once
+
+Mutating out the `job.state is not JobState.COMPLETED` gate in the `POST .../clips` handler passed the
+full `test_clip_routes.py` suite unchanged. The fixture for `test_a_job_not_completed_is_refused_with_409`
+set the job to `TRANSCRIBING` but never called `storage.save_artifacts`, so with the state gate removed the
+request still hit `ArtifactsNotAvailable` and still came back `409` — the same status code, for the wrong
+reason. The test could not tell "job not ready" from "candidates not generated yet" apart, which is exactly
+the two-facts-at-once trap `13b-iv`'s own notes had already been bitten by. Fixed by seeding artifacts on
+that fixture too, so a `TRANSCRIBING` job with real candidates isolates the state axis alone; the mutation
+then failed the test as it should have from the start.
+
+Five other mutations were run and each failed at least one test on the first try: `202` swapped to `200`
+(failed the acceptance test), the response reporting `body.targets` instead of the resolved profile names
+(failed two tests — one at the HTTP layer, one that the two requested networks share a profile), the
+per-profile `GET` falling back to `exports[0]` on an unknown profile instead of refusing (failed the
+distinct-404 test), the candidate-index bound relaxed to drop its lower half (failed the negative-index
+test), and the profile fan-out deduplicated on network instead of on profile — one `ClipExport` per
+variant rather than per distinct profile (failed four tests across both the use-case and HTTP layers).
+
+### A `RenderProfile` field with no measured value blocked the happy-path test until it was given one
+
+Every shipped render profile is `safe_area=None` today — `usecases/render_profiles.py`'s own module
+docstring states this is deliberate, not a gap: no destination has actually been measured yet. That means
+`resolve_render_profiles` refuses the production registry's one profile (`vertical`) on every call, so the
+real `202` path is currently unreachable against the deployment's own configuration — every clip request
+in production would 422 until an operator measures a destination. Testing the accept path at all required
+injecting a registry with a measured profile, mirroring `test_render_profiles.py`'s own `MEASURED` fixture.
+`WebDependencies` gained two fields for this, `render_profiles` and `script_targets`, mirroring the
+existing `capabilities` seam: both default to the production registries (`RENDER_PROFILES`/
+`SCRIPT_TARGETS`) and are overridable by a test the same way `capabilities` already is. This is a small,
+deliberate production change beyond the four tasks' literal text, and it was necessary for `13b.27`'s own
+`202` scenario to be testable at all — not a scope decision `13b-iv-b` gets to make later.
+
+### Measured cost
+
+`git diff --numstat` against `main`, excluding `.atl/` and `openspec/`: **1,090 lines added, 10 removed**
+across eleven files. `src` carries 376 added / 2 removed (`adapters/web/app.py` +18/-1,
+`adapters/web/routers/jobs.py` +113/-1, `adapters/web/schemas.py` +92, `domain/errors.py` +37,
+`usecases/request_clip_export.py` +116 new); `tests` carries 714 added / 8 removed across five files, the
+largest being `test_clip_routes.py` at 395 new lines covering both `GET` routes and the `POST` route's
+error taxonomy. The split is 34% `src` / 66% `tests`, close to the historical 36/56 ratio this repo has
+measured before.
+
+Total changed lines (1,100) run **1.63x the ~675-line estimate** and past the 800-line budget. The
+overrun has one real driver worth naming rather than three small ones: the authorization-parity finding
+was not the "confirm by construction" task text expected, and pinning it correctly needed both a
+production-adjacent test-infrastructure fix (`route_request_body`) and its own parity test file — work the
+estimate had no way to anticipate, because `13b.32c/d`'s own text predicted zero production change. The
+rest — two new domain errors, one new use case, four new schema classes, two `GET` routes plus one `POST`
+route, and the `WebDependencies` registry seam discovered mid-slice — is in line with the shape `~675
+lines` was estimated against; it is the parity finding that pushed this past budget, not scope creep on
+the four tasks' literal text.
+
+Final state: **1,909 passed / 30 deselected**, mypy clean over **231 source files** — up from **1,869
+passed** and **227 files** at the start of this slice.
+
+### `13b.29` asked for a second spawn decision point, and it was not the plan's to give
+
+The task reads "admitting a clip request **spawns** `render_worker` ... **mirroring the shipped
+upload-triggers-worker pattern**". Those two halves contradict each other, and the second one is right.
+The shipped pattern does not spawn from a route: upload *queues*, and `drain_once` is the only code in
+the system that starts a process. `WebDependencies` carries no launcher at all, and `app.py` says why —
+"a launcher reachable from a route handler is one refactor away from a second spawn decision point and
+the race it brings". That is a load-bearing decision, so a task sentence does not overturn it.
+
+It cannot simply be re-pointed at the drain either, because the drain's cap is **derived**: it lists
+jobs, keeps `WORKER_BOUND_STATES`, and asks the OS which pids are alive. A render is not a job state —
+it is a `ClipExport` carrying a `ClipState` — and `ClipExport` has no pid and no heartbeat, so "is this
+render still running" is not a question the store can answer today. Deriving it needs a field, a cap,
+and a second sweep. That is a slice, not a task.
+
+So **13b-iv delivers the routes and no spawn**, and the routes are complete without one: a `PENDING`
+export with no worker is precisely the queued state, the same way a `QUEUED` job with no worker is.
+`13b.29`/`13b.30` move to **13b-iv-b** below, which is where render liveness gets designed rather than
+assumed.
+
+---
+
+## Slice 13b-iv-b: Render Drain and Liveness (unestimated — needs design first)
+
+Depends on 13b-iv. **Not startable as written**: it needs a decision before it needs tasks.
+
+- [ ] 13b.29 RED: a `PENDING` `ClipExport` with no live render worker is picked up by a render drain
+      sweep, and the sweep never exceeds a render concurrency cap.
+- [ ] 13b.30 GREEN: the sweep, its cap, and whatever `ClipExport` needs to make render liveness
+      derivable rather than counted — the same rule the job drain already holds itself to.
+
+Open before either: does a render worker write a pid and heartbeat onto its `ClipExport` the way the
+transcription worker writes them onto `job.json`, or does a render's short life (a clip is bounded by
+`max_clip_seconds`, not by three hours) make a simpler answer honest? The transcription worker's
+heartbeat exists because a multi-hour job can hang unobserved; that argument is much weaker here, and
+it should be made or refuted explicitly rather than inherited.
 
 ---
 

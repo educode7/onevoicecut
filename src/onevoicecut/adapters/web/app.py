@@ -8,7 +8,7 @@ data directory.
 """
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 
@@ -19,17 +19,22 @@ Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None]] | None
 from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor
 from onevoicecut.adapters.storage.media_source import FilesystemMediaSource
 from onevoicecut.domain.ids import (
+    ClipId,
     JobId,
     MediaId,
     OperatorId,
+    generate_clip_id,
     generate_job_id,
     generate_media_id,
 )
 from onevoicecut.domain.jobs import EngineChoice
+from onevoicecut.domain.rendering import RenderProfile
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
 from onevoicecut.ports.capabilities import DeclaredSupport
 from onevoicecut.ports.media_source import MediaSourcePort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.usecases.generate_artifacts import SCRIPT_TARGETS, ScriptTarget
+from onevoicecut.usecases.render_profiles import RENDER_PROFILES
 
 # 16 GiB. Multi-hour video is the normal input here, so this bounds what one
 # upload may consume rather than describing a typical file.
@@ -70,6 +75,18 @@ class WebDependencies:
     now: Callable[[], float] = time.time
     new_job_id: Callable[[], JobId] = field(default=generate_job_id)
     new_media_id: Callable[[], MediaId] = field(default=generate_media_id)
+    new_clip_id: Callable[[], ClipId] = field(default=generate_clip_id)
+    # The same two registries `runtime/settings.py` cross-checks at boot,
+    # injectable here for the same reason `capabilities` is: every shipped
+    # render profile is deliberately unmeasured (`safe_area=None`) today, so a
+    # test proving a clip request succeeds needs a registry standing in for a
+    # destination somebody has actually measured.
+    render_profiles: Mapping[str, RenderProfile] = field(
+        default_factory=lambda: RENDER_PROFILES
+    )
+    script_targets: Mapping[str, ScriptTarget] = field(
+        default_factory=lambda: SCRIPT_TARGETS
+    )
     media_source_for: MediaSourceFactory = field(default=filesystem_media_source)
     extractor_for: ExtractorFactory = field(default=ffmpeg_extractor)
     # No launcher, deliberately. Upload queues; the drain supervisor is the only

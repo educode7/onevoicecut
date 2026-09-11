@@ -40,6 +40,30 @@ def accepting_extractor(
     return FakeAudioExtractorPort(job_id)
 
 
+def route_request_body(method: str, path: str) -> tuple[bytes | None, dict[str, object] | None]:
+    """`(content, json)`, shaped enough to satisfy whichever pydantic body
+    model (if any) a route declares, for the generated 401/403 checks in
+    `test_auth_gate.py` and `test_mutation_ownership_matrix.py`.
+
+    FastAPI resolves a declared body model before the handler's first line
+    ever runs, so a request whose body fails that model's validation never
+    reaches `_authorized`/`_owned` at all -- it is refused 422 first. A
+    single body shared across every POST route only ever worked by
+    coincidence: `{"engine": "local"}` happens to satisfy `AdmitJobRequest`,
+    the one POST route that existed before `POST .../clips` needed a
+    different shape. Keying on the route rather than the method is what
+    keeps a future route with its own body model from silently reintroducing
+    the same gap.
+    """
+    if method == "PUT":
+        return b"x", None
+    if method == "POST" and path.endswith("/clips"):
+        return None, {"candidate_index": 0, "targets": ["tiktok"]}
+    if method == "POST":
+        return None, {"engine": "local"}
+    return None, None
+
+
 
 def web_dependencies(
     root: Path, *, max_upload_bytes: int = 1024**2

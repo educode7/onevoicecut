@@ -16,20 +16,28 @@ from onevoicecut.adapters.web.schemas import (
     AdmitJobRequest,
     AdmitJobResponse,
     CancelJobResponse,
+    ClipExportItem,
+    ClipExportListResponse,
+    ClipExportRequest,
+    ClipExportResponse,
     JobListItem,
     JobListResponse,
     JobStatusResponse,
     ProgressResponse,
 )
 from onevoicecut.domain.errors import (
+    ArtifactsNotAvailable,
     ClassificationUnsupported,
+    ClipCandidateNotFound,
+    ClipTargetsInvalid,
     DiarizationUnsupported,
     JobNotFound,
     JobNotOwned,
+    RenderProfileInvalid,
     UnsupportedContainer,
     UploadTooLarge,
 )
-from onevoicecut.domain.ids import InvalidIdError, JobId, OperatorId, make_job_id
+from onevoicecut.domain.ids import ClipId, InvalidIdError, JobId, OperatorId, make_clip_id, make_job_id
 from onevoicecut.domain.jobs import JobRecord, JobState, derive_progress
 from onevoicecut.domain.media import SourceMedia
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
@@ -37,6 +45,7 @@ from onevoicecut.ports.media_source import MediaSourcePort
 from onevoicecut.usecases.admit_job import admit_job
 from onevoicecut.usecases.cancel_job import cancel_job
 from onevoicecut.usecases.ownership import require_owner
+from onevoicecut.usecases.request_clip_export import request_clip_export
 
 # The client's filename travels as metadata, never in the URL — a path parameter
 # would invite treating it as one.
@@ -106,6 +115,18 @@ def _validated_job_id(raw: str) -> JobId:
         return make_job_id(raw)
     except InvalidIdError as error:
         raise HTTPException(status_code=404, detail="no such job") from error
+
+
+def _validated_clip_id(raw: str) -> ClipId:
+    """The second id every clip route names, checked the same way `job_id` is.
+
+    Malformed and unknown answer identically (404), so no route reveals which
+    clip ids exist -- the same reasoning `_validated_job_id` states in full.
+    """
+    try:
+        return make_clip_id(raw)
+    except InvalidIdError as error:
+        raise HTTPException(status_code=404, detail="no such clip") from error
 
 
 def _accepting_media(job: JobRecord) -> None:
@@ -399,5 +420,96 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
             replace(current, state=JobState.QUEUED, updated_at=deps.now())
         )
         return Response(status_code=204)
+
+    @router.post(
+        "/{job_id}/clips", status_code=202, response_model=ClipExportResponse
+    )
+    def request_clip(
+        job_id: str, body: ClipExportRequest, request: Request
+    ) -> ClipExportResponse:
+        """Writes `PENDING` exports and returns. It does not render.
+
+        `13b-iv` delivers no spawn -- see `tasks.md`'s note on `13b.29`. A
+        `PENDING` export with no render worker is precisely the queued state,
+        the same way a `QUEUED` job with no worker is one.
+        """
+        operator = _authorized(request, deps)
+        job = _load(job_id, deps)
+        _owned(job, operator)
+
+        if job.state is not JobState.COMPLETED:
+            raise HTTPException(
+                status_code=409,
+                detail=f"job is {job.state}, which has no clip candidates to "
+                f"export from",
+            )
+
+        try:
+            clip_id, profiles = request_clip_export(
+                job.job_id,
+                body.candidate_index,
+                body.targets,
+                storage=deps.storage,
+                new_clip_id=deps.new_clip_id,
+                script_targets=deps.script_targets,
+                render_profiles=deps.render_profiles,
+            )
+        except ArtifactsNotAvailable as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except ClipCandidateNotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except (ClipTargetsInvalid, RenderProfileInvalid) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+        return ClipExportResponse(
+            clip_id=clip_id, profiles=tuple(profile.name for profile in profiles)
+        )
+
+    @router.get(
+        "/{job_id}/clips/{clip_id}", response_model=ClipExportListResponse
+    )
+    def clip_status(
+        job_id: str, clip_id: str, request: Request
+    ) -> ClipExportListResponse:
+        """Every profile's export, never just one -- a single-object response
+        would have to pick a profile to report and be wrong about the rest.
+
+        Read-only, like `status`: nothing here has a worker to race against.
+        """
+        _authorized(request, deps)
+        job = _load(job_id, deps)
+        exports = deps.storage.load_clip_exports(
+            job.job_id, _validated_clip_id(clip_id)
+        )
+        if not exports:
+            raise HTTPException(status_code=404, detail="no such clip")
+        return ClipExportListResponse(
+            exports=[ClipExportItem.of(export) for export in exports]
+        )
+
+    @router.get(
+        "/{job_id}/clips/{clip_id}/{profile}", response_model=ClipExportItem
+    )
+    def clip_profile_status(
+        job_id: str, clip_id: str, profile: str, request: Request
+    ) -> ClipExportItem:
+        """Resolves to exactly one export. A clip id alone never identifies a
+        single rendered file, so an unknown profile on a known clip is a
+        distinct refusal from an unknown clip -- both 404, for different
+        reasons a caller can tell apart by the message.
+        """
+        _authorized(request, deps)
+        job = _load(job_id, deps)
+        exports = deps.storage.load_clip_exports(
+            job.job_id, _validated_clip_id(clip_id)
+        )
+        if not exports:
+            raise HTTPException(status_code=404, detail="no such clip")
+        for export in exports:
+            if export.profile == profile:
+                return ClipExportItem.of(export)
+        raise HTTPException(
+            status_code=404, detail=f"clip has no {profile!r} export"
+        )
 
     return router

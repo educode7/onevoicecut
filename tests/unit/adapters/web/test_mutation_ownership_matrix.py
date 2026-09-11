@@ -32,6 +32,7 @@ from tests.unit.adapters.web.conftest import (
     accepting_extractor,
     auth_headers,
     fake_authenticate,
+    route_request_body,
 )
 from tests.unit.usecases.test_ownership import an_owned_job
 
@@ -125,8 +126,13 @@ async def test_every_mutating_route_refuses_a_non_owner(
     record_before = storage.load_job(job_id)
     storage.calls.clear()
 
+    content, json_body = route_request_body(method, path)
     response = await client.request(
-        method, path.replace("{job_id}", job_id), content=b"x", headers=auth_headers(TOKEN_B)
+        method,
+        path.replace("{job_id}", job_id),
+        content=content,
+        json=json_body,
+        headers=auth_headers(TOKEN_B),
     )
 
     assert response.status_code == 403
@@ -152,8 +158,13 @@ async def test_every_mutating_route_refuses_an_ownerless_legacy_job(
     job_id = await owned_by_a(client)
     storage.update_job(replace(storage.load_job(job_id), owner=None))
 
+    content, json_body = route_request_body(method, path)
     response = await client.request(
-        method, path.replace("{job_id}", job_id), content=b"x", headers=auth_headers(TOKEN_A)
+        method,
+        path.replace("{job_id}", job_id),
+        content=content,
+        json=json_body,
+        headers=auth_headers(TOKEN_A),
     )
 
     assert response.status_code == 403
