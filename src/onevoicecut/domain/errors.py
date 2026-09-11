@@ -180,3 +180,40 @@ class RenderProfileInvalid(DomainError):
     measured against and silently wrong for every profile that inherited it,
     and that failure is only visible once the clip is published.
     """
+
+
+class ArtifactsNotAvailable(DomainError):
+    """Raised when a clip is requested from a job that has no generated
+    candidates yet.
+
+    A `COMPLETED` job and a job whose script generation has actually run are
+    two different facts today — `save_artifacts` still has no production
+    caller — so a job can legitimately sit `COMPLETED` with `load_artifacts`
+    returning `None`. Collapsing this into "job not `COMPLETED`" would answer
+    the same 409 for two operator situations with two different remedies:
+    wait for transcription, or wait for generation.
+    """
+
+
+class ClipCandidateNotFound(DomainError):
+    """Raised when a `candidate_index` names no generated `ClipCandidate`.
+
+    Distinct from `ArtifactsNotAvailable`: candidates exist, this one just is
+    not among them. An operator reading "no such candidate" learns to recheck
+    the index; "no candidates yet" would send them looking for a bug in a
+    request that was never wrong.
+    """
+
+
+class ClipTargetsInvalid(DomainError):
+    """Raised when a clip request names a network no script variant exists
+    for on the resolved candidate.
+
+    Checked before `group_variants_by_profile` ever runs: that function
+    validates the variants a caller hands it against the render-profile
+    registry, so silently narrowing to the intersection of "requested" and
+    "generated" networks first would let a mistyped network vanish from the
+    selection with nothing said about it — an operator who asked for four
+    destinations and got two files, unable to tell why, which is the one
+    failure shape this whole system refuses to reproduce.
+    """
