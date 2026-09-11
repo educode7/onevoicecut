@@ -1,16 +1,26 @@
-"""Orchestrating one clip's render, and the two refusals that must come first.
+"""Orchestrating one clip's render, and the refusals recorded around it.
 
 The worker is where every declaration an operator reads is assembled, and the
 reason they are assembled *here* rather than reported by the adapter is that all
 four are known before ffmpeg is spawned. A renderer that reported them could lie
 about arithmetic it never ran.
 
-**Both refusals are about spending nothing.** A source with no picture and a
-build with no vision weights are each discoverable before the expensive step, and
-the expensive step is detection -- the one place model weights dominate. A worker
-that detected first and refused afterwards would be correct and would still have
-paid for the answer it threw away, which is why the tests below assert on the
-tracker never being touched rather than on the message.
+**The tracking-capability refusal is about spending nothing.** A build with no
+vision weights is discoverable before the expensive step, and the expensive step
+is detection -- the one place model weights dominate. `_require_detection` runs
+above `tracker.detect()` in `_render_profiles`'s whole-clip guard, so a build
+that declares no support never pays for an answer it would throw away -- which is
+why that test asserts on the tracker never being touched rather than on the
+message.
+
+**The frame-geometry refusal holds to the same discipline, and 13b-iii-c is
+where that stopped being true by accident.** The degenerate-crop half depends
+on the policy, so it reads as per-profile work belonging inside the loop --
+which is below detection. It is not: every aspect the clip renders at is
+resolved before the tracker is reached, so `_croppable_frames` proves them all
+in the guard above. The tests below assert `tracker.spans == []`, which is what
+task `13b.20` requires in those words, and the fixture ordered square-first is
+the only one that distinguishes checking every aspect from checking the first.
 """
 
 from dataclasses import replace
@@ -43,12 +53,7 @@ from onevoicecut.domain.transcript import SegmentKind, Transcript, TranscriptSeg
 from onevoicecut.ports.capabilities import RenderCapabilities, RenderSupport
 from onevoicecut.ports.subject_tracker import SubjectDetection
 from onevoicecut.ports.video_render import RenderedFile, RenderRequest
-from onevoicecut.runtime.render_worker import (
-    render_clip_for_candidate,
-    render_clip_for_profile,
-    render_pending_exports,
-)
-from onevoicecut.usecases.generate_artifacts import ScriptTarget
+from onevoicecut.runtime.render_worker import render_pending_exports
 from tests.fakes.subject_tracker import (
     FakeSubjectTrackerPort,
     UnavailableSubjectTrackerPort,
@@ -90,36 +95,16 @@ SQUARE_PROFILE = RenderProfile(
     max_duration_s=90.0,
 )
 
-# [rev 5] Three networks naming `vertical`, one naming `square` -- the shape
-# the spec's own scenario uses: four networks, two distinct profiles.
-SCRIPT_TARGETS_TWO_PROFILES = {
-    "tiktok": ScriptTarget(
-        name="tiktok", format="plain", duration_target_s=45.0, profile="vertical"
-    ),
-    "instagram": ScriptTarget(
-        name="instagram", format="plain", duration_target_s=45.0, profile="vertical"
-    ),
-    "youtube": ScriptTarget(
-        name="youtube", format="plain", duration_target_s=45.0, profile="vertical"
-    ),
-    "facebook": ScriptTarget(
-        name="facebook", format="plain", duration_target_s=45.0, profile="square"
-    ),
-}
+# [rev 5] Two distinct render profiles -- the shape the spec's own scenario
+# uses: several networks resolving to a handful of profiles. `group_variants_
+# by_profile`, which used to turn a candidate's networks into this shape, now
+# lives in and is tested directly by `tests/unit/usecases/test_render_
+# profiles.py`; these registries stay here because the render *loop* -- what
+# `render_pending_exports` does once profiles are already resolved -- is still
+# this module's own concern.
 RENDER_PROFILES_TWO = {"vertical": PROFILE, "square": SQUARE_PROFILE}
 
-# [rev 5] Two networks naming two profiles that share one aspect.
-SCRIPT_TARGETS_SHARED_ASPECT = {
-    "tiktok": ScriptTarget(
-        name="tiktok", format="plain", duration_target_s=45.0, profile="vertical"
-    ),
-    "facebook": ScriptTarget(
-        name="facebook",
-        format="plain",
-        duration_target_s=45.0,
-        profile="narrow_vertical",
-    ),
-}
+# [rev 5] Two render profiles that share one aspect.
 RENDER_PROFILES_SHARED_ASPECT = {
     "vertical": PROFILE,
     "narrow_vertical": NARROW_VERTICAL_PROFILE,
@@ -232,70 +217,36 @@ def run(
     renderer: RecordingRenderer | None = None,
     storage: FakeTranscriptStoragePort | None = None,
 ) -> ClipExport:
+    """One profile, from a single `PENDING` export to a persisted result.
+
+    Drives `render_pending_exports` -- the one production entrypoint -- rather
+    than a single-profile path of its own: `render_clip_for_profile` and
+    `_render` are gone, so the base-case proof this helper exists for now has
+    to go through the same fan-out loop every render does, with a fan-out of
+    one. `a_pending_export`'s defaults already carry `PROFILE`'s name and this
+    candidate's own hook/quote/variant, so a one-target `pending` tuple is the
+    whole difference from the old call.
+    """
     store = storage if storage is not None else FakeTranscriptStoragePort(tmp_path)
     store.save_transcript(transcript if transcript is not None else a_transcript())
-    return render_clip_for_profile(
+    resolved_candidate = candidate if candidate is not None else a_candidate()
+    exports = render_pending_exports(
         JOB_ID,
         CLIP_ID,
-        candidate if candidate is not None else a_candidate(),
-        profile=PROFILE,
-        media=a_media(tmp_path),
-        probe=probe if probe is not None else a_probe(),
-        tracker=tracker if tracker is not None else FakeSubjectTrackerPort(),
-        renderer=renderer if renderer is not None else RecordingRenderer(),
-        storage=store,
-        job_dir=tmp_path,
-    )
-
-
-def a_candidate_for(*targets: str, end_s: float = 150.0) -> ClipCandidate:
-    """A candidate whose variants name exactly the given networks -- the shape
-    the fan-out tests need to control which profiles a candidate resolves to."""
-    return ClipCandidate(
-        start_s=120.0,
-        end_s=end_s,
-        hook="Hermanos, escuchen",
-        quote="Un momento del sermon",
-        rationale="El punto central",
-        score=0.9,
-        variants=tuple(
-            ScriptVariant(
-                target=target, format="plain", body=f"Hola {target}", duration_target_s=45.0
-            )
-            for target in targets
+        (
+            a_pending_export(
+                start_s=resolved_candidate.start_s, end_s=resolved_candidate.end_s
+            ),
         ),
-    )
-
-
-def run_candidate(
-    tmp_path: Path,
-    *,
-    tracker: FakeSubjectTrackerPort | UnavailableSubjectTrackerPort | None = None,
-    probe: MediaProbe | None = None,
-    transcript: Transcript | None = None,
-    candidate: ClipCandidate | None = None,
-    renderer: RecordingRenderer | None = None,
-    storage: FakeTranscriptStoragePort | None = None,
-    script_targets: dict[str, ScriptTarget] = SCRIPT_TARGETS_TWO_PROFILES,
-    render_profiles: dict[str, RenderProfile] = RENDER_PROFILES_TWO,
-) -> tuple[ClipExport, ...]:
-    store = storage if storage is not None else FakeTranscriptStoragePort(tmp_path)
-    store.save_transcript(transcript if transcript is not None else a_transcript())
-    return render_clip_for_candidate(
-        JOB_ID,
-        CLIP_ID,
-        candidate
-        if candidate is not None
-        else a_candidate_for("tiktok", "instagram", "youtube", "facebook"),
         media=a_media(tmp_path),
         probe=probe if probe is not None else a_probe(),
         tracker=tracker if tracker is not None else FakeSubjectTrackerPort(),
         renderer=renderer if renderer is not None else RecordingRenderer(),
         storage=store,
         job_dir=tmp_path,
-        script_targets=script_targets,
-        render_profiles=render_profiles,
+        render_profiles={"vertical": PROFILE},
     )
+    return exports[0]
 
 
 def rendered(export: ClipExport) -> RenderedClip:
@@ -430,6 +381,11 @@ class TestTheRefusalsThatComeFirst:
     def test_a_source_with_no_picture_is_refused_before_detection(
         self, tmp_path: Path
     ) -> None:
+        """Task `13b.20` states the requirement as "never calling the tracker",
+        and the design's sequence diagram puts this `alt` branch above
+        `capabilities()` and `detect()`. A source with no picture is
+        profile-independent, so nothing about the fan-out makes this cost
+        unavoidable."""
         tracker = FakeSubjectTrackerPort()
 
         export = run(tmp_path, tracker=tracker, probe=a_probe(frame=None))
@@ -441,14 +397,42 @@ class TestTheRefusalsThatComeFirst:
     def test_a_degenerate_frame_is_refused_before_detection(
         self, tmp_path: Path
     ) -> None:
-        """crop_size_for is total and answers (0, 0) for a frame under two
-        pixels -- an honest answer that has no quality. Refused here so
-        quality_of never divides by a zero crop width."""
+        """`crop_size_for` is total and answers a non-positive size for a frame
+        under two pixels -- an honest answer that has no quality, refused so
+        `quality_of` never divides by a zero crop width.
+
+        This one *is* per aspect, which is why it is easy to get wrong: the
+        answer depends on the policy, and the policy comes from the profile. It
+        is still knowable before detection, because every aspect the clip will
+        be rendered at is resolved before the tracker is ever reached."""
         tracker = FakeSubjectTrackerPort()
 
         export = run(tmp_path, tracker=tracker, probe=a_probe(frame=FrameSize(1920, 1)))
 
         assert export.state is ClipState.FAILED
+        assert tracker.spans == []
+
+    def test_an_aspect_that_is_not_the_first_is_still_checked_before_detection(
+        self, tmp_path: Path
+    ) -> None:
+        """`FrameSize(1920, 2)` crops to (2, 2) at 1:1 and to (0, 2) at 9:16, so
+        the square target passes and the vertical one cannot. Ordered square
+        first, a guard that inspected only the leading target would find nothing
+        wrong and pay for detection before the loop refused -- which is exactly
+        how this check ended up below detection in the first place."""
+        tracker = FakeSubjectTrackerPort()
+
+        exports = run_pending(
+            tmp_path,
+            (
+                a_pending_export(profile="square"),
+                a_pending_export(profile="vertical"),
+            ),
+            tracker=tracker,
+            probe=a_probe(frame=FrameSize(1920, 2)),
+        )
+
+        assert {e.state for e in exports} == {ClipState.FAILED}
         assert tracker.spans == []
 
     def test_a_build_that_cannot_track_is_refused_before_detection(
@@ -511,62 +495,35 @@ class TestTheRefusalsThatComeFirst:
         assert "ClipRangeInvalid" in (export.failure or "")
 
 
-class TestProfileFanOut:
-    """[rev 5] A candidate is rendered once per *distinct* render profile among
-    its variants, never once per network. Dedup is on the profile, never the
-    network -- three networks naming one profile share its single export."""
-
-    def test_four_networks_resolving_to_two_profiles_produce_two_exports(
-        self, tmp_path: Path
-    ) -> None:
-        exports = run_candidate(tmp_path)
-
-        assert {export.profile for export in exports} == {"vertical", "square"}
-
-    def test_three_networks_sharing_one_profile_land_on_its_single_export(
-        self, tmp_path: Path
-    ) -> None:
-        exports = run_candidate(tmp_path)
-        vertical = next(e for e in exports if e.profile == "vertical")
-
-        assert {v.target for v in vertical.variants} == {
-            "tiktok",
-            "instagram",
-            "youtube",
-        }
-
-    def test_the_other_profiles_export_carries_only_its_own_network(
-        self, tmp_path: Path
-    ) -> None:
-        exports = run_candidate(tmp_path)
-        square = next(e for e in exports if e.profile == "square")
-
-        assert {v.target for v in square.variants} == {"facebook"}
-
-    def test_dedup_is_on_the_profile_not_the_network(self, tmp_path: Path) -> None:
-        """Three networks all naming `vertical` -- one export, not three."""
-        exports = run_candidate(
-            tmp_path, candidate=a_candidate_for("tiktok", "instagram", "youtube")
-        )
-
-        assert len(exports) == 1
-        assert exports[0].profile == "vertical"
-
-
 class TestDetectionIsInvariantAcrossProfiles:
     """[rev 5] `detect(media, span, sample_hz)` takes no aspect and no policy --
     it answers where a person was found in the source frame, which is the same
     answer whatever shape gets cropped around it. Aspect enters only at
     `build_trajectory`. Re-detecting per profile would multiply the one cost
     this pipeline lets model weights dominate, to obtain an identical answer --
-    this is the unit's sharpest cost assertion."""
+    this is the unit's sharpest cost assertion.
+
+    Driven through `run_pending` -- `pending` here is exactly what a caller
+    grouping a candidate's variants with
+    `usecases.render_profiles.group_variants_by_profile` would have written,
+    but that grouping is that function's own concern and its own tests; this
+    class is about what `_render_profiles` does once profiles are already
+    resolved.
+    """
 
     def test_detect_runs_at_most_once_across_two_distinct_profiles(
         self, tmp_path: Path
     ) -> None:
         tracker = FakeSubjectTrackerPort()
 
-        run_candidate(tmp_path, tracker=tracker)
+        run_pending(
+            tmp_path,
+            (
+                a_pending_export(profile="vertical", variants=(a_variant("tiktok"),)),
+                a_pending_export(profile="square", variants=(a_variant("facebook"),)),
+            ),
+            tracker=tracker,
+        )
 
         assert len(tracker.spans) == 1
 
@@ -575,11 +532,15 @@ class TestDetectionIsInvariantAcrossProfiles:
     ) -> None:
         tracker = FakeSubjectTrackerPort()
 
-        run_candidate(
+        run_pending(
             tmp_path,
+            (
+                a_pending_export(profile="vertical", variants=(a_variant("tiktok"),)),
+                a_pending_export(
+                    profile="narrow_vertical", variants=(a_variant("facebook"),)
+                ),
+            ),
             tracker=tracker,
-            candidate=a_candidate_for("tiktok", "facebook"),
-            script_targets=SCRIPT_TARGETS_SHARED_ASPECT,
             render_profiles=RENDER_PROFILES_SHARED_ASPECT,
         )
 
@@ -626,10 +587,14 @@ class TestTrajectoryIsKeyedByAspect:
         target width differs -- so a caller keying by aspect must plan once."""
         policies_seen = _counting_build_trajectory(monkeypatch)
 
-        run_candidate(
+        run_pending(
             tmp_path,
-            candidate=a_candidate_for("tiktok", "facebook"),
-            script_targets=SCRIPT_TARGETS_SHARED_ASPECT,
+            (
+                a_pending_export(profile="vertical", variants=(a_variant("tiktok"),)),
+                a_pending_export(
+                    profile="narrow_vertical", variants=(a_variant("facebook"),)
+                ),
+            ),
             render_profiles=RENDER_PROFILES_SHARED_ASPECT,
         )
 
@@ -642,7 +607,13 @@ class TestTrajectoryIsKeyedByAspect:
         aspects, so neither trajectory may stand in for the other."""
         policies_seen = _counting_build_trajectory(monkeypatch)
 
-        run_candidate(tmp_path, candidate=a_candidate_for("tiktok", "facebook"))
+        run_pending(
+            tmp_path,
+            (
+                a_pending_export(profile="vertical", variants=(a_variant("tiktok"),)),
+                a_pending_export(profile="square", variants=(a_variant("facebook"),)),
+            ),
+        )
 
         assert len(policies_seen) == 2
         assert {(p.aspect_w, p.aspect_h) for p in policies_seen} == {(9, 16), (1, 1)}
@@ -660,10 +631,14 @@ class TestQualityIsDeclaredPerProfile:
     ) -> None:
         """A 1920x1080 frame yields a 606-wide 9:16 crop: `narrow_vertical`'s
         540px target is native, `vertical`'s 1080px target upscales it."""
-        exports = run_candidate(
+        exports = run_pending(
             tmp_path,
-            candidate=a_candidate_for("tiktok", "facebook"),
-            script_targets=SCRIPT_TARGETS_SHARED_ASPECT,
+            (
+                a_pending_export(profile="vertical", variants=(a_variant("tiktok"),)),
+                a_pending_export(
+                    profile="narrow_vertical", variants=(a_variant("facebook"),)
+                ),
+            ),
             render_profiles=RENDER_PROFILES_SHARED_ASPECT,
         )
         narrow = rendered(next(e for e in exports if e.profile == "narrow_vertical"))
@@ -675,10 +650,14 @@ class TestQualityIsDeclaredPerProfile:
     def test_each_exports_quality_is_computed_against_its_own_target_width(
         self, tmp_path: Path
     ) -> None:
-        exports = run_candidate(
+        exports = run_pending(
             tmp_path,
-            candidate=a_candidate_for("tiktok", "facebook"),
-            script_targets=SCRIPT_TARGETS_SHARED_ASPECT,
+            (
+                a_pending_export(profile="vertical", variants=(a_variant("tiktok"),)),
+                a_pending_export(
+                    profile="narrow_vertical", variants=(a_variant("facebook"),)
+                ),
+            ),
             render_profiles=RENDER_PROFILES_SHARED_ASPECT,
         )
         narrow = rendered(next(e for e in exports if e.profile == "narrow_vertical"))
@@ -724,6 +703,14 @@ class TestDurationCeilingIsDeclaredNotTrimmed:
 
         assert rendered(export).duration.kind is DurationComplianceKind.WITHIN_CEILING
         assert rendered(export).duration.overrun_s == 0.0
+
+
+def a_variant(target: str) -> ScriptVariant:
+    """One network's own variant -- the shape a `PENDING` export's `variants`
+    tuple is built from when a test wants to name more than one network."""
+    return ScriptVariant(
+        target=target, format="plain", body=f"Hola {target}", duration_target_s=45.0
+    )
 
 
 def a_pending_export(

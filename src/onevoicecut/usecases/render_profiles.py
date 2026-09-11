@@ -25,7 +25,9 @@ step, not a coding task.
 from collections.abc import Mapping
 
 from onevoicecut.domain.errors import RenderProfileInvalid
+from onevoicecut.domain.generation import ScriptVariant
 from onevoicecut.domain.rendering import OutputSpec, RenderProfile
+from onevoicecut.usecases.generate_artifacts import ScriptTarget
 
 # Every destination this change delivers to is vertical 9:16, so they share one
 # profile and therefore one rendered file. `safe_area=None` is not an oversight:
@@ -93,3 +95,49 @@ def resolve_render_profiles(
         )
 
     return tuple(registry[name] for name in wanted)
+
+
+def group_variants_by_profile(
+    variants: tuple[ScriptVariant, ...],
+    *,
+    script_targets: Mapping[str, ScriptTarget],
+    render_profiles: Mapping[str, RenderProfile] = RENDER_PROFILES,
+) -> tuple[tuple[RenderProfile, tuple[ScriptVariant, ...]], ...]:
+    """A candidate's variants, grouped by the distinct profile they resolve to.
+
+    Order is first-seen among the variants, the same rule
+    `resolve_render_profiles` already applies to an operator's comma list --
+    reused here rather than re-implemented, so one unmeasured profile still
+    refuses the whole candidate rather than rendering the rest and silently
+    dropping it.
+
+    **Lives here, not on the render worker, because it is pure logic over two
+    registries and no port.** It joins `script_targets` (which network maps to
+    which profile) against `render_profiles` (what that profile means) with no
+    dependency on ffmpeg, a tracker, or storage -- the render worker's
+    composition-root concerns. The join is also not the render worker's alone:
+    `13b-iv`'s HTTP route needs the identical grouping to write one `PENDING`
+    `ClipExport` per distinct profile and report those profiles in its `202`,
+    before any worker process exists to run. An adapter importing from
+    `runtime/`, the composition root, would be backwards -- so the function
+    belongs where both callers can reach it without either importing the
+    other.
+    """
+    order: list[str] = []
+    by_profile_name: dict[str, list[ScriptVariant]] = {}
+    for variant in variants:
+        target = script_targets.get(variant.target)
+        if target is None:
+            raise RenderProfileInvalid(
+                f"script variant names network {variant.target!r}, which no "
+                f"configured script target maps to a render profile"
+            )
+        if target.profile not in by_profile_name:
+            by_profile_name[target.profile] = []
+            order.append(target.profile)
+        by_profile_name[target.profile].append(variant)
+
+    profiles = resolve_render_profiles(",".join(order), registry=render_profiles)
+    return tuple(
+        (profile, tuple(by_profile_name[profile.name])) for profile in profiles
+    )

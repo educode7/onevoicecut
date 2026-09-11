@@ -4395,6 +4395,128 @@ once cannot say which axis the code is actually reading.
 
 Final state: **1,861 passed / 30 deselected**, mypy clean over **227 source files**.
 
+### 13b-iii-c: the decision at 13b-iii-b's own follow-up, reversed
+
+The "kept, not deleted" decision two sections up gave one reason: nineteen tests
+(`TestTheHappyPath`, `TestTheDeclarations`, `TestTheRefusalsThatComeFirst`) were this module's
+cheapest, least-confounded proof of the five `RenderedClip` declarations and the refusal ordering, and
+`render_clip_for_profile` / `render_clip_for_candidate` / `_render` cost nothing to keep because nothing
+in production called them. That reasoning had a hole its own author already named: "keeping code alive
+because its own tests exercise it is backwards." The three functions had exactly one caller between them
+by the time this unit started -- their own test module -- and `render_clip_for_candidate`'s
+`_grouped_profiles` and `_render`'s frame-geometry-before-detection ordering had *already* diverged from
+`_render_profiles`'s, the path every real render actually takes, without a single production byte
+exercising the divergence to surface it. A fixture that never runs in production is not a cheaper proof
+of production behaviour; it is a second implementation wearing a test's clothes, and the tests passing
+proved only that the second implementation agreed with itself.
+
+**Deleted: `render_clip_for_profile`, `render_clip_for_candidate`, `_render`.** `_export_from_trajectory`,
+`_croppable_frame`, `_require_detection`, `_failed` and `_record` all survive -- each one checked against
+`_render_profiles`'s live body before anything was removed, not assumed safe because it looked shared.
+
+**`_grouped_profiles` survives, renamed `group_variants_by_profile`, moved to
+`usecases/render_profiles.py`.** It joins two registries (`script_targets`, `render_profiles`) with no
+port and no adapter in reach -- ffmpeg, the tracker, storage are `render_worker.py`'s composition-root
+concerns, not this function's -- so it was never a worker concern to begin with, only parked there because
+nothing else needed it yet. `13b-iv`'s still-unbuilt HTTP route does: `POST /api/jobs/{id}/clips
+{candidate_index, targets}` has to derive a candidate's distinct profiles to write one `PENDING`
+`ClipExport` per profile and report them in its `202`, before any worker process exists to run against. An
+adapter importing from `runtime/`, the composition root, would invert the hexagon `test_architecture.py`
+enforces; `usecases/render_profiles.py` is already the one place profile resolution lives
+(`resolve_render_profiles`), and `group_variants_by_profile` now calls it as a same-module function rather
+than an imported one. Its docstring keeps the original reasoning about first-seen ordering and the
+whole-candidate refusal, extended with the move's own why.
+
+**The re-pointed behaviours split along the line the task drew.** Grouping and dedup --  four networks
+resolving to two profiles, three sharing one landing on a single group, the fourth carrying only its own
+network, dedup on the profile never the network -- now live in
+`tests/unit/usecases/test_render_profiles.py::TestGroupVariantsByProfile`, tested directly against
+`group_variants_by_profile` with no worker, no port, no fake heavy adapter in the way. Two behaviours the
+old suite asserted on only by accident of code sharing -- first-seen ordering, and a variant naming a
+network no `ScriptTarget` maps to a profile -- had **no test at all** before this unit; `_grouped_profiles`
+carried both properties in its own logic and its own docstring, unexercised. Both are new tests in that
+same class now, not carried over from anywhere, because there was nowhere to carry them from. Render-loop
+behaviours -- detection invariant across profiles, trajectory keyed by aspect, quality declared per
+profile, the duration ceiling declared not trimmed -- stayed in `test_render_worker.py`, re-pointed through
+`run_pending` (already built for `render_pending_exports`) rather than through the deleted
+`render_clip_for_candidate`: a `pending` tuple of `a_pending_export()`s, one per profile, is exactly what a
+caller of `group_variants_by_profile` would have written before spawning this worker, so these tests now
+exercise the one path that ever runs in production. `TestTheHappyPath` and `TestTheDeclarations` re-point
+onto `render_pending_exports` with a one-target `pending` tuple -- `run`'s new body is the whole diff.
+
+**Deleting the cheaper sibling exposed a regression against a closed task, and it was fixed rather than
+documented.** Two tests in `TestTheRefusalsThatComeFirst` asserted `tracker.spans == []` for a frame with
+no picture and for a degenerate frame. That assertion was reached only through `_render`, and
+`_render_profiles` never held it: `_croppable_frame` ran inside the per-profile loop, *after* the
+whole-clip guard above it had already called `tracker.detect()`. Re-pointing the tests through the one
+surviving path therefore turned them red.
+
+The first instinct — record the cost honestly and move on — was wrong, because the assertion is not a
+preference. Task `13b.20` is marked `[x]` and states the requirement as "**never calling the tracker**",
+and `design.md`'s sequence diagram puts this `alt` branch above `capabilities()` and `detect()`. So the
+fan-out in 13b-iii-b silently regressed a closed contract, and re-pointing the tests is what surfaced
+it. A suite that documents a broken contract still ships the broken contract.
+
+**The fix is `_croppable_frames`, above detection.** The half that made this look unhoistable is the
+degenerate-crop check, which depends on the policy, which comes from the profile — so it reads as
+per-profile work belonging inside the loop. It is not: every profile the clip renders under is resolved
+before the tracker is reached, so the whole set of aspects is knowable up front. One pass over the
+targets proves each distinct aspect croppable, and the loop below consumes the frames it proved. The
+refusal is back above `_require_detection` and `tracker.detect()`, and the module docstring's claim that
+both refusals come before detection is true again.
+
+**A fixture that differed on every axis proved less than it looked — for the third time this slice.**
+`FrameSize(1920, 1)` is degenerate at *every* aspect, so a guard inspecting only `targets[0]` passes it.
+`FrameSize(1920, 2)` crops to `(2, 2)` at 1:1 and `(0, 2)` at 9:16; ordered square-first, it is the only
+fixture that distinguishes "checks every aspect" from "checks the first". Both mutations are caught:
+restricting the guard to the leading target fails that test alone, and moving the guard back below
+detection fails all three.
+
+**The two-body drift risk is gone too.** One render-loop implementation remains, so there is nothing left
+for `_render_profiles` to drift from — the risk named at 13b-iii-b's "kept, not deleted" decision cannot
+recur. It is worth naming what the drift actually cost: the second body was not merely redundant, it was
+the only place the closed contract still held, and keeping it alive for its tests is what let the shipping
+body disagree with the design for two units without a red test.
+
+### Mutations, and what they found
+
+Three mutations against `group_variants_by_profile`, the moved function, each restored before the next:
+
+1. Grouping by `variant.target` instead of the resolved `target.profile` -- failed five tests (the four
+   moved grouping/dedup tests plus the ordering test), one with a raw `KeyError: 'square'` rather than an
+   assertion, because the final lookup still reads `by_profile_name[profile.name]` against keys that are
+   now network names.
+2. Dropping first-seen order for `sorted(order)` -- the first fixture chosen (`facebook, tiktok`) passed
+   under the mutation by accident, because its first-seen order (`square, vertical`) happens to already be
+   alphabetical. Rewritten to `tiktok, facebook` (`vertical, square` first-seen vs. `square, vertical`
+   sorted) before the mutation actually failed -- the same "a fixture that does not disagree with the
+   mutation proves nothing" lesson 13b-iii-b recorded for same-aspect detection fixtures, recorded again
+   here for ordering fixtures.
+3. Letting an unresolvable network fall back to a default `vertical` profile instead of raising -- failed
+   `test_a_variant_naming_an_unconfigured_network_is_refused` by name.
+
+All three caught after the ordering fixture was corrected; none needed a new test beyond that correction.
+
+### Measured cost
+
+`git diff --numstat` against `main`, excluding `.atl/` (already dirty before this unit, untouched by it):
+**383 lines added, 436 removed (53 net negative)** across four files, of which `src` is 113 added / 282
+removed — **169 net negative**. `render_worker.py` carries the three deletions and the `_croppable_frames`
+hoist; `render_profiles.py` gains the moved function. Net-negative on `src`, as a deletion-and-move unit
+should be, and the ordering fix added back only what a closed contract already required. No line-count
+budget applies to a unit whose scope is removing and relocating already-written code.
+
+Final state: **1,869 passed / 30 deselected**, mypy clean over **227 source files**. Test count rose by 4
+net, not fell, despite three functions and their class being deleted: `TestProfileFanOut`'s four tests
+moved out of `render_worker` (-4), `TestGroupVariantsByProfile` landed with seven (+7) — the four moved
+equivalents plus three (first-seen ordering, the whole-selection unmeasured refusal via this path, the
+unconfigured-network refusal) that `_grouped_profiles` never had tests of its own for — and the
+multi-aspect geometry fixture added one (+1).
+
+The unit was scoped as a deletion and came back with a defect. That is the argument for doing it: the
+dead path was not inert, it was the last place a closed contract still held, and nothing would have
+reported that while it stayed.
+
 ---
 
 ## Slice 13b-iv: HTTP Clip Routes (~675 lines)

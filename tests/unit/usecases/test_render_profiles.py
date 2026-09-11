@@ -18,8 +18,13 @@ unmeasured profile is refused rather than given somebody else's margin.
 import pytest
 
 from onevoicecut.domain.errors import DomainError, RenderProfileInvalid
+from onevoicecut.domain.generation import ScriptVariant
 from onevoicecut.domain.rendering import OutputSpec, RenderProfile, SafeArea
-from onevoicecut.usecases.render_profiles import resolve_render_profiles
+from onevoicecut.usecases.generate_artifacts import ScriptTarget
+from onevoicecut.usecases.render_profiles import (
+    group_variants_by_profile,
+    resolve_render_profiles,
+)
 
 MEASURED = RenderProfile(
     name="vertical",
@@ -131,3 +136,127 @@ class TestTheErrorType:
 
         assert not issubclass(RenderProfileInvalid, RenderFailed)
         assert not issubclass(RenderFailed, RenderProfileInvalid)
+
+
+# [moved from runtime/render_worker.py's TestProfileFanOut] Three networks
+# sharing `vertical`, one naming `square` -- the shape the spec's own scenario
+# uses: four networks, two distinct profiles.
+GROUPING_SCRIPT_TARGETS = {
+    "tiktok": ScriptTarget(
+        name="tiktok", format="plain", duration_target_s=45.0, profile="vertical"
+    ),
+    "instagram": ScriptTarget(
+        name="instagram", format="plain", duration_target_s=45.0, profile="vertical"
+    ),
+    "youtube": ScriptTarget(
+        name="youtube", format="plain", duration_target_s=45.0, profile="vertical"
+    ),
+    "facebook": ScriptTarget(
+        name="facebook", format="plain", duration_target_s=45.0, profile="square"
+    ),
+}
+GROUPING_REGISTRY = {"vertical": MEASURED, "square": SQUARE}
+
+
+def a_variant(target: str) -> ScriptVariant:
+    return ScriptVariant(
+        target=target, format="plain", body=f"Hola {target}", duration_target_s=45.0
+    )
+
+
+class TestGroupVariantsByProfile:
+    """A candidate's variants, grouped by the distinct render profile they
+    resolve to -- moved here from `runtime/render_worker.py`'s
+    `_grouped_profiles` because it is pure logic over these two registries and
+    no port; `13b-iv`'s HTTP route needs the identical join to write one
+    `PENDING` export per distinct profile before any worker process exists."""
+
+    def test_four_networks_resolving_to_two_profiles_produce_two_groups(
+        self,
+    ) -> None:
+        grouped = group_variants_by_profile(
+            tuple(a_variant(t) for t in ("tiktok", "instagram", "youtube", "facebook")),
+            script_targets=GROUPING_SCRIPT_TARGETS,
+            render_profiles=GROUPING_REGISTRY,
+        )
+
+        assert {profile.name for profile, _ in grouped} == {"vertical", "square"}
+
+    def test_three_networks_sharing_one_profile_land_in_one_group(self) -> None:
+        grouped = group_variants_by_profile(
+            tuple(a_variant(t) for t in ("tiktok", "instagram", "youtube", "facebook")),
+            script_targets=GROUPING_SCRIPT_TARGETS,
+            render_profiles=GROUPING_REGISTRY,
+        )
+        vertical = next(variants for profile, variants in grouped if profile.name == "vertical")
+
+        assert {v.target for v in vertical} == {"tiktok", "instagram", "youtube"}
+
+    def test_the_other_profiles_group_carries_only_its_own_network(self) -> None:
+        grouped = group_variants_by_profile(
+            tuple(a_variant(t) for t in ("tiktok", "instagram", "youtube", "facebook")),
+            script_targets=GROUPING_SCRIPT_TARGETS,
+            render_profiles=GROUPING_REGISTRY,
+        )
+        square = next(variants for profile, variants in grouped if profile.name == "square")
+
+        assert {v.target for v in square} == {"facebook"}
+
+    def test_dedup_is_on_the_profile_not_the_network(self) -> None:
+        """Three networks all naming `vertical` -- one group, not three."""
+        grouped = group_variants_by_profile(
+            tuple(a_variant(t) for t in ("tiktok", "instagram", "youtube")),
+            script_targets=GROUPING_SCRIPT_TARGETS,
+            render_profiles=GROUPING_REGISTRY,
+        )
+
+        assert len(grouped) == 1
+        assert grouped[0][0].name == "vertical"
+
+    def test_order_is_first_seen_among_the_variants(self) -> None:
+        """The same rule `resolve_render_profiles` applies to an operator's
+        comma list, reused here rather than re-implemented. `tiktok` before
+        `facebook` deliberately disagrees with alphabetical order
+        (`square` < `vertical`), so a caller that sorted instead of
+        preserving first-seen order would still pass a fixture that happened
+        to agree with it."""
+        grouped = group_variants_by_profile(
+            tuple(a_variant(t) for t in ("tiktok", "facebook")),
+            script_targets=GROUPING_SCRIPT_TARGETS,
+            render_profiles=GROUPING_REGISTRY,
+        )
+
+        assert [profile.name for profile, _ in grouped] == ["vertical", "square"]
+
+    def test_one_unmeasured_profile_refuses_the_whole_selection(self) -> None:
+        """Resolving the measured profile and quietly dropping the unmeasured
+        one is the silent degradation stated backwards."""
+        script_targets = {
+            **GROUPING_SCRIPT_TARGETS,
+            "unmeasured-net": ScriptTarget(
+                name="unmeasured-net",
+                format="plain",
+                duration_target_s=45.0,
+                profile="unmeasured",
+            ),
+        }
+        render_profiles = {**GROUPING_REGISTRY, "unmeasured": UNMEASURED}
+
+        with pytest.raises(RenderProfileInvalid):
+            group_variants_by_profile(
+                (a_variant("tiktok"), a_variant("unmeasured-net")),
+                script_targets=script_targets,
+                render_profiles=render_profiles,
+            )
+
+    def test_a_variant_naming_an_unconfigured_network_is_refused(self) -> None:
+        """A network no `ScriptTarget` maps to a profile at all -- distinct
+        from an unmeasured *profile*, which at least resolves to a name."""
+        with pytest.raises(RenderProfileInvalid) as caught:
+            group_variants_by_profile(
+                (a_variant("a-network-no-script-target-maps"),),
+                script_targets=GROUPING_SCRIPT_TARGETS,
+                render_profiles=GROUPING_REGISTRY,
+            )
+
+        assert "a-network-no-script-target-maps" in str(caught.value)
