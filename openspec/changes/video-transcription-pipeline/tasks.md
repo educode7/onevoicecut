@@ -3995,7 +3995,7 @@ than merely naming its types, and **[rev 5]** the only one that fans a single cl
 - [x] 13b.18 RED: `tests/unit/runtime/test_render_worker.py` — the happy path calls `probe`→`detect`→
       `build_trajectory`→`load_transcript`→`build_subtitle_cues`→`render`→`quality_of` in order, against
       fakes, and writes a `RENDERED` `ClipExport`.
-- [ ] 13b.19 GREEN: `runtime/render_worker.py` — headless entrypoint `python -m
+- [x] 13b.19 GREEN: `runtime/render_worker.py` — headless entrypoint `python -m
       onevoicecut.runtime.render_worker --job-id <id> --clip-id <id>`.
 - [x] 13b.20 RED: frame-geometry-refusal test — two cases, both writing a `FAILED` `ClipExport` naming
       `FrameGeometryUnavailable` and never calling the tracker: (a) `probe.frame is None`; (b) a degenerate
@@ -4191,6 +4191,209 @@ The unit still sits inside the 800-line budget, so the split this section's pare
 here anyway: the cost landed in the domain type, which both halves would have shared.
 
 Final state: **1829 passed / 30 deselected**, mypy clean over **225 source files**.
+
+### `13b.19` closed, and the two gaps that blocked it closed with it
+
+Both gaps 13b-iii-a recorded were closed before the entrypoint itself, because neither is a rendering
+concern -- they are about *identifying* a clip from outside, exactly as that section said.
+
+**Gap 2, `load_artifacts`, was the smaller one and stayed small.** `TranscriptStoragePort` gained a
+fourth reader following the shape `load_chunk_plan` and `load_transcript` already set: absent is `None`,
+never a refusal, because a job awaiting generation is a normal mid-run state. The filesystem adapter and
+the fake both implement it in one line each -- the fake because `self._artifacts` already existed, the
+adapter because `_read_optional` plus the existing `decode_artifacts` already did the work. The round trip
+is proven through `serialization.py` (already had one, from when `save_artifacts` shipped alone) and a new
+corrupted-record test deletes a nested field (`clip_candidates[0]["hook"]`) to prove the decoder still
+rejects a broken payload rather than silently reading `None`. This unit adds the reader and its tests
+only; `13b-iv`'s `POST .../clips {candidate_index}` route is its first production caller, and does not
+exist yet.
+
+**Gap 1, the missing source range, was the one the spec actually blocked on.** `ClipExport` gained
+`source_start_s` / `source_end_s`, present from `PENDING` onward -- the same pair `RenderedClip` already
+carried, requested before a clip exists rather than discovered once one does. The type's own docstring
+already argued that title and description belong on the export because reconstructing them means
+re-running generation against a transcript that may have been re-stitched; that argument binds harder on
+the range, because an index into a regenerable candidate list is not a stale copy, it is a dangling
+pointer -- there may be no candidate left at that index to re-run generation against at all. The docstring
+was extended to say so, in its own voice, rather than left to say only the weaker half of the argument.
+
+A fourth `__post_init__` invariant follows the same discipline as the three already there: `DONE` requires
+a clip, `FAILED` requires a reason, a carried clip's id agrees with the export's, and now a carried clip's
+range agrees with the export's own requested range. Mutation-checked by deleting the check outright, which
+failed exactly the one test written to prove it and nothing else -- the same shape every other invariant
+here has held to.
+
+### The entrypoint reads a decision, and reads it off the export rather than the candidate
+
+`render_pending_exports` is the new function `main` actually calls. It takes the `PENDING` tuple
+`load_clip_exports` already returns and renders exactly the profiles those records name -- never a
+`ClipCandidate`, never `SCRIPT_TARGETS`, never `resolve_render_profiles` walking a variant's network back
+to a profile the way `_grouped_profiles` does for `render_clip_for_candidate`. The task's own reasoning is
+why: the render-profile registry is operator-editable configuration, and it can change between the moment
+a `202` response told an operator "these are your two profiles" and the moment this process actually runs.
+Re-deriving from the variants would let that edit silently change the fan-out out from under an
+acknowledgement the operator already saw. Reading `export.profile` is what keeps the two moments in
+agreement, and it is also why `render_pending_exports` takes no `script_targets` parameter at all, unlike
+its candidate-driven sibling -- a network was already resolved to a profile once, by whoever wrote
+`pending`, and this function has no business re-litigating it.
+
+**One implementation of the loop, not two.** The per-profile body -- the whole-clip guard, the
+aspect-keyed trajectory cache, the per-target render-or-fail -- was extracted verbatim from
+`render_clip_for_candidate`'s own loop into `_render_profiles`, parameterised over a small private
+`_ProfileTarget` (a resolved `RenderProfile` plus the variants, title and description it renders under).
+`render_clip_for_candidate` now builds `_ProfileTarget`s from a candidate's grouped variants and calls
+`_render_profiles`; `render_pending_exports` builds them from each `PENDING` export's own fields, resolving
+only the profile *name* against the current registry, and calls the identical function. `_failed` and
+`_export_from_trajectory` lost their `ClipCandidate` parameter in the same move, taking `title` /
+`description` directly -- a candidate's hook and quote, or an export's own -- so neither function carries
+an opinion about which kind of caller it has. Two orchestration loops that can drift apart is a defect this
+slice was already bitten by once (the fan-out's own note names it); this refactor is the same fix applied
+one level up, to the two things that now call the loop rather than to the loop itself.
+
+**A profile that no longer resolves fails only its own export.** The registry can be edited between the
+request and the render -- the same fact that motivates reading the profile off the export in the first
+place -- so `render_pending_exports` resolves each `PENDING` export's profile name independently, before
+any of them reach the shared whole-clip guard. One unresolvable name becomes a `FAILED` export naming
+`RenderProfileInvalid`, carrying the range read straight off the `PENDING` record (never invented, and
+never unavailable: Gap 1 is what makes this possible even for a render that never got past its own name),
+while a sibling export naming a profile still in the registry renders normally, sharing the one detection
+pass the surviving targets pay for.
+
+**`main` and `run_render` mirror `worker.py`'s shipped idiom exactly**, because the task said to and
+because there was no reason to invent a second one: `--job-id`, `--clip-id` and `--data-dir` parsed by
+`argparse`; `make_job_id` / `make_clip_id` validated before anything touches the filesystem, an
+`InvalidIdError` refused with `EXIT_UNUSABLE` and nothing written; `run_render` returning `None` for "the
+id pair named no clip at all" (the same shape `configured_resolver() is None` already gives `worker.main`
+for "nothing to do here"), refused the identical way; a `DomainError` crossing any other port (`load_media`
+on a job with none recorded, for one) reported to stderr rather than raised as a traceback; the exit code
+carrying the outcome for the supervisor, not stdout. `tracker`, `renderer`, `extractor_factory` and
+`render_profiles` are all injectable, the same seam `resolver` and `extractor_factory` are on `worker.main`
+-- this module's own unit tests and the E2E-style integration test drive real
+`FilesystemTranscriptStorage` against `tmp_path` with fake heavy adapters, never the reverse.
+
+**No real `SubjectTrackerPort` adapter exists yet -- `13c-i` is what builds one.** Rather than leave
+`run_render` unable to construct anything, it defaults to `_UnconfiguredSubjectTracker`, a small
+production class (not a test fake) declaring `DetectionSupport.UNSUPPORTED`. This is not a placeholder
+standing in for missing plumbing; it is the honest capability declaration this project's whole
+no-silent-degradation discipline already demands for exactly this situation, the same way
+`production_factories` can register no ASR engine at all. Declaring it routes every clip through the
+already-proven `TrackingUnavailable` path -- a `FAILED` export an operator can read, naming what to
+install next -- rather than a process that cannot start. `13c-i` replaces the default with a real
+tracker-resolver mirroring `runtime/engine_resolver.py`'s shape; nothing else in this module changes that
+day.
+
+### The `render_clip_for_profile` decision: kept, not deleted
+
+The task asked this directly: `render_clip_for_profile` and `_render` now have no production caller --
+`13b-iv`'s route only *writes* `PENDING` exports (13b.28), it does not render, and this entrypoint calls
+`render_pending_exports`, which never calls `render_clip_for_profile` either. Deleting them was considered
+and rejected, for one reason: `TestTheHappyPath`, `TestTheDeclarations` and `TestTheRefusalsThatComeFirst`
+-- nineteen tests -- are the cheapest, least-confounded proof this module has that the five `RenderedClip`
+declarations are assembled correctly and that both refusals fire before detection. `render_clip_for_
+candidate`'s own tests prove the same properties only through the fan-out's extra moving parts (grouping,
+aspect-keyed caching, per-profile quality), which is real coverage but never isolates the base case the way
+a one-profile, no-fan-out call does. Keeping `_render` costs nothing today because nothing calls it in
+production, and it remains the cheapest fixture the moment `13b-iv` or a future slice needs a synchronous
+single-profile render path.
+
+**A finding against shipped code, recorded rather than fixed here.** The task asked, for whichever
+decision was made, why the duplicate refusal ordering is not a drift risk -- `_render` checks frame
+geometry before the tracking-capability check, while the fan-out (`_render_profiles`, inherited unchanged
+from `render_clip_for_candidate`'s already-`[x]`-closed body) checks tracking capability, and calls
+`detect()`, *before* it ever reaches the per-profile frame-geometry check inside the loop. Concretely: in
+`_render_profiles`, `_require_detection` and `tracker.detect(...)` both run in the whole-clip guard block,
+above the per-profile loop that is the only place `_croppable_frame` is called. A clip whose frame is
+degenerate for one profile's aspect therefore still pays for detection before that profile's export is
+refused -- the module's own docstring states "both refusals come before detection" as the design's whole
+point, and the fan-out path does not fully hold to it for the frame-geometry refusal, only for the
+tracking-capability one. This is not a risk this unit introduced: `_render_profiles`'s body is
+`render_clip_for_candidate`'s loop moved verbatim, and that loop was already `[x]`-closed in `13b-iii-a`
+and `13b-iii-b` before this unit started. It is also not a *drift* risk in the sense the task's phrasing
+raises, because `_render` and `_render_profiles` no longer share any call path that could disagree at a
+shared caller -- they diverged into two named functions before this unit, not because of it, and keeping
+`_render`'s stricter ordering does not need to stay "in sync" with a sibling it no longer feeds. The
+remaining risk is a future maintainer reading one and assuming the other matches it, which is why it is
+written down here rather than left to be rediscovered. Hoisting the frame-geometry check per distinct
+aspect above `_require_detection` in `_render_profiles`, matching `_render`'s cheaper order, is a genuine
+follow-up; it was not attempted in this unit because it touches already-closed 13b-iii-a/b behaviour for a
+cost saving that only matters on a degenerate-frame source, which is already `FAILED` either way -- the
+difference is only how much was spent finding that out.
+
+### Mutations, and what they found
+
+Six mutations, chosen to reach every substantive claim this unit makes, all caught:
+
+1. `run_render` truncating `load_clip_exports`'s result to its first element before rendering -- failed
+   `test_two_pending_profiles_both_land_on_the_real_filesystem`, the integration test that actually renders
+   two profiles from one clip.
+2. `main` skipping `make_job_id` / `make_clip_id` entirely -- failed both malformed-id wiring tests, which
+   assert `run_render` is never even called.
+3. `render_pending_exports` resolving a profile via `SCRIPT_TARGETS[export.variants[0].target]` instead of
+   reading `export.profile` -- failed five tests across the unit and integration suites, including
+   `test_it_does_not_re_derive_the_profile_from_the_variants` and its integration twin by name. This is the
+   sharpest of the six, because it is the exact defect the task's own instructions warned against.
+4. Deleting the new `ClipExport.__post_init__` range-agreement check -- failed the one test written for it
+   and nothing else, the same shape every prior invariant mutation in this module has held to.
+5. `FilesystemTranscriptStorage.load_artifacts` fabricating an empty `GenerationResult` instead of `None`
+   on absence -- failed `test_a_job_with_no_artifacts_yet_reports_none` by name.
+6. `run_render` skipping the empty-`pending` refusal -- did not crash (an empty target list already
+   short-circuits `_render_profiles` cleanly) but silently returned `EXIT_OK` for a clip nobody requested,
+   caught by `test_no_pending_export_for_the_clip_refuses_without_writing` asserting on the exit code
+   rather than on an exception. Worth recording: a mutation here does not raise, it *succeeds wrongly* --
+   which is exactly the shape "no such clip was requested" refusals exist to catch, and why the test
+   asserts the exit code rather than merely that nothing is written.
+
+No mutation survived, and none needed a new test written after the fact -- the suite as designed already
+covered all six.
+
+### Measured cost
+
+`git diff --stat` against `main`, excluding two files under `.atl/` this unit did not touch: **1,178 lines
+added, 34 removed (1,144 net)** across 13 modified files plus two new test files. Split: `src` 472 added / 33
+removed (`render_worker.py` alone 429/32 -- the shared-loop refactor moved as much as it added);
+`tests` 706 added / 1 removed, across the two new files (`tests/unit/runtime/test_render_worker_entrypoint.py`
+187, `tests/integration/test_render_worker_entrypoint.py` 205) and nine modified ones. Against the 800-line
+budget this is **1.47x** on added lines -- over the 0.86x-1.26x band the last several units held, closer to
+`13b-iii-b`'s 1.67x. The overrun is not one surprise the way `13b-iii-b`'s fifth declaration was; it is
+three genuinely separate pieces of work this unit's own scope named together (two storage gaps plus the
+entrypoint), each carrying its own round-trip or wiring proof, landing in one unit because the entrypoint
+could not be written test-first without both gaps closed first. Splitting at the seam the repo's own rule
+names -- Gap 2 alone is green alone, Gap 1 alone is green alone, the entrypoint alone is green alone --
+would have produced three units under budget individually.
+
+**It was split, at the one seam that actually holds.** `load_artifacts` was isolated and run alone:
+1834 passed, mypy clean over 225 files, with every other change stashed. It ships as its own commit.
+The remaining two do **not** separate: `ClipExport` gains two undefaulted fields, so every construction
+site in `render_worker.py` moves in the same commit or the suite is red between them. Two commits, not
+three, because the seam between Gap 1 and the entrypoint is imaginary -- and a seam that leaves an
+intermediate commit red is not a seam this repo recognises.
+
+### One clip id is one range, and no record was checking that
+
+`render_pending_exports` took its span from `pending[0]` and never compared the rest. Two `PENDING`
+exports under one clip id disagreeing on the range would render **both** profiles against whichever row
+came back first, and record the other as though its range had been honoured -- with the file cut from
+seconds nobody asked for.
+
+`ClipExport.__post_init__` could not see it. It refuses an export whose carried clip disagrees with its
+own range, which is the same fact on a different axis, but it inspects one record at a time; two rows
+each internally consistent and contradicting each other is invisible to it by construction. The check
+belongs to whoever reads the set, so `_range_disagreement` is read over `pending` before profile
+resolution and before detection -- a contradictory request is discoverable without spending the one
+step model weights dominate.
+
+All of them are refused, never the minority: choosing between two ranges is an invention, and rendering
+the majority answer would put a file on disk under a clip id whose own records disagree about what it
+is. `CorruptedRecord`, because that is what the set is.
+
+**The first fixture proved less than it looked.** Its two exports differed on start *and* end, so a
+mutation comparing only `source_start_s` passed it -- and that mutation cuts one profile's clip short
+by thirty seconds while both rows agree on where it begins. The sharper fixture shares a start and
+differs only on the end; it is the only one of the four that fails that mutation. Same lesson
+`13b-iii-b` recorded about same-aspect detection fixtures: a scenario that differs on every axis at
+once cannot say which axis the code is actually reading.
+
+Final state: **1,861 passed / 30 deselected**, mypy clean over **227 source files**.
 
 ---
 

@@ -216,6 +216,8 @@ def an_export(
             ),
         ),
         profile=profile,
+        source_start_s=120.0,
+        source_end_s=150.0,
         title="Hermanos, escuchen",
         description="Un momento del sermon",
         variants=(

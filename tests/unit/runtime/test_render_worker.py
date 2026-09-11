@@ -46,6 +46,7 @@ from onevoicecut.ports.video_render import RenderedFile, RenderRequest
 from onevoicecut.runtime.render_worker import (
     render_clip_for_candidate,
     render_clip_for_profile,
+    render_pending_exports,
 )
 from onevoicecut.usecases.generate_artifacts import ScriptTarget
 from tests.fakes.subject_tracker import (
@@ -723,3 +724,268 @@ class TestDurationCeilingIsDeclaredNotTrimmed:
 
         assert rendered(export).duration.kind is DurationComplianceKind.WITHIN_CEILING
         assert rendered(export).duration.overrun_s == 0.0
+
+
+def a_pending_export(
+    *,
+    profile: str = "vertical",
+    variants: tuple[ScriptVariant, ...] | None = None,
+    title: str = "Hermanos, escuchen",
+    description: str = "Un momento del sermon",
+    start_s: float = 120.0,
+    end_s: float = 150.0,
+) -> ClipExport:
+    """What the web process is specified to write before spawning this worker
+    -- one `PENDING` export per distinct profile, already carrying its own
+    range. The entrypoint's whole job is to read records shaped like this."""
+    return ClipExport(
+        job_id=JOB_ID,
+        clip_id=CLIP_ID,
+        profile=profile,
+        source_start_s=start_s,
+        source_end_s=end_s,
+        title=title,
+        description=description,
+        variants=(
+            variants
+            if variants is not None
+            else (
+                ScriptVariant(
+                    target="tiktok", format="plain", body="Hola", duration_target_s=45.0
+                ),
+            )
+        ),
+        state=ClipState.PENDING,
+        clip=None,
+        failure=None,
+    )
+
+
+def run_pending(
+    tmp_path: Path,
+    pending: tuple[ClipExport, ...],
+    *,
+    tracker: FakeSubjectTrackerPort | UnavailableSubjectTrackerPort | None = None,
+    probe: MediaProbe | None = None,
+    transcript: Transcript | None = None,
+    renderer: RecordingRenderer | None = None,
+    storage: FakeTranscriptStoragePort | None = None,
+    render_profiles: dict[str, RenderProfile] = RENDER_PROFILES_TWO,
+) -> tuple[ClipExport, ...]:
+    store = storage if storage is not None else FakeTranscriptStoragePort(tmp_path)
+    store.save_transcript(transcript if transcript is not None else a_transcript())
+    return render_pending_exports(
+        JOB_ID,
+        CLIP_ID,
+        pending,
+        media=a_media(tmp_path),
+        probe=probe if probe is not None else a_probe(),
+        tracker=tracker if tracker is not None else FakeSubjectTrackerPort(),
+        renderer=renderer if renderer is not None else RecordingRenderer(),
+        storage=store,
+        job_dir=tmp_path,
+        render_profiles=render_profiles,
+    )
+
+
+class TestRenderPendingExportsReadsWhatWasAlreadyDecided:
+    """[13b.19] The entrypoint's own orchestration: render exactly the
+    profiles a `PENDING` export already names, never re-derive them."""
+
+    def test_it_renders_the_profile_a_pending_export_names(
+        self, tmp_path: Path
+    ) -> None:
+        exports = run_pending(tmp_path, (a_pending_export(profile="vertical"),))
+
+        assert [e.profile for e in exports] == ["vertical"]
+        assert exports[0].state is ClipState.DONE
+
+    def test_two_pending_exports_render_two_profiles(self, tmp_path: Path) -> None:
+        exports = run_pending(
+            tmp_path,
+            (
+                a_pending_export(profile="vertical"),
+                a_pending_export(profile="square"),
+            ),
+        )
+
+        assert {e.profile for e in exports} == {"vertical", "square"}
+        assert all(e.state is ClipState.DONE for e in exports)
+
+    def test_the_range_rendered_is_the_one_the_export_already_carried(
+        self, tmp_path: Path
+    ) -> None:
+        exports = run_pending(
+            tmp_path,
+            (a_pending_export(profile="vertical", start_s=200.0, end_s=230.0),),
+        )
+
+        assert rendered(exports[0]).source_start_s == 200.0
+        assert rendered(exports[0]).source_end_s == 230.0
+
+    def test_title_and_description_travel_from_the_pending_export(
+        self, tmp_path: Path
+    ) -> None:
+        exports = run_pending(
+            tmp_path,
+            (
+                a_pending_export(
+                    profile="vertical", title="Otro titulo", description="Otra cita"
+                ),
+            ),
+        )
+
+        assert exports[0].title == "Otro titulo"
+        assert exports[0].description == "Otra cita"
+
+    def test_it_does_not_re_derive_the_profile_from_the_variants(
+        self, tmp_path: Path
+    ) -> None:
+        """A mutation that went back to resolving `SCRIPT_TARGETS[variant.
+        target]` instead of reading `export.profile` would refuse this clip,
+        because no script target maps this network to anything. Reading the
+        profile straight off the export renders it regardless."""
+        exports = run_pending(
+            tmp_path,
+            (
+                a_pending_export(
+                    profile="vertical",
+                    variants=(
+                        ScriptVariant(
+                            target="a-network-no-script-target-maps",
+                            format="plain",
+                            body="Hola",
+                            duration_target_s=45.0,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assert exports[0].state is ClipState.DONE
+
+    def test_detection_runs_once_across_two_pending_profiles(
+        self, tmp_path: Path
+    ) -> None:
+        tracker = FakeSubjectTrackerPort()
+
+        run_pending(
+            tmp_path,
+            (
+                a_pending_export(profile="vertical"),
+                a_pending_export(profile="square"),
+            ),
+            tracker=tracker,
+        )
+
+        assert len(tracker.spans) == 1
+
+    def test_a_profile_no_longer_in_the_registry_fails_only_that_export(
+        self, tmp_path: Path
+    ) -> None:
+        """The registry can be edited between the request and the render.
+        One export naming a profile that vanished from it must not block a
+        sibling export naming one that is still there."""
+        exports = run_pending(
+            tmp_path,
+            (
+                a_pending_export(profile="vertical"),
+                a_pending_export(profile="a-profile-nobody-configured"),
+            ),
+        )
+
+        by_profile = {e.profile: e for e in exports}
+        assert by_profile["vertical"].state is ClipState.DONE
+        assert by_profile["a-profile-nobody-configured"].state is ClipState.FAILED
+        assert "RenderProfileInvalid" in (
+            by_profile["a-profile-nobody-configured"].failure or ""
+        )
+
+    def test_a_failed_resolution_still_carries_the_requested_range(
+        self, tmp_path: Path
+    ) -> None:
+        """Even a render that never got past resolving its profile name has a
+        legitimate range to record -- read straight off the PENDING export,
+        never invented."""
+        exports = run_pending(
+            tmp_path,
+            (a_pending_export(profile="not-configured", start_s=5.0, end_s=15.0),),
+        )
+
+        assert exports[0].source_start_s == 5.0
+        assert exports[0].source_end_s == 15.0
+
+    def test_an_empty_pending_tuple_yields_no_exports(self, tmp_path: Path) -> None:
+        assert run_pending(tmp_path, ()) == ()
+
+
+class TestOneClipIdIsOneRange:
+    """A clip id names a range, and every export written under it must agree
+    on which one. Reading the span off whichever record happened to be first
+    would let two disagreeing rows render as though they had never disagreed
+    -- the silent degradation `ClipExport.__post_init__` already refuses
+    between an export and the clip it carries, on the one axis that check
+    cannot see because it only ever inspects one record at a time.
+    """
+
+    def test_pending_exports_that_disagree_on_the_range_are_all_refused(
+        self, tmp_path: Path
+    ) -> None:
+        exports = run_pending(
+            tmp_path,
+            (
+                a_pending_export(profile="vertical", start_s=120.0, end_s=150.0),
+                a_pending_export(profile="square", start_s=300.0, end_s=330.0),
+            ),
+        )
+
+        assert {e.state for e in exports} == {ClipState.FAILED}
+        assert {e.profile for e in exports} == {"vertical", "square"}
+        for export in exports:
+            assert "CorruptedRecord" in (export.failure or "")
+
+    def test_the_disagreement_is_refused_before_anything_is_detected(
+        self, tmp_path: Path
+    ) -> None:
+        """The whole reason this check sits above the loop: detection is the
+        one step model weights dominate, and a contradictory request is
+        discoverable without spending any of it."""
+        tracker = FakeSubjectTrackerPort()
+
+        run_pending(
+            tmp_path,
+            (
+                a_pending_export(profile="vertical", start_s=120.0, end_s=150.0),
+                a_pending_export(profile="square", start_s=300.0, end_s=330.0),
+            ),
+            tracker=tracker,
+        )
+
+        assert tracker.spans == []
+
+    def test_a_disagreement_on_the_end_alone_is_still_a_disagreement(
+        self, tmp_path: Path
+    ) -> None:
+        """Two exports sharing a start prove more than two sharing nothing: a
+        check that compared only the start would pass the sibling fixture
+        above and still cut one profile's clip short by thirty seconds."""
+        exports = run_pending(
+            tmp_path,
+            (
+                a_pending_export(profile="vertical", start_s=120.0, end_s=150.0),
+                a_pending_export(profile="square", start_s=120.0, end_s=180.0),
+            ),
+        )
+
+        assert {e.state for e in exports} == {ClipState.FAILED}
+
+    def test_exports_agreeing_on_the_range_are_rendered(self, tmp_path: Path) -> None:
+        exports = run_pending(
+            tmp_path,
+            (
+                a_pending_export(profile="vertical", start_s=300.0, end_s=330.0),
+                a_pending_export(profile="square", start_s=300.0, end_s=330.0),
+            ),
+        )
+
+        assert all(e.state is ClipState.DONE for e in exports)

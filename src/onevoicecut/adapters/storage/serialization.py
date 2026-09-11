@@ -395,6 +395,8 @@ def decode_clip_export(payload: str) -> ClipExport:
         clip=_rendered_clip(record),
         failure=_optional_text(record, "failure"),
         profile=_text(record, "profile"),
+        source_start_s=_number(record, "source_start_s"),
+        source_end_s=_number(record, "source_end_s"),
         title=_text(record, "title"),
         description=_text(record, "description"),
         variants=tuple(

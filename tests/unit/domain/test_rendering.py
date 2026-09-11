@@ -108,6 +108,8 @@ def _export(**overrides: object) -> ClipExport:
         "clip": _clip(),
         "failure": None,
         "profile": "vertical",
+        "source_start_s": 120.0,
+        "source_end_s": 150.0,
         "title": "Un titulo",
         "description": "Una descripcion",
         "variants": _variants("tiktok"),
@@ -617,6 +619,38 @@ def test_the_authoritative_crops_come_from_the_real_derivation() -> None:
         TEN_EIGHTY_CROP.width,
         TEN_EIGHTY_CROP.height,
     )
+
+
+class TestTheRequestedRange:
+    """A clip id alone cannot be resolved to something renderable -- nothing
+    else on `ClipExport` said what span of the source it names. The same
+    argument the type's own docstring already makes for title and description
+    binds harder here: an index into a regenerable candidate list is a
+    dangling pointer, and reconstructing the range means re-running
+    generation against a transcript that may have been re-stitched since."""
+
+    def test_it_carries_the_range_it_was_requested_for(self) -> None:
+        export = _export()
+
+        assert (export.source_start_s, export.source_end_s) == (120.0, 150.0)
+
+    def test_the_range_is_present_before_anything_has_rendered(self) -> None:
+        """`PENDING` onward, not only `DONE` -- a worker reading an export back
+        to resolve a clip id has nothing else to render against until the file
+        exists."""
+        pending = _export(clip=None, state=ClipState.PENDING, failure=None)
+
+        assert (pending.source_start_s, pending.source_end_s) == (120.0, 150.0)
+
+    def test_a_finished_clip_whose_range_disagrees_with_its_export_is_refused(
+        self,
+    ) -> None:
+        """The candidate's range is never adjusted once a render is dispatched
+        under it -- stated repeatedly in `render_clip.py` and
+        `render_worker.py`. Two copies of one fact that could silently
+        disagree is exactly what this system refuses on every other axis."""
+        with pytest.raises(ValueError):
+            _export(clip=_clip(source_start_s=121.0), source_start_s=120.0)
 
 
 class TestAnExportThatNeverRendered:

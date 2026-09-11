@@ -276,7 +276,13 @@ class ClipExport:
     The spec names title, description and the scripts alongside the file. An
     export without them is a video nobody can post, and reconstructing them
     later would mean re-running generation against a transcript that may have
-    been re-stitched since.
+    been re-stitched since. **The same argument binds harder on the source
+    range.** Title and description are prose an operator could, in principle,
+    retype; a range is the one fact that says *which seconds of the sermon*
+    this file is. Without it stored here, a clip id resolves to nothing
+    renderable at all -- an index into a candidate list that generation may
+    have re-ranked or dropped since the export was requested, which is a
+    dangling pointer rather than a stale copy.
 
     **`profile` is a name, not a `RenderProfile`.** The resolved object carries a
     measured safe area and a duration ceiling, and those are measurements against
@@ -299,6 +305,12 @@ class ClipExport:
     job_id: JobId
     clip_id: ClipId
     profile: str
+    # Present from PENDING onward, the same range `RenderedClip.source_start_s`
+    # / `source_end_s` eventually carries -- requested before a clip exists,
+    # so a worker resolving a clip id has something to render against without
+    # ever touching the candidate that produced it.
+    source_start_s: float
+    source_end_s: float
     title: str
     description: str
     variants: tuple[ScriptVariant, ...]
@@ -349,6 +361,18 @@ class ClipExport:
                 f"export {key} carries a clip named {self.clip.clip_id}; two "
                 f"places holding one identity eventually disagree, and the day "
                 f"they did neither would name the operator's file"
+            )
+        if self.clip is not None and (
+            self.clip.source_start_s != self.source_start_s
+            or self.clip.source_end_s != self.source_end_s
+        ):
+            raise ValueError(
+                f"export {key} requested {self.source_start_s}s..{self.source_end_s}s "
+                f"but carries a clip cut from {self.clip.source_start_s}s.."
+                f"{self.clip.source_end_s}s; the candidate's range is never "
+                f"adjusted once a render is dispatched under it, and two copies "
+                f"of one fact that can silently disagree is exactly what this "
+                f"system refuses on every other axis"
             )
 
 

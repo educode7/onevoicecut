@@ -9,7 +9,7 @@ first half alone loses the second silently.
 from pathlib import Path
 
 from onevoicecut.domain.framing import TrackingConfidence
-from onevoicecut.domain.generation import ScriptVariant
+from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
 from onevoicecut.domain.ids import make_clip_id, make_job_id, make_media_id
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.domain.rendering import (
@@ -51,6 +51,8 @@ def an_export(profile: str) -> ClipExport:
             ),
         ),
         profile=profile,
+        source_start_s=120.0,
+        source_end_s=150.0,
         title="Hermanos, escuchen",
         description="Un momento del sermon",
         variants=(
@@ -82,3 +84,42 @@ def test_the_fake_keys_an_export_by_clip_and_profile(tmp_path: Path) -> None:
     assert_keyed_by_clip_and_profile(
         storage, JOB_ID, CLIP_ID, an_export("vertical"), an_export("square")
     )
+
+
+def an_artifact_set() -> GenerationResult:
+    return GenerationResult(
+        job_id=JOB_ID,
+        summary="Resumen del mensaje.",
+        clip_candidates=(
+            ClipCandidate(
+                start_s=10.0,
+                end_s=45.0,
+                hook="gancho",
+                quote="cita",
+                rationale="razon",
+                score=0.7,
+                variants=(
+                    ScriptVariant(
+                        target="tiktok",
+                        format="vertical",
+                        body="guion",
+                        duration_target_s=45.0,
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
+def test_a_job_with_no_artifacts_reports_none(tmp_path: Path) -> None:
+    storage = FakeTranscriptStoragePort(tmp_path)
+
+    assert storage.load_artifacts(JOB_ID) is None
+
+
+def test_artifacts_round_trip_through_the_fake(tmp_path: Path) -> None:
+    storage = FakeTranscriptStoragePort(tmp_path)
+
+    storage.save_artifacts(JOB_ID, an_artifact_set())
+
+    assert storage.load_artifacts(JOB_ID) == an_artifact_set()
