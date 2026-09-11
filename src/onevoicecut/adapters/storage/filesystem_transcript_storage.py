@@ -20,6 +20,7 @@ import os
 from pathlib import Path
 
 from onevoicecut.adapters.storage.serialization import (
+    decode_artifacts,
     decode_clip_export,
     encode_clip_export,
     decode_chunk_plan,
@@ -194,6 +195,10 @@ class FilesystemTranscriptStorage:
 
     def save_artifacts(self, job_id: JobId, artifacts: GenerationResult) -> None:
         self._write(self._writable(job_id) / ARTIFACTS, encode_artifacts(artifacts))
+
+    def load_artifacts(self, job_id: JobId) -> GenerationResult | None:
+        payload = self._read_optional(self.job_dir(job_id) / ARTIFACTS)
+        return None if payload is None else decode_artifacts(payload)
 
     def export_text(self, job_id: JobId, text: str) -> Path:
         """Writes the derived `.txt`. `transcript.json` is untouched: the export is

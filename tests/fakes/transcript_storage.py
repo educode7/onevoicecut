@@ -148,6 +148,9 @@ class FakeTranscriptStoragePort:
     def save_artifacts(self, job_id: JobId, artifacts: GenerationResult) -> None:
         self._artifacts[job_id] = artifacts
 
+    def load_artifacts(self, job_id: JobId) -> GenerationResult | None:
+        return self._artifacts.get(job_id)
+
     def export_text(self, job_id: JobId, text: str) -> Path:
         path = self._root / f"{job_id}.txt"
         path.write_text(text, encoding="utf-8")

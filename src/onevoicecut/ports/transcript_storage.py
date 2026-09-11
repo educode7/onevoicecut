@@ -80,6 +80,17 @@ class TranscriptStoragePort(Protocol):
 
     def save_artifacts(self, job_id: JobId, artifacts: GenerationResult) -> None: ...
 
+    def load_artifacts(self, job_id: JobId) -> GenerationResult | None:
+        """Absent is `None`, matching `load_chunk_plan` and `load_transcript`:
+        a job awaiting generation is a normal mid-run state, not a refusal.
+
+        `save_artifacts` shipped alone in slice 10 — every other saved record
+        already has a reader, and the asymmetry was an oversight rather than a
+        decision. Its first production consumer resolves a `candidate_index`
+        from an HTTP request back to the `ClipCandidate` it names.
+        """
+        ...
+
     def export_text(self, job_id: JobId, text: str) -> Path: ...
 
     def save_clip_export(self, export: ClipExport) -> None:

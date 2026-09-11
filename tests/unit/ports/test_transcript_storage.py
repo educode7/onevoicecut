@@ -16,6 +16,21 @@ import inspect
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 
 
+class TestTheArtifactsReader:
+    """`save_artifacts` shipped alone in slice 10; every other saved record has
+    a reader, and the asymmetry looked like an oversight rather than a
+    decision. Its first production consumer is the HTTP route slice 13b-iv
+    adds, resolving a `candidate_index` back to a `ClipCandidate`."""
+
+    def test_the_port_declares_it(self) -> None:
+        assert hasattr(TranscriptStoragePort, "load_artifacts")
+
+    def test_it_takes_only_a_job_id(self) -> None:
+        signature = inspect.signature(TranscriptStoragePort.load_artifacts)
+
+        assert list(signature.parameters) == ["self", "job_id"]
+
+
 class TestTheClipExportMethods:
     def test_the_port_declares_both(self) -> None:
         assert hasattr(TranscriptStoragePort, "save_clip_export")

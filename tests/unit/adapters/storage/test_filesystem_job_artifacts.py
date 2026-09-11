@@ -226,6 +226,22 @@ def test_artifacts_are_persisted(storage: FilesystemTranscriptStorage) -> None:
     assert decode_artifacts(stored) == an_artifact_set()
 
 
+def test_artifacts_round_trip_through_load(
+    storage: FilesystemTranscriptStorage,
+) -> None:
+    storage.save_artifacts(JOB_ID, an_artifact_set())
+
+    assert storage.load_artifacts(JOB_ID) == an_artifact_set()
+
+
+def test_a_job_with_no_artifacts_yet_reports_none(
+    storage: FilesystemTranscriptStorage,
+) -> None:
+    """Absence is a normal mid-run state, the way an unplanned job has no chunk
+    plan — not an error a caller has to catch."""
+    assert storage.load_artifacts(JOB_ID) is None
+
+
 def test_the_text_export_lands_inside_the_job_directory(
     storage: FilesystemTranscriptStorage,
 ) -> None:

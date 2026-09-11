@@ -301,6 +301,14 @@ def test_artifacts_round_trip_through_their_nested_variants() -> None:
     assert isinstance(restored.clip_candidates[0].variants, tuple)
 
 
+def test_a_missing_artifacts_field_raises_a_domain_error() -> None:
+    payload = json.loads(encode_artifacts(an_artifact_set()))
+    del payload["clip_candidates"][0]["hook"]
+
+    with pytest.raises(CorruptedRecord):
+        decode_artifacts(json.dumps(payload))
+
+
 def test_malformed_json_raises_a_domain_error() -> None:
     with pytest.raises(CorruptedRecord):
         decode_job("{not json")
