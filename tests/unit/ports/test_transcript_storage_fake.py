@@ -16,6 +16,8 @@ from onevoicecut.domain.rendering import (
     CaptionCoverage,
     ClipExport,
     ClipState,
+    DurationCompliance,
+    DurationComplianceKind,
     OutputQuality,
     OutputQualityKind,
     RenderedClip,
@@ -44,6 +46,9 @@ def an_export(profile: str) -> ClipExport:
             subtitle_timing=SubtitleTimingSource.WORD_LEVEL,
             captions=CaptionCoverage.CONFIRMED_SPEECH,
             tracking=TrackingConfidence.WELL_TRACKED,
+            duration=DurationCompliance(
+                kind=DurationComplianceKind.WITHIN_CEILING, overrun_s=0.0
+            ),
         ),
         profile=profile,
         title="Hermanos, escuchen",

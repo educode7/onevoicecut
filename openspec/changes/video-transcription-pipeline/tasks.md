@@ -4010,36 +4010,36 @@ than merely naming its types, and **[rev 5]** the only one that fans a single cl
 - [x] 13b.25 GREEN: propagate `TrackingConfidence` from `build_trajectory`'s output, and
       `SubtitleTimingSource`/`CaptionCoverage` from `build_subtitle_cues`'s output, onto the assembled
       `RenderedClip` — all four declarations computed above the port.
-- [ ] 13b.25a RED **[rev 5]**: profile fan-out — a clip whose script variants name four networks
+- [x] 13b.25a RED **[rev 5]**: profile fan-out — a clip whose script variants name four networks
       resolving to **two** distinct profiles produces **two** renders and two `ClipExport`s, and the
       three variants sharing a profile all land on that profile's single export. Dedup is on the
       profile, never on the network.
-- [ ] 13b.25b GREEN: resolve the clip's variants to their distinct profiles and loop the render over
+- [x] 13b.25b GREEN: resolve the clip's variants to their distinct profiles and loop the render over
       them.
-- [ ] 13b.25c RED **[rev 5]**: detection is invariant across profiles — `SubjectTrackerPort.detect` is
+- [x] 13b.25c RED **[rev 5]**: detection is invariant across profiles — `SubjectTrackerPort.detect` is
       called **at most once** for the clip span however many profiles are rendered. This is the unit's
       sharpest cost assertion: detection is the only step model weights dominate, and re-running it per
       profile would multiply it to obtain an identical answer. `detect(media, span, sample_hz)` takes
       no aspect and no policy, so the answer cannot differ.
-- [ ] 13b.25d GREEN: hoist the single `detect` call above the profile loop.
-- [ ] 13b.25e RED **[rev 5]**: trajectory planning is **not** invariant — two profiles whose output
+- [x] 13b.25d GREEN: hoist the single `detect` call above the profile loop.
+- [x] 13b.25e RED **[rev 5]**: trajectory planning is **not** invariant — two profiles whose output
       specs imply different aspects each get their own `CropTrajectory` from the one shared detection
       set, and neither is reused for the other aspect. Two profiles sharing an aspect share one
       trajectory. Aspect enters at `build_trajectory` through the policy, where it decides crop size
       and therefore clamping.
-- [ ] 13b.25f GREEN: key the trajectory by `aspect_of(profile)` inside the loop.
-- [ ] 13b.25g RED **[rev 5]**: per-profile quality — one crop against two output widths yields two
+- [x] 13b.25f GREEN: key the trajectory by `aspect_of(profile)` inside the loop.
+- [x] 13b.25g RED **[rev 5]**: per-profile quality — one crop against two output widths yields two
       declarations, and one MUST be able to read `NATIVE` while the other reads `UPSCALED`. Both are
       true at once, which is why a single quality value per clip could only be wrong for one profile
       without saying so.
-- [ ] 13b.25h GREEN: compute `quality_of` per profile, above the port as the other three declarations
+- [x] 13b.25h GREEN: compute `quality_of` per profile, above the port as the other three declarations
       already are.
-- [ ] 13b.25i RED **[rev 5]**: duration ceiling — a candidate range exceeding a profile's ceiling
+- [x] 13b.25i RED **[rev 5]**: duration ceiling — a candidate range exceeding a profile's ceiling
       renders at the **candidate's full range** and declares the overrun with its magnitude. It MUST
       NOT be trimmed: cutting to fit removes either the setup or the payoff, and which one is a
       judgement about the material no rule here is positioned to make.
-- [ ] 13b.25j GREEN: compute and attach the overrun declaration.
-- [ ] 13b.26 REFACTOR: suite green, `mypy src tests` clean.
+- [x] 13b.25j GREEN: compute and attach the overrun declaration.
+- [x] 13b.26 REFACTOR: suite green, `mypy src tests` clean.
 
 ### 13b-iii-a: the type blocking it was reshaped, and only `13b.19` stays open
 
@@ -4115,6 +4115,82 @@ and the repeated half is pure arithmetic provable against a fake detector.
 unit the slice-13 forecast already flagged as trending toward the 5c-style upper bound. If it overruns,
 the seam is clean: `13b.18`–`13b.26` (single-profile orchestration) and `13b.25a`–`13b.25j` (fan-out)
 are each green alone, which is this repo's stated rule for when two halves are two units.
+
+### The fan-out was delivered, and the seam held without splitting
+
+`13b.25a`–`13b.25j` and `13b.26` are closed. `render_clip_for_candidate` resolves a candidate's variants
+to their distinct profiles, checks the range and the tracking capability once for the whole clip, calls
+`detect` exactly once, then loops per profile keying the trajectory cache by `aspect_of(profile)` and
+computing `quality_of` and the new duration declaration per profile. `render_clip_for_profile` keeps its
+own signature and ordering (frame check before detection) for a caller that already knows its one
+profile; both converge on a new shared `_export_from_trajectory`, so the assembly step cannot drift
+between the two paths the way two independent copies would.
+
+**A file-naming collision was found, not specified.** Neither the task text nor the spec says where the
+second profile's `.mp4` and `.ass` land, and the pre-fan-out code wrote both as `{clip_id}.mp4` /
+`{clip_id}.ass` directly under `render/` — flat, one clip meant one file. Two profiles under that scheme
+silently overwrite each other's render. The fix is a `render/{profile.name}/{clip_id}.*` layout, not
+`render/{clip_id}/{profile}.*` matching `export_key`'s convention: `adapters/ffmpeg/video_render.py`
+takes the clip id from `dest.stem` and validates it as a ULID before composing the ffmpeg filter graph,
+so the profile can only live in the directory, never in the stem. This changed one existing single-profile
+test's expected path (`render/vertical/{CLIP_ID}.ass` rather than `render/{CLIP_ID}.ass`) — the only
+change 13b-iii-a's own file needed for this half.
+
+**Several RED tests were already green when written, and that is recorded rather than hidden.** The
+detect-hoist refactor for `13b.25c/d` and the aspect-keyed trajectory cache for `13b.25e/f` are one
+cohesive change in this codebase — `render_clip_for_candidate`'s loop cannot hoist `detect` without
+deciding what trajectory each profile gets, and the only construction that is both correct and shares
+work is keyed-by-aspect caching. Writing `13b.25d`'s GREEN therefore already satisfied `13b.25e/f` and,
+because each loop iteration necessarily calls `quality_of` against its own profile's output, `13b.25g/h`
+too — three RED tests (`TestTrajectoryIsKeyedByAspect`, `TestQualityIsDeclaredPerProfile`) that passed
+immediately against the code already written for `13b.25d`. This is the same shape as 13b-iii-a's own "A
+mutation caught a test that proved nothing": a scenario the spec names can be a *consequence* of a
+correct design rather than something that drives new code, and the check on that is not skipping the
+test but mutating the implementation afterward to confirm the test still fails when the property breaks.
+
+**Five mutations, all caught:**
+
+1. Dedup on network instead of profile (group by `variant.target`) — failed 10 tests, including
+   `test_dedup_is_on_the_profile_not_the_network` by name.
+2. Un-hoist `detect` to run once per distinct aspect rather than once for the whole clip — failed only
+   `test_detect_runs_at_most_once_across_two_distinct_profiles`. **This is the interesting result**: the
+   sibling assertion using two profiles that *share* one aspect (`test_..._three_profiles_two_sharing_an_
+   aspect`) did not fail, because that fixture cannot distinguish "hoisted once" from "cached once per
+   aspect, and this clip only has one aspect". Proving the hoist needs a multi-aspect fixture; a
+   same-aspect one only proves the cache.
+3. Reuse one trajectory across every profile regardless of aspect (share a constant cache key) — failed
+   `test_two_profiles_with_different_aspects_each_plan_their_own`, and only that test: the
+   same-aspect-sharing test and the per-profile quality test both used fixtures where one shared
+   trajectory happens to be correct, so neither caught it alone.
+4. Score every profile's quality against a hardcoded `1080×1920` target instead of `profile.output` —
+   failed both `TestQualityIsDeclaredPerProfile` tests.
+5. Trim an over-ceiling span to `profile.max_duration_s` instead of declaring the overrun — failed both
+   `TestDurationCeilingIsDeclaredNotTrimmed` range tests.
+
+No mutation survived, but #2 and #3 sharpened what "at most once" and "keyed by aspect" actually require
+in a test fixture: a same-aspect-only scenario proves caching, never hoisting or distinctness by itself.
+Both fixtures already existed in the final suite (`RENDER_PROFILES_TWO` for differing aspects,
+`RENDER_PROFILES_SHARED_ASPECT` for one aspect), so no new test was added after this finding — it is
+recorded here because it is not obvious from reading either test alone.
+
+### Measured cost
+
+**708 lines added, 679 net** (`src` 307 added / 19 removed across `domain/rendering.py`,
+`runtime/render_worker.py` and `adapters/storage/serialization.py`; `tests` 401 added / 10 removed across
+`test_rendering.py`, `test_render_worker.py` and the two storage-fake fixture files touched only because
+`RenderedClip` gained a fifth undefaulted field). The slice priced 13b-iii at ~975 and `13b-iii-a`
+measured 551, so this half carried an implied **~425 — 708 against it is 1.67x**, the first unit since
+`multi-operator-access` to leave the 0.86x–1.26x band that re-sizing produced. The overrun is not the
+fan-out arithmetic the estimate anticipated: it is the fifth `RenderedClip` declaration, which the task
+text named in one line (`13b.25j`, "compute and attach the overrun declaration") and which cost a
+`StrEnum`, a value object, a pure function, a serialization round-trip and four fixture files. A
+declaration with no default is never a line.
+
+The unit still sits inside the 800-line budget, so the split this section's parent already named
+(`13b.18`–`13b.26` / `13b.25a`–`13b.25j`) was not needed. But the seam it named would not have helped
+here anyway: the cost landed in the domain type, which both halves would have shared.
+
+Final state: **1829 passed / 30 deselected**, mypy clean over **225 source files**.
 
 ---
 

@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from onevoicecut.domain.framing import CropRect, TrackingConfidence
+from onevoicecut.domain.framing import CropRect, TimeSpan, TrackingConfidence
 from onevoicecut.domain.generation import ScriptVariant
 from onevoicecut.domain.ids import ClipId, JobId
 
@@ -71,6 +71,19 @@ class CaptionCoverage(StrEnum):
     CONFIRMED_SPEECH = "confirmed_speech"  # every eligible segment was SPEECH
     INCLUDES_UNVERIFIED = "includes_unverified"  # at least one was UNCERTAIN
     NONE = "none"  # the span carried no eligible segment at all
+
+
+class DurationComplianceKind(StrEnum):
+    """Whether a candidate's range fits its profile's declared ceiling.
+
+    **[rev 5]** Two states for the reason every other axis here has two:
+    a range either fits or it does not, and there is no silently-corrected
+    third state. `OVER_CEILING` never trims -- `duration_compliance_of` is
+    read alongside the candidate's own untouched range, never in place of it.
+    """
+
+    WITHIN_CEILING = "within_ceiling"
+    OVER_CEILING = "over_ceiling"
 
 
 class ClipState(StrEnum):
@@ -200,6 +213,23 @@ class OutputQuality:
 
 
 @dataclass(frozen=True, slots=True)
+class DurationCompliance:
+    """Whether a clip's range fits its profile's ceiling, and by how much it
+    does not.
+
+    **[rev 5]** `overrun_s` is 0.0 exactly when `kind` is `WITHIN_CEILING` --
+    the two never disagree, the same invariant `OutputQuality` holds between
+    `kind` and `factor`. A trimmed range would have removed either the setup
+    or the payoff of the clip, a judgement about the material this system
+    refuses to make on the operator's behalf; this declaration exists so the
+    overrun is visible instead of silently absorbed.
+    """
+
+    kind: DurationComplianceKind
+    overrun_s: float
+
+
+@dataclass(frozen=True, slots=True)
 class SubtitleCue:
     """One on-screen caption. Times are **clip-local**, like everything past the
     trajectory — the render pass places `-ss` before `-i`, which resets output
@@ -214,10 +244,13 @@ class SubtitleCue:
 class RenderedClip:
     """A finished clip, and everything about it that is not visible in a listing.
 
-    None of the four declarations has a default. The rule
+    None of the five declarations has a default. The rule
     `non_speech_classification` set and `word_timing` repeated: a clip that never
     stated one of these is a gap no reader can reason about, and the safe reading
-    of silence is not obvious enough to encode as a default.
+    of silence is not obvious enough to encode as a default. **[rev 5]** added
+    the fifth -- `duration` -- on the same argument: a render that never stated
+    whether it exceeded its profile's ceiling is indistinguishable from one that
+    was measured and found to fit.
     """
 
     clip_id: ClipId
@@ -232,6 +265,7 @@ class RenderedClip:
     subtitle_timing: SubtitleTimingSource
     captions: CaptionCoverage
     tracking: TrackingConfidence
+    duration: DurationCompliance
 
 
 @dataclass(frozen=True, slots=True)
@@ -348,6 +382,29 @@ def quality_of(crop: CropRect, target: OutputSpec) -> OutputQuality:
         OutputQualityKind.UPSCALED if factor > 1.0 else OutputQualityKind.NATIVE
     )
     return OutputQuality(kind=kind, factor=factor)
+
+
+def duration_compliance_of(span: TimeSpan, profile: RenderProfile) -> DurationCompliance:
+    """Whether this span's length fits this profile's declared ceiling.
+
+    **[rev 5]** Never trims. The candidate's range is the source of truth
+    everywhere else in this system, and this function only measures it against
+    the ceiling -- it does not return a shortened span, because there is none
+    to return. `check_clip_range`, one layer up, refuses a range past the
+    deployment-wide bound this is not; a profile's editorial ceiling is a
+    softer, per-destination fact worth declaring rather than enforcing.
+
+    The boundary sits on the legal side, matching `check_clip_range`'s own
+    ceiling: a range exactly at `max_duration_s` is within it, not over it,
+    because refusing the figure a profile advertises would make the number
+    wrong by a second.
+    """
+    overrun = span.duration_s - profile.max_duration_s
+    if overrun > 0.0:
+        return DurationCompliance(
+            kind=DurationComplianceKind.OVER_CEILING, overrun_s=overrun
+        )
+    return DurationCompliance(kind=DurationComplianceKind.WITHIN_CEILING, overrun_s=0.0)
 
 
 def aspect_of(profile: RenderProfile) -> tuple[int, int]:

@@ -26,13 +26,15 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.framing import CropRect, TrackingConfidence
+from onevoicecut.domain.framing import CropRect, TimeSpan, TrackingConfidence
 from onevoicecut.domain.generation import ScriptVariant
 from onevoicecut.domain.ids import make_clip_id, make_job_id
 from onevoicecut.domain.rendering import (
     CaptionCoverage,
     ClipExport,
     ClipState,
+    DurationCompliance,
+    DurationComplianceKind,
     OutputQuality,
     OutputQualityKind,
     OutputSpec,
@@ -42,6 +44,7 @@ from onevoicecut.domain.rendering import (
     SubtitleCue,
     SubtitleTimingSource,
     aspect_of,
+    duration_compliance_of,
     export_key,
     quality_of,
 )
@@ -78,6 +81,9 @@ def _clip(**overrides: object) -> RenderedClip:
         "subtitle_timing": SubtitleTimingSource.WORD_LEVEL,
         "captions": CaptionCoverage.CONFIRMED_SPEECH,
         "tracking": TrackingConfidence.WELL_TRACKED,
+        "duration": DurationCompliance(
+            kind=DurationComplianceKind.WITHIN_CEILING, overrun_s=0.0
+        ),
     }
     fields.update(overrides)
     return RenderedClip(**fields)  # type: ignore[arg-type]
@@ -155,6 +161,7 @@ class TestEverythingIsFrozen:
             SubtitleCue(start_s=0.0, end_s=1.0, text="hola"),
             SAFE_AREA,
             PROFILE,
+            DurationCompliance(kind=DurationComplianceKind.WITHIN_CEILING, overrun_s=0.0),
         ],
     )
     def test_a_value_cannot_be_rewritten_after_construction(
@@ -175,6 +182,7 @@ class TestEverythingIsFrozen:
             ClipExport,
             SafeArea,
             RenderProfile,
+            DurationCompliance,
         ],
     )
     def test_every_entity_is_slotted(self, entity: type) -> None:
@@ -183,23 +191,30 @@ class TestEverythingIsFrozen:
         assert "__slots__" in entity.__dict__
 
 
-class TestARenderedClipDeclaresFourThings:
+class TestARenderedClipDeclaresFiveThings:
     def test_it_carries_one_declaration_per_axis(self) -> None:
-        """Quality, caption coverage, subtitle timing and tracking. All four
-        look identical in a file listing, which is why each is a field rather
-        than something inferable from the video."""
+        """Quality, caption coverage, subtitle timing, tracking and duration
+        compliance. All five look identical in a file listing, which is why
+        each is a field rather than something inferable from the video."""
         clip = _clip()
 
         assert clip.quality.kind is OutputQualityKind.NATIVE
         assert clip.captions is CaptionCoverage.CONFIRMED_SPEECH
         assert clip.subtitle_timing is SubtitleTimingSource.WORD_LEVEL
         assert clip.tracking is TrackingConfidence.WELL_TRACKED
+        assert clip.duration.kind is DurationComplianceKind.WITHIN_CEILING
 
-    def test_none_of_the_four_has_a_default(self) -> None:
+    def test_none_of_the_five_has_a_default(self) -> None:
         """The rule `non_speech_classification` set and `word_timing` repeated: a
         clip that never stated one of these is a gap no reader can reason about,
         and the safe reading of silence is not obvious enough to encode."""
-        declarations = {"quality", "subtitle_timing", "captions", "tracking"}
+        declarations = {
+            "quality",
+            "subtitle_timing",
+            "captions",
+            "tracking",
+            "duration",
+        }
         fields = {f.name: f for f in dataclasses.fields(RenderedClip)}
 
         for name in declarations:
@@ -417,6 +432,41 @@ class TestTheQualityArithmetic:
         `FrameGeometryUnavailable` before a render is ever dispatched."""
         with pytest.raises(ValueError):
             quality_of(CropRect(0, 0, 0, 0), TARGET)
+
+
+class TestTheDurationCeilingArithmetic:
+    """[rev 5] A candidate's range is never trimmed to fit a profile's ceiling --
+    the render result declares the overrun instead, with its magnitude, so the
+    editorial call about which end to cut stays with a person."""
+
+    def test_a_range_within_the_ceiling_is_declared_in_range(self) -> None:
+        compliance = duration_compliance_of(TimeSpan(0.0, 60.0), PROFILE)
+
+        assert compliance.kind is DurationComplianceKind.WITHIN_CEILING
+        assert compliance.overrun_s == 0.0
+
+    def test_a_range_exactly_at_the_ceiling_is_within_it(self) -> None:
+        """The boundary belongs on the legal side, the same reasoning
+        `check_clip_range` already applies to its own ceiling: a ceiling that
+        refused the figure it advertises would be wrong by a second."""
+        compliance = duration_compliance_of(TimeSpan(0.0, PROFILE.max_duration_s), PROFILE)
+
+        assert compliance.kind is DurationComplianceKind.WITHIN_CEILING
+        assert compliance.overrun_s == 0.0
+
+    def test_a_range_past_the_ceiling_is_declared_with_its_overrun(self) -> None:
+        compliance = duration_compliance_of(
+            TimeSpan(0.0, PROFILE.max_duration_s + 12.0), PROFILE
+        )
+
+        assert compliance.kind is DurationComplianceKind.OVER_CEILING
+        assert compliance.overrun_s == 12.0
+
+    def test_it_carries_exactly_two_members(self) -> None:
+        assert {m.value for m in DurationComplianceKind} == {
+            "within_ceiling",
+            "over_ceiling",
+        }
 
 
 class TestTheSafeArea:

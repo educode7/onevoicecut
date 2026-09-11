@@ -49,6 +49,8 @@ from onevoicecut.domain.rendering import (
     CaptionCoverage,
     ClipExport,
     ClipState,
+    DurationCompliance,
+    DurationComplianceKind,
     OutputQuality,
     OutputQualityKind,
     RenderedClip,
@@ -424,6 +426,9 @@ def _rendered_clip(record: Record) -> RenderedClip | None:
     quality = _field(clip, "quality")
     if not isinstance(quality, dict):
         raise CorruptedRecord("field 'quality' is not an object")
+    duration = _field(clip, "duration")
+    if not isinstance(duration, dict):
+        raise CorruptedRecord("field 'duration' is not an object")
     return RenderedClip(
         clip_id=_clip_id(clip),
         job_id=_job_id(clip),
@@ -437,4 +442,8 @@ def _rendered_clip(record: Record) -> RenderedClip | None:
         subtitle_timing=_member(clip, "subtitle_timing", SubtitleTimingSource),
         captions=_member(clip, "captions", CaptionCoverage),
         tracking=_member(clip, "tracking", TrackingConfidence),
+        duration=DurationCompliance(
+            kind=_member(duration, "kind", DurationComplianceKind),
+            overrun_s=_number(duration, "overrun_s"),
+        ),
     )
