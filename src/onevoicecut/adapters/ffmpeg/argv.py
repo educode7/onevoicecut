@@ -138,11 +138,6 @@ def build_slice_argv(track: Path, planned: PlannedChunk, dest: Path) -> list[str
     ]
 
 
-# The subdirectory a clip's own files live in, and the working directory the
-# filter graph resolves its bare filenames against.
-RENDER_DIRNAME = "render"
-
-
 @dataclass(frozen=True, slots=True)
 class RenderInvocation:
     """An argv and the directory it must be run from.
@@ -219,7 +214,18 @@ def build_render_argv(
             "-y",
             str(resolve_inside(job_dir, dest)),
         ],
-        cwd=resolve_inside(job_dir, job_dir / RENDER_DIRNAME),
+        # `dest.parent`, not `job_dir / RENDER_DIRNAME`. The two coincided when
+        # every clip landed flat in `render/`; since a clip's files were
+        # namespaced per profile (`render/{profile}/{clip_id}.*`, to stop two
+        # profiles overwriting one file) they stopped agreeing, and the bare
+        # filenames above resolved against a directory the sidecars were never
+        # written into. Deriving `cwd` from where the caller is *actually
+        # putting the output* removes the second source of truth instead of
+        # hard-coding a layout this module does not own: the sidecars already
+        # share the destination's stem (see `video_render.py`), and sharing its
+        # directory too means the graph resolves against wherever the file
+        # lands, whatever that caller's layout is.
+        cwd=resolve_inside(job_dir, dest.parent),
     )
 
 

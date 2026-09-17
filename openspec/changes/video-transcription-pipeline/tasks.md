@@ -4706,18 +4706,150 @@ Closes: `clip-rendering` VideoRenderPort Contract (integration proof), Single Na
 (integration proof); threat-matrix row **render resource exhaustion** (timeout half). Depends on 13b-i,
 13b-iii.
 
-- [ ] 13b.34 RED: `integration`-marked test — a real ffmpeg render of a tiny synthesized fixture (`-f
+- [x] 13b.34 RED: `integration`-marked test — a real ffmpeg render of a tiny synthesized fixture (`-f
       lavfi`, matching the 3a precedent) produces a 9:16 file whose commanded crop matches the trajectory
       and whose frame carries visible burned-in text; skips when ffmpeg is absent.
-- [ ] 13b.35 GREEN: fix any real-argv/filter-graph gap the integration test exposes.
-- [ ] 13b.36 RED: `integration`-marked test — graph composition under a real job-directory path containing
+- [x] 13b.35 GREEN: fix any real-argv/filter-graph gap the integration test exposes.
+- [x] 13b.36 RED: `integration`-marked test — graph composition under a real job-directory path containing
       `:` (Windows drive letter) succeeds because aux files are referenced by bare filename.
-- [ ] 13b.37 GREEN: confirm/fix.
-- [ ] 13b.38 RED: `integration`-marked timeout test — a deliberately hung ffmpeg process is killed at the
+- [x] 13b.37 GREEN: confirm/fix.
+- [x] 13b.38 RED: `integration`-marked timeout test — a deliberately hung ffmpeg process is killed at the
       computed timeout and surfaces as `RenderFailed`.
-- [ ] 13b.39 GREEN: confirm/fix the real timeout wiring.
-- [ ] 13b.40 REFACTOR: suite green (`integration` included where ffmpeg is present), `mypy src tests`
+- [x] 13b.39 GREEN: confirm/fix the real timeout wiring.
+- [x] 13b.40 REFACTOR: suite green (`integration` included where ffmpeg is present), `mypy src tests`
       clean; update `README.md` if a render dependency needs stating.
+
+### The confirmed `cwd` defect, and why every unit test was structurally blind to it
+
+The bug was exactly as handed off: `build_render_argv` computed `cwd=resolve_inside(job_dir, job_dir /
+RENDER_DIRNAME)` — always `render/` — while `render_worker._export_from_trajectory` writes a clip's `.ass`
+and renders its `.mp4` into `render/{profile.name}/{clip_id}.*`, one directory deeper. `_require_subtitle_
+document` therefore looked in `render/` for a file that only ever existed in `render/{profile}/`, and every
+real render refused before ffmpeg was spawned, with the exact message the handoff quoted.
+
+It was introduced the day `_export_from_trajectory` gained the `render/{profile}/` layout ([rev 5], to stop
+two profiles overwriting one file — see its own `profile_dir` comment) without a matching change to
+`build_render_argv`'s `cwd`. Two call sites, one fact ("where does the graph resolve its bare filenames
+against"), and only one of them was updated.
+
+No unit test could see it because every one of them — `test_render_argv.py`'s `_invocation` and
+`test_video_render.py`'s `_dest` — builds `dest` as `job_dir / "render" / f"{clip_id}.mp4"`, flat, never
+under a profile subdirectory. Against that fixture shape, the buggy `cwd` and the correct one are the same
+path, so the two computations were indistinguishable from any test in the suite. This is precisely why the
+task handed this unit an `integration`-marked test rather than another unit test: the defect lives in the
+*disagreement* between two real call sites, and a fixture that only ever exercises one of them cannot
+expose a disagreement with the other, however many assertions it carries.
+
+**The fix**: `cwd=resolve_inside(job_dir, dest.parent)`. Considered and rejected:
+
+- *Hard-code the per-profile layout into `argv.py`* (`job_dir / RENDER_DIRNAME / profile_name`). Rejected
+  because `argv.py` does not know about profiles — `build_render_argv`'s signature carries no
+  `RenderProfile`, deliberately, per its own docstring on why the crop size is taken and not recomputed.
+  Adding a profile parameter here would give the composer a second reason to change whenever the caller's
+  storage layout changes, which is exactly the coupling `RenderInvocation` (argv *and* cwd, returned
+  together) exists to avoid.
+- *Have the caller pass `cwd` explicitly*, alongside `dest`. Rejected because it hands the caller two values
+  that must always agree (`cwd` and `dest`'s directory) with nothing enforcing that they do — the same
+  shape of bug, moved up one layer instead of removed.
+- *Derive `cwd` from `dest.parent`.* Adopted. The sidecars already share the destination's stem —
+  `video_render.py`'s own docstring says so, and `build_render_argv` validates that stem as a ULID for
+  exactly that reason. Sharing the *directory* too removes the second source of truth outright: there is
+  no longer a "where does the caller put the file" fact and a separate "where does the graph look for its
+  sidecars" fact that a future rev can update only one half of. `resolve_inside(job_dir, dest.parent)` keeps
+  the existing containment guarantee — and is, by construction, implied by the already-present
+  `resolve_inside(job_dir, dest)` check on the destination itself (a contained file's parent directory is
+  never outside the same root), which the mutation notes below confirm.
+
+The dead `RENDER_DIRNAME` constant in `argv.py` (only ever read by the line the fix replaced) was removed
+rather than left orphaned; `adapters/storage/filesystem_transcript_storage.py` keeps its own copy, which
+`render_worker.py` already imports and which is unaffected by this change.
+
+### What the burned-in-text assertion proves, and what it does not
+
+`TestBurnedInText` renders the identical request twice — same crop, same span, same profile — varying only
+whether the `.ass` document carries a cue or is empty (a valid document, per `subtitles.py`'s own
+docstring). It decodes one frame from each output to raw RGB with ffmpeg itself (`-f rawvideo -pix_fmt
+rgb24`, piped straight from `stdout` — no imaging library was added; ffmpeg is already a hard dependency and
+nothing else needed to be), and counts near-white pixels in the bottom half of the frame.
+
+**This proves**: supplying non-empty subtitle cues to an otherwise-identical render measurably changes the
+rendered pixels in the region a bottom-anchored caption occupies, and the no-cues control is clean at that
+same threshold. That is real evidence the `subtitles` filter stage is wired into the graph and is actually
+executed by ffmpeg, not merely composed into the `-filter_complex` string and silently ignored.
+
+**This does not prove**: that the burned-in glyphs are legible, correctly shaped, or spell the source
+text. Confirming that would need OCR, which this repo does not depend on and which the task explicitly
+flagged as a dependency not worth adding for this proof. The two claims are different in kind — "ffmpeg drew
+something here because we asked it to" versus "what it drew is readable" — and only the first is what this
+assertion checks.
+
+One measured correction folded into the final version of that test: the caption band was first computed
+from the profile's own `safe_area.bottom` fraction (`round(height * (1 - safe_area.bottom))` and up), which
+placed the scan window *below* where the glyphs actually land. `MarginV` in the generated `.ass` positions
+the caption's *baseline* against that margin, and a glyph's ink sits above its own baseline — measured on
+this fixture, rows 233-258 of a 320-tall frame, against a naive band of `[262, 320)`. The fix widens the
+scan to the bottom half of the frame outright, which is honest about being a coarser, more robust region
+rather than a precisely derived one. Caught before the GREEN state was reported, not after, by running the
+test against the real fixture and reading the pixel counts it actually returned (0 vs 0) rather than trusting
+the arithmetic.
+
+### The timeout test does not wait for `_timeout_for`'s own floor, and says why
+
+`FfmpegVideoRenderer._timeout_for` floors every render at 60 seconds (`MIN_RENDER_TIMEOUT_S`), already
+proven arithmetically against a fake runner in `test_video_render.py::TestTheRenderTimeout` — no real clock
+needed to check that a scaling formula scales. Driving a real hung ffmpeg process through a full `render()`
+call would mean waiting out that same 60-second floor for no additional proof; the task's own words rule
+that out ("must not take minutes to run").
+
+What that unit test *cannot* prove is that `subprocess.run`'s own `timeout=` really terminates a hung real
+ffmpeg process, and that the resulting `TimeoutExpired` really becomes `RenderFailed` through
+`BinaryInvoker.invoke` — the exact two calls `FfmpegVideoRenderer.render` delegates its own timeout policy
+to (`self._invoker.invoke(..., on_timeout=RenderFailed, ...)`). `TestARealHungProcessIsKilledAtTimeout`
+drives those two directly, with a short, explicit `timeout_s=1.5` in place of the adapter's own 60-second
+floor, against a genuinely unbounded real ffmpeg process (`sine=frequency=440` with no `duration=`, feeding
+`-f null -`) rather than a script that merely sleeps — a process actually doing decode/encode work, not one
+idling. The process is confirmed gone afterward (`tasklist` showed no `ffmpeg.exe` once the suite finished),
+and the whole test completes in about a second, real clock and all.
+
+### Mutations run against the fix, and one that caught nothing
+
+Five mutations against the `cwd=resolve_inside(job_dir, dest.parent)` line, run over the unit render/argv
+suites plus the new integration file:
+
+1. Revert to the original bug (`job_dir / "render"`, no per-profile awareness) — **caught**: all five
+   pixel/geometry/colon integration tests fail with the exact confirmed `RenderFailed` message.
+2. `dest` instead of `dest.parent` (cwd becomes the output *file*, not its directory) — **caught**: 28
+   tests fail across both unit and integration suites.
+3. `dest.parent.parent` (one directory too high) — **caught**: the same 28 tests fail, one directory level
+   off from mutation 2.
+4. Drop the `resolve_inside` wrapper entirely (`cwd=dest.parent`, no containment check) — **caught
+   nothing**. Traced rather than patched over: `build_render_argv`'s own `argv=[...]` list is evaluated
+   before its `cwd=...` keyword argument (left-to-right evaluation of the call's arguments), and that list
+   already contains `resolve_inside(job_dir, dest)` on the destination itself. A `dest` proven to resolve
+   inside `job_dir` makes `dest.parent` provably resolve inside `job_dir` too — a contained file's parent
+   directory cannot be outside the same root. No test can distinguish the wrapped and unwrapped forms
+   without first defeating the destination's own check, which every call site already goes through. The
+   `resolve_inside` wrapper on `cwd` is kept anyway, as defense that does not depend on the two lines
+   staying in this exact order forever, and this finding is recorded rather than hidden behind a contrived
+   test that could only pass by weakening the destination check first.
+5. Swap the `resolve_inside` arguments (`resolve_inside(dest.parent, job_dir)`) — **caught**: 44 tests
+   fail, since this asks whether `job_dir` sits inside its own subdirectory, which is never true.
+
+Four of five mutations were caught by the existing suite; the fifth is explained rather than forced into a
+false catch.
+
+### Measured cost
+
+`git diff --numstat`, `src` + `tests` only: **12 added / 6 removed** in
+`src/onevoicecut/adapters/ffmpeg/argv.py` (the `cwd` fix and the removal of the now-dead `RENDER_DIRNAME`
+constant), and **432 added / 0 removed** in the new `tests/integration/test_render_clip.py`. Total: **444
+added, 6 removed** across two files — against the ~425-line estimate, essentially on target (1.04x), and
+well inside the 800-line budget. No `README.md` change: this slice added no new system binary or pip
+dependency — `libass`/`fontconfig` ship inside the ffmpeg build already required, and the pixel-reading
+verification shells back out to the same `ffmpeg` binary the rest of the suite already depends on.
+
+Final state: **1,915 passed / 30 deselected** (up from **1,909 passed** at the start of this slice), mypy
+clean over **232 source files** (up from **231**).
 
 ---
 
