@@ -34,8 +34,9 @@ an `OutputSpec`. This is the caller that has the profile.
 
 import argparse
 import sys
+import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor
@@ -103,6 +104,13 @@ EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_UNUSABLE = 2
 
+# Both count as "picked up and about to be worked": PENDING is the ordinary
+# first claim, RENDERING is a re-pickup of a claim the render drain sweep
+# judged abandoned. Either way this process is about to do the work, so
+# either way the claim has to be refreshed -- an abandoned-claim re-pickup
+# that never re-wrote it would read as abandoned again on the very next sweep.
+_CLAIMABLE_STATES = (ClipState.PENDING, ClipState.RENDERING)
+
 
 def _range_disagreement(pending: tuple[ClipExport, ...]) -> CorruptedRecord | None:
     """One clip id names one range, and the set has to be read to see it.
@@ -138,6 +146,7 @@ def render_pending_exports(
     render_profiles: Mapping[str, RenderProfile] = RENDER_PROFILES,
     sample_hz: float = DEFAULT_SAMPLE_HZ,
     max_clip_seconds: float = DEFAULT_MAX_CLIP_SECONDS,
+    now: Callable[[], float] = time.time,
 ) -> tuple[ClipExport, ...]:
     """Renders exactly the profiles `pending` already names -- never re-derived
     from a candidate's variants.
@@ -155,9 +164,23 @@ def render_pending_exports(
     resolution happens, for the caller that writes `pending` in the first
     place; this function never repeats it.
 
+    **Claims before anything else runs**, mirroring `worker.run_job`'s pid
+    claim written before its extractor is even built. Every export still
+    `PENDING` or `RENDERING` is written back as `RENDERING`, and the clip's
+    render claim is refreshed, before the range guard or any other check in
+    this function is reached -- which is what makes `render_drain_once`'s
+    claim-is-fresh check answer against a timestamp this process actually
+    wrote, rather than one it meant to get around to.
+
     Runs `_render_profiles`, the one render-loop implementation this module
     carries.
     """
+    claimed = tuple(export for export in pending if export.state in _CLAIMABLE_STATES)
+    for export in claimed:
+        storage.save_clip_export(replace(export, state=ClipState.RENDERING))
+    if claimed:
+        storage.write_render_claim(job_id, clip_id, at_s=now())
+
     disagreement = _range_disagreement(pending)
     if disagreement is not None:
         return tuple(
@@ -612,6 +635,7 @@ def run_render(
     render_profiles: Mapping[str, RenderProfile] = RENDER_PROFILES,
     sample_hz: float = DEFAULT_SAMPLE_HZ,
     max_clip_seconds: float = DEFAULT_MAX_CLIP_SECONDS,
+    now: Callable[[], float] = time.time,
 ) -> tuple[ClipExport, ...] | None:
     """Wire the real adapters for one clip and render every profile its
     `PENDING` exports name.
@@ -655,6 +679,7 @@ def run_render(
         render_profiles=render_profiles,
         sample_hz=sample_hz,
         max_clip_seconds=max_clip_seconds,
+        now=now,
     )
 
 

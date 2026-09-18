@@ -30,6 +30,7 @@ class FakeTranscriptStoragePort:
         self._export_paths: dict[JobId, Path] = {}
         self._cancelled: dict[JobId, bool] = {}
         self._heartbeats: dict[JobId, float] = {}
+        self._render_claims: dict[tuple[JobId, ClipId], float] = {}
         self._media: dict[JobId, SourceMedia] = {}
         # Keyed the way disk is, by clip *and* profile: a dict keyed by clip
         # alone would pass a test the filesystem fails, which is the one thing
@@ -137,6 +138,33 @@ class FakeTranscriptStoragePort:
                 key=lambda export: export.profile,
             )
         )
+
+    def list_clip_exports(self) -> tuple[ClipExport, ...]:
+        return tuple(
+            sorted(
+                self._clip_exports.values(),
+                key=lambda export: (export.job_id, export.clip_id, export.profile),
+            )
+        )
+
+    def write_render_claim(self, job_id: JobId, clip_id: ClipId, *, at_s: float) -> None:
+        # Recorded for the same reason `write_heartbeat` is: the claim's
+        # central claim is about *when* it happened relative to the rest of
+        # the render, and ordering is only observable through the call log.
+        self.calls.append("write_render_claim")
+        self._render_claims[(job_id, clip_id)] = at_s
+
+    def render_claim_at(self, job_id: JobId, clip_id: ClipId) -> float | None:
+        """The stored value, for a test asserting the claim was written at all."""
+        return self._render_claims.get((job_id, clip_id))
+
+    def render_claim_is_fresh(
+        self, job_id: JobId, clip_id: ClipId, *, now_s: float, stale_after_s: float
+    ) -> bool:
+        written_at = self._render_claims.get((job_id, clip_id))
+        if written_at is None:
+            return False
+        return now_s - written_at <= stale_after_s
 
     def save_transcript(self, transcript: Transcript) -> None:
         self.calls.append("save_transcript")

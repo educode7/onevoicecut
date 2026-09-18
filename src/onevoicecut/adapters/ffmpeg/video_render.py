@@ -141,7 +141,7 @@ class FfmpegVideoRenderer:
         _write_command_file(invocation.cwd, clip_id, request.trajectory)
         destination.parent.mkdir(parents=True, exist_ok=True)
 
-        timeout_s = _timeout_for(request.span.duration_s)
+        timeout_s = render_timeout_for(request.span.duration_s)
         self._invoker.invoke(
             invocation.argv,
             spawn=lambda: self._runner(
@@ -204,8 +204,15 @@ def _write_command_file(
     )
 
 
-def _timeout_for(clip_duration_s: float) -> float:
-    """The clip's own length decides its bound, floored so a short one survives."""
+def render_timeout_for(clip_duration_s: float) -> float:
+    """The clip's own length decides its bound, floored so a short one survives.
+
+    Public, not `_`-private: `runtime/app.py`'s render drain sweep needs the
+    identical formula to derive when a claimed render's own claim has gone
+    stale, and duplicating the two constants there would let the drain's
+    notion of "too long" silently drift from the timeout that actually kills
+    the process.
+    """
     return max(MIN_RENDER_TIMEOUT_S, RENDER_TIMEOUT_REALTIME_FACTOR * clip_duration_s)
 
 

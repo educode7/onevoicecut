@@ -111,6 +111,12 @@ class Settings(BaseSettings):
     # with no exit, and the server refuses to boot rather than strand every job.
     max_concurrent_jobs: int = Field(default=1, ge=1)
 
+    # The render side of `max_concurrent_jobs`, and independent of it: a
+    # render is minutes of ffmpeg work, not hours of ASR, so the two caps have
+    # no reason to move together. Default 1 for the same reason -- a
+    # measurement nobody has made yet is not a default this project invents.
+    max_concurrent_renders: int = Field(default=1, ge=1)
+
     # Thirty minutes per chunk, and an operator's to set — unlike the two-hour
     # liveness bound, which is a property of the rule rather than of the machine.
     # This one depends on the hardware, the model size and the chunk length.

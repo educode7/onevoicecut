@@ -260,6 +260,76 @@ def rendered(export: ClipExport) -> RenderedClip:
     return export.clip
 
 
+class TestTheRenderClaim:
+    """`13b.30`: whatever `ClipExport` needs to make render liveness derivable
+    rather than counted -- the render side of `worker.run_job`'s pid-and-
+    heartbeat claim, written before any real work starts."""
+
+    def test_the_clip_is_claimed_before_anything_else_runs(
+        self, tmp_path: Path
+    ) -> None:
+        storage = FakeTranscriptStoragePort(tmp_path)
+
+        run(tmp_path, storage=storage)
+
+        assert "write_render_claim" in storage.calls
+        assert storage.render_claim_at(JOB_ID, CLIP_ID) is not None
+
+    def test_the_claim_precedes_even_a_refused_range(self, tmp_path: Path) -> None:
+        """The claim step reads no further than each export's own state, so a
+        clip whose exports disagree on their range is still claimed before
+        that disagreement is ever detected."""
+        storage = FakeTranscriptStoragePort(tmp_path)
+
+        run_pending(
+            tmp_path,
+            (
+                a_pending_export(profile="vertical", start_s=120.0, end_s=150.0),
+                a_pending_export(profile="square", start_s=300.0, end_s=330.0),
+            ),
+            storage=storage,
+        )
+
+        assert storage.render_claim_at(JOB_ID, CLIP_ID) is not None
+
+    def test_an_export_is_written_rendering_before_it_is_written_done(
+        self, tmp_path: Path
+    ) -> None:
+        """Mirrors `worker.run_job`'s pid-then-finish ordering: the same
+        record is saved twice, once mid-claim and once with the outcome."""
+        storage = FakeTranscriptStoragePort(tmp_path)
+
+        run(tmp_path, storage=storage)
+
+        assert storage.calls.count("save_clip_export:vertical") == 2
+
+    def test_an_abandoned_rendering_export_is_re_claimed_on_pickup(
+        self, tmp_path: Path
+    ) -> None:
+        """A `RENDERING` export the render drain judged abandoned is still
+        claimable -- re-picking it up without refreshing the claim would read
+        as abandoned again on the very next sweep."""
+        storage = FakeTranscriptStoragePort(tmp_path)
+        stale_export = replace(a_pending_export(), state=ClipState.RENDERING)
+        storage.save_transcript(a_transcript())
+
+        exports = render_pending_exports(
+            JOB_ID,
+            CLIP_ID,
+            (stale_export,),
+            media=a_media(tmp_path),
+            probe=a_probe(),
+            tracker=FakeSubjectTrackerPort(),
+            renderer=RecordingRenderer(),
+            storage=storage,
+            job_dir=tmp_path,
+            render_profiles={"vertical": PROFILE},
+        )
+
+        assert exports[0].state is ClipState.DONE
+        assert storage.render_claim_at(JOB_ID, CLIP_ID) is not None
+
+
 class TestTheHappyPath:
     def test_it_writes_a_finished_export(self, tmp_path: Path) -> None:
         export = run(tmp_path)

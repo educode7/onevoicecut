@@ -68,15 +68,21 @@ def test_an_unusable_cap_refuses_boot(
 def test_the_cap_is_global_not_per_engine_or_per_operator(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """One integer, and the field list is the proof.
+    """Two integers, not one per engine or one per operator, and the field
+    list is the proof.
 
-    Per-engine or per-operator slots would need engine-aware drain bookkeeping
+    `max_concurrent_renders` (slice 13b-iv-b) is a second cap, not a second
+    axis on this one: transcription and rendering are bounded by different
+    resources (CPU-bound local ASR versus a single ffmpeg process per render)
+    and drained by two independent sweeps, so one number cannot honestly cap
+    both. Per-engine or per-operator slots on either would need bookkeeping
     for a benefit nobody has measured. This pins the decision so the next
-    person adds a second field on purpose rather than by drift.
+    person adds a third field on purpose rather than by drift.
     """
     monkeypatch.delenv("ONEVOICECUT_MAX_CONCURRENT_JOBS", raising=False)
     fields = Settings.model_fields
 
-    assert [name for name in fields if "concurrent" in name] == [
-        "max_concurrent_jobs"
+    assert sorted(name for name in fields if "concurrent" in name) == [
+        "max_concurrent_jobs",
+        "max_concurrent_renders",
     ]

@@ -11,6 +11,7 @@ venv/
 htmlcov/
 .mypy_cache/
 .ruff_cache/
+.codegraph/
 
 # Per-machine agent scratch — not part of the change artifacts they sit next to
 .qwen/

@@ -386,7 +386,7 @@ class TestARealHungProcessIsKilledAtTimeout:
     same shape exercised here.
 
     Driven directly against those two rather than through a full `render()`
-    call, deliberately: `_timeout_for` floors every render at 60 seconds
+    call, deliberately: `render_timeout_for` floors every render at 60 seconds
     (already proven against a fake runner in
     `test_video_render.py::TestTheRenderTimeout`, which needs no real clock to
     check arithmetic), and waiting out that floor on a real hung process would

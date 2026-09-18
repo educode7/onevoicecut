@@ -22,13 +22,15 @@ from fastapi import FastAPI
 
 from onevoicecut.adapters.asr.local.declarations import HF_TOKEN_ENV
 from onevoicecut.adapters.ffmpeg.extractor import require_binaries
+from onevoicecut.adapters.ffmpeg.video_render import render_timeout_for
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
 from onevoicecut.adapters.web.app import WebDependencies, create_app
 from onevoicecut.adapters.web.auth import build_authenticator, parse_operator_tokens
-from onevoicecut.domain.ids import JobId
+from onevoicecut.domain.ids import ClipId, JobId
 from onevoicecut.domain.jobs import WORKER_BOUND_STATES, JobRecord, JobState
+from onevoicecut.domain.rendering import ClipExport, ClipState
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.runtime.engine_resolver import declared_support
 from onevoicecut.runtime.settings import Settings
@@ -46,6 +48,7 @@ from onevoicecut.runtime.supervisor import watchdog_supervisor as watchdog_super
 from onevoicecut.runtime.supervisor import worker_is_alive as worker_is_alive
 
 WORKER_MODULE = "onevoicecut.runtime.worker"
+RENDER_WORKER_MODULE = "onevoicecut.runtime.render_worker"
 
 # Five seconds between sweeps. That is the worst-case delay between an upload
 # finishing and its worker starting on an idle machine — noise against a
@@ -57,6 +60,11 @@ DRAIN_SWEEP_INTERVAL_S = 5.0
 # would re-list every job on the machine twelve times a minute to re-ask a
 # question whose answer changes on the scale of a chunk.
 WATCHDOG_SWEEP_INTERVAL_S = 60.0
+
+# Same cadence as the job drain: a render is minutes rather than hours, so
+# there is no argument for sweeping it any less eagerly than the queue it sits
+# beside.
+RENDER_DRAIN_SWEEP_INTERVAL_S = 5.0
 
 
 @runtime_checkable
@@ -139,6 +147,66 @@ def spawn_worker(
     data_dir: Path, *, launch: Callable[[list[str]], object] = _popen
 ) -> WorkerProcesses:
     return WorkerProcesses(data_dir, launch=launch)
+
+
+class RenderWorkerProcesses:
+    """`WorkerProcesses`' render-side twin, keyed by `ClipId` rather than
+    `JobId` -- a render worker is spawned per clip, never per job.
+
+    Tracking `.poll()`-able handles here is only about not leaving zombies
+    behind, the same reasoning `WorkerProcesses` documents; unlike the job
+    drain, a render's liveness is never re-derived from this registry. That
+    lives entirely in the claim `render_drain_once` reads off storage, which
+    is what lets a claim outlive a web-process restart that a `dict` here
+    could not.
+    """
+
+    def __init__(
+        self, data_dir: Path, *, launch: Callable[[list[str]], object] = _popen
+    ) -> None:
+        self._data_dir = data_dir
+        self._launch = launch
+        self._running: dict[ClipId, ProcessHandle] = {}
+
+    def __call__(self, job_id: JobId, clip_id: ClipId) -> None:
+        handle = self._launch(
+            [
+                sys.executable,
+                "-m",
+                RENDER_WORKER_MODULE,
+                "--job-id",
+                job_id,
+                "--clip-id",
+                clip_id,
+                "--data-dir",
+                str(self._data_dir),
+            ]
+        )
+        if isinstance(handle, ProcessHandle):
+            self._running[clip_id] = handle
+
+    def finished(self) -> tuple[tuple[ClipId, int], ...]:
+        """Every render worker that has exited, purely to reap it from the OS.
+
+        The result is deliberately not read for any state transition -- a
+        `ClipExport` self-heals through its own claim staleness, unlike a job
+        record, which needs `reap_exited_workers` to turn a dead pid into
+        something an operator can read. Nothing here plays that role.
+        """
+        exited = tuple(
+            (clip_id, status)
+            for clip_id, handle in self._running.items()
+            if (status := handle.poll()) is not None
+        )
+        for clip_id, _ in exited:
+            del self._running[clip_id]
+        return exited
+
+
+def spawn_render_worker(
+    data_dir: Path, *, launch: Callable[[list[str]], object] = _popen
+) -> RenderWorkerProcesses:
+    return RenderWorkerProcesses(data_dir, launch=launch)
 
 
 def reconcile_interrupted_jobs(
@@ -258,6 +326,165 @@ def drain_once(
     return tuple(launched)
 
 
+def _group_clip_exports(
+    exports: tuple[ClipExport, ...],
+) -> dict[tuple[JobId, ClipId], tuple[ClipExport, ...]]:
+    """One clip's exports, however many profiles it has, as one group.
+
+    The render drain's cap counts groups, not rows: a clip rendered under
+    three profiles is one process and one slot, the same way `render_worker`'s
+    own module docstring describes one process claiming a whole clip's
+    pending profiles at once.
+    """
+    groups: dict[tuple[JobId, ClipId], list[ClipExport]] = {}
+    for export in exports:
+        groups.setdefault((export.job_id, export.clip_id), []).append(export)
+    return {key: tuple(group) for key, group in groups.items()}
+
+
+def _render_group_is_live(
+    storage: TranscriptStoragePort,
+    key: tuple[JobId, ClipId],
+    group: tuple[ClipExport, ...],
+    *,
+    at: float,
+) -> bool:
+    """A render worker is on this clip right now, so the sweep must not touch
+    it. `RENDERING` alone is not enough -- that is exactly the state an
+    abandoned claim is left in -- so liveness is `RENDERING` *and* a claim
+    that has not gone stale.
+
+    The staleness bound is derived from the group's own span with the
+    identical formula `FfmpegVideoRenderer` uses to time out that same render,
+    via `render_timeout_for` -- not a second guess at how long a render may
+    take, which would drift from the timeout that actually kills the process.
+    Every export in one clip shares one range (`render_worker._range_
+    disagreement` is what enforces that once a render actually runs), so the
+    first export's span speaks for the group.
+    """
+    if not any(export.state is ClipState.RENDERING for export in group):
+        return False
+    job_id, clip_id = key
+    stale_after_s = render_timeout_for(
+        group[0].source_end_s - group[0].source_start_s
+    )
+    return storage.render_claim_is_fresh(
+        job_id, clip_id, now_s=at, stale_after_s=stale_after_s
+    )
+
+
+def _render_group_is_eligible(
+    storage: TranscriptStoragePort,
+    key: tuple[JobId, ClipId],
+    group: tuple[ClipExport, ...],
+    *,
+    at: float,
+) -> bool:
+    """`PENDING`, or `RENDERING` with an abandoned (stale) claim.
+
+    A group carrying only `DONE`/`FAILED` rows is neither live nor eligible --
+    the render already happened, successfully or not, and the sweep's job
+    is done with it.
+    """
+    if any(export.state is ClipState.PENDING for export in group):
+        return True
+    if not any(export.state is ClipState.RENDERING for export in group):
+        return False
+    return not _render_group_is_live(storage, key, group, at=at)
+
+
+def render_drain_once(
+    storage: TranscriptStoragePort,
+    *,
+    max_concurrent_renders: int,
+    launch: Callable[[JobId, ClipId], None],
+    spawned: set[tuple[JobId, ClipId]],
+    now: Callable[[], float] = time.time,
+) -> tuple[tuple[JobId, ClipId], ...]:
+    """`drain_once`'s render-side twin: one sweep, one cap, nothing counted.
+
+    A `ClipExport` carries no pid and no heartbeat -- `13b.29`'s own note in
+    tasks.md is that deriving render liveness needed a field, a cap and a
+    second sweep before it could exist at all. This is that sweep. The active
+    count is derived exactly like the job drain's: listed off storage, grouped
+    into one slot per clip, filtered by whether a live claim backs the
+    `RENDERING` rows. Nothing is persisted between sweeps here either, so a
+    render worker that dies frees its slot the moment its claim goes stale --
+    no separate reaping pass has to notice first.
+
+    `spawned` plays the identical role `drain_once`'s own parameter does:
+    between the launch and the worker's own first claim write, storage still
+    reads `PENDING`, so without this memory the very next sweep would launch
+    a second worker on the same clip.
+    """
+    at = now()
+    groups = _group_clip_exports(storage.list_clip_exports())
+
+    active = 0
+    eligible: list[tuple[JobId, ClipId]] = []
+    for key, group in groups.items():
+        if _render_group_is_live(storage, key, group, at=at):
+            active += 1
+        elif _render_group_is_eligible(storage, key, group, at=at):
+            eligible.append(key)
+
+    spawned &= set(eligible)
+
+    launched: list[tuple[JobId, ClipId]] = []
+    for key in sorted(eligible):
+        if active >= max_concurrent_renders:
+            break
+        if key in spawned:
+            continue
+        # Re-read before starting anything, the same discipline `drain_once`
+        # applies to its own listing: a render that was claimed, or finished,
+        # while this sweep was walking the snapshot is exactly the one worth
+        # catching.
+        job_id, clip_id = key
+        fresh_group = storage.load_clip_exports(job_id, clip_id)
+        if not _render_group_is_eligible(storage, key, fresh_group, at=at):
+            continue
+        launch(job_id, clip_id)
+        spawned.add(key)
+        launched.append(key)
+        active += 1
+
+    return tuple(launched)
+
+
+async def render_drain_supervisor(
+    storage: TranscriptStoragePort,
+    *,
+    max_concurrent_renders: int,
+    launch: Callable[[JobId, ClipId], None],
+    interval_s: float = RENDER_DRAIN_SWEEP_INTERVAL_S,
+    reap: Callable[[], tuple[tuple[ClipId, int], ...]] = lambda: (),
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> None:
+    """Sweep forever, and survive a bad sweep -- `drain_supervisor`'s twin.
+
+    `reap` is called for its side effect on the OS process table alone, never
+    for its return value: a render's `ClipExport` needs no equivalent of
+    `reap_exited_workers`, because a dead worker's abandoned claim already
+    self-heals the next time `render_drain_once` looks at it.
+    """
+    spawned: set[tuple[JobId, ClipId]] = set()
+    while True:
+        try:
+            reap()
+            render_drain_once(
+                storage,
+                max_concurrent_renders=max_concurrent_renders,
+                launch=launch,
+                spawned=spawned,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # noqa: BLE001 - a bad sweep must not end the loop
+            print(f"render drain: sweep failed: {error}", file=sys.stderr)
+        await sleep(interval_s)
+
+
 async def drain_supervisor(
     storage: TranscriptStoragePort,
     *,
@@ -326,6 +553,17 @@ class DrainConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class RenderDrainConfig:
+    """`DrainConfig`'s render-side twin -- no `is_alive`, because a render's
+    liveness question is answered by a claim, not a pid probe."""
+
+    launch: Callable[[JobId, ClipId], None]
+    max_concurrent_renders: int
+    interval_s: float = RENDER_DRAIN_SWEEP_INTERVAL_S
+    reap: Callable[[], tuple[tuple[ClipId, int], ...]] = field(default=lambda: ())
+
+
+@dataclass(frozen=True, slots=True)
 class WatchdogConfig:
     """Separate from `DrainConfig` because they are separate decisions.
 
@@ -368,6 +606,7 @@ def build_app(
     *,
     drain: DrainConfig | None = None,
     watchdog: WatchdogConfig | None = None,
+    render_drain: RenderDrainConfig | None = None,
 ) -> FastAPI:
     """`None` for either builds an app that serves routes and starts nothing.
 
@@ -415,6 +654,18 @@ def build_app(
                     )
                 )
             )
+        if render_drain is not None:
+            supervisors.append(
+                asyncio.create_task(
+                    render_drain_supervisor(
+                        deps.storage,
+                        max_concurrent_renders=render_drain.max_concurrent_renders,
+                        launch=render_drain.launch,
+                        interval_s=render_drain.interval_s,
+                        reap=render_drain.reap,
+                    )
+                )
+            )
 
         try:
             yield
@@ -439,6 +690,7 @@ def get_app() -> FastAPI:
     """
     settings = Settings()  # type: ignore[call-arg]
     workers = spawn_worker(settings.data_dir)
+    render_workers = spawn_render_worker(settings.data_dir)
     return build_app(
         build_dependencies(settings),
         drain=DrainConfig(
@@ -447,4 +699,9 @@ def get_app() -> FastAPI:
             reap=workers.finished,
         ),
         watchdog=WatchdogConfig(chunk_timeout_s=settings.chunk_timeout_s),
+        render_drain=RenderDrainConfig(
+            launch=render_workers,
+            max_concurrent_renders=settings.max_concurrent_renders,
+            reap=render_workers.finished,
+        ),
     )

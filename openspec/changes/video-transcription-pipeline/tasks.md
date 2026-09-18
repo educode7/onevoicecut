@@ -4687,16 +4687,105 @@ assumed.
 
 Depends on 13b-iv. **Not startable as written**: it needs a decision before it needs tasks.
 
-- [ ] 13b.29 RED: a `PENDING` `ClipExport` with no live render worker is picked up by a render drain
+- [x] 13b.29 RED: a `PENDING` `ClipExport` with no live render worker is picked up by a render drain
       sweep, and the sweep never exceeds a render concurrency cap.
-- [ ] 13b.30 GREEN: the sweep, its cap, and whatever `ClipExport` needs to make render liveness
+- [x] 13b.30 GREEN: the sweep, its cap, and whatever `ClipExport` needs to make render liveness
       derivable rather than counted — the same rule the job drain already holds itself to.
 
-Open before either: does a render worker write a pid and heartbeat onto its `ClipExport` the way the
-transcription worker writes them onto `job.json`, or does a render's short life (a clip is bounded by
-`max_clip_seconds`, not by three hours) make a simpler answer honest? The transcription worker's
-heartbeat exists because a multi-hour job can hang unobserved; that argument is much weaker here, and
-it should be made or refuted explicitly rather than inherited.
+### The open question is resolved: no pid, no heartbeat — a one-shot claim
+
+The question this slice opened was whether a render worker needs a pid-and-heartbeat pair on its
+`ClipExport`, mirroring `job.json`'s. It does not, and the argument is narrower than "a render is
+short": `FfmpegVideoRenderer` already has a hard per-call ffmpeg timeout (`render_timeout_for`,
+`BinaryInvoker`), proven in slice 13b-v's own integration suite to kill a genuinely hung real process.
+A periodic heartbeat exists on the transcription worker to catch a process that is alive but has
+stopped making progress mid-chunk — a failure mode a *single bounded call* cannot exhibit, because
+there is no "mid-chunk" inside one ffmpeg invocation to stall in. The only failure a render process can
+have that a job's heartbeat rule is built to catch is "the process died before writing its own
+outcome" — and a one-shot "claimed since T" timestamp already answers that: if the process were still
+alive and working, the ffmpeg call underneath it would already have proven or disproven that within its
+own timeout. There is nothing a periodic refresh would prove that the claim doesn't.
+
+**Claim, not a domain field.** `ClipExport` gained no new attribute — it has 30-plus call sites across
+production and test code with no field defaults, by deliberate house style, and this feature does not
+need one. The claim is a side channel exactly mirroring `write_heartbeat`/`heartbeat_is_fresh`: a small
+timestamp file at `render/{clip_id}/claim`, next to but distinct from the `{profile}.json` records
+`save_clip_export` writes and the `.ass`/`.cmds`/`.mp4` sidecars `_export_from_trajectory` writes one
+directory over, under `render/{profile}/`. `TranscriptStoragePort` gained `write_render_claim` and
+`render_claim_is_fresh`, implemented on `FilesystemTranscriptStorage` and the in-memory fake, with the
+identical fail-closed contract `heartbeat_is_fresh` already has: absent or unreadable reads as not
+fresh, and a future timestamp reads as fresh under clock skew.
+
+**Discovery needed a new enumeration.** `load_clip_exports(job_id, clip_id)` answers "the exports for
+this already-known clip" and cannot answer "every pending or abandoned render on the machine" — the
+question the sweep actually has. `TranscriptStoragePort.list_clip_exports()` closes that gap, mirroring
+`list_jobs()`'s own contract: unfiltered, sorted for read stability, the caller decides eligibility.
+`FilesystemTranscriptStorage` implements it by globbing `jobs/*/render/*/*.json` under directories that
+validate as job ids, exactly `list_jobs`'s own scoping discipline.
+
+**The staleness bound reuses the render's own timeout formula, not a second guess.** `_timeout_for` in
+`adapters/ffmpeg/video_render.py` was renamed to the public `render_timeout_for` and imported directly
+into `runtime/app.py`, rather than duplicating `MIN_RENDER_TIMEOUT_S` / `RENDER_TIMEOUT_REALTIME_FACTOR`
+as a second pair of constants. Two copies of "how long is too long for this clip" would drift the day
+one changed and the other did not — the identical failure mode `aspect_of` and `export_key` already
+refuse elsewhere in this codebase by deriving instead of declaring twice.
+
+**The sweep, `render_drain_once`, mirrors `drain_once` line for line where the shapes agree and departs
+where they don't.** It lists every `ClipExport` via `list_clip_exports()`, groups by `(job_id,
+clip_id)` — one process claims a whole clip's pending profiles at once, so the cap counts clips, never
+rows — and classifies each group as *live* (`RENDERING` with a fresh claim), *eligible* (`PENDING`, or
+`RENDERING` with a claim gone stale — an abandoned pickup), or neither (all rows terminal). It carries
+the same `spawned` set `drain_once` does, for the identical launch-to-claim race, and the same re-read
+before spawning. `render_worker.render_pending_exports` gained the claim step itself: before any range
+check or real work, every export still `PENDING` or `RENDERING` in the batch is written back as
+`RENDERING` and the clip's claim is refreshed — mirroring `worker.run_job` writing its pid and
+heartbeat before the extractor is even built. `RENDERING` is included, not just `PENDING`, so a
+re-picked-up abandoned claim refreshes its own timestamp rather than reading as abandoned again on the
+very next sweep.
+
+**Wiring**: `RenderWorkerProcesses`/`spawn_render_worker` mirror `WorkerProcesses`/`spawn_worker`, keyed
+by `ClipId`; `RenderDrainConfig` mirrors `DrainConfig` minus `is_alive` (a render's liveness question is
+the claim, not a pid probe); `render_drain_supervisor` runs as a third supervised loop alongside the job
+drain and the watchdog, at the drain's own five-second cadence — a render is minutes, not hours, so
+there is no argument for sweeping it less eagerly. `Settings.max_concurrent_renders`
+(`ONEVOICECUT_MAX_CONCURRENT_RENDERS`, default 1) is independent of `max_concurrent_jobs`: ffmpeg
+minutes and ASR hours have no reason to share a cap. No render watchdog was added — out of scope per
+this slice's own design note, and the claim-staleness check already plays that role.
+
+**Measured cost**: `git diff --numstat` over `src` + `tests`, including the new untracked
+`tests/unit/runtime/test_render_drain_once.py` (278 lines, counted by hand since `git diff` does not
+report an untracked file): **395 lines in `src`, 378 in `tests`, 773 total** — inside the 800-line
+budget. `src` split across `runtime/app.py` (259, the sweep, its helpers, and the two wiring classes),
+`ports/transcript_storage.py` (40), `adapters/storage/filesystem_transcript_storage.py` (50),
+`runtime/render_worker.py` (27, the claim step), `adapters/ffmpeg/video_render.py` (13, the rename plus
+docstring), `runtime/settings.py` (6). `tests` split across the new `test_render_drain_once.py` (278,
+proving `13b.29`'s two RED claims plus the group/liveness/ordering/spawned-set properties
+`test_drain_once.py` already holds the job drain to), `test_render_worker.py` (+70, the claim-step
+tests), `tests/fakes/transcript_storage.py` (+28, the two new fake methods and `list_clip_exports`).
+
+**Verification status**: implemented under strict TDD — the RED test file was written and confirmed
+(by inspection: `render_drain_once` did not exist in `runtime/app.py` before this slice, so every test
+importing it necessarily failed at collection) before any of `render_drain_once`, its helpers, the
+claim step, or the storage methods were written. The default suite and `mypy src tests` could not be
+run at implementation time because the repository's `.venv` on this machine was orphaned —
+`pyvenv.cfg` named a base interpreter under a Windows user profile that had since been renamed. That
+was fixed afterward (Python 3.12.10 reinstalled via the `py` launcher, `.venv` recreated,
+`requirements.txt` + `requirements-dev.txt` + `requirements-local-asr.txt` reinstalled), and both gates
+were then run for real.
+
+They found two bugs the manual review had missed — both in the new test file, not in the
+implementation: `an_export(..., state=ClipState.DONE)` at two call sites built a `ClipExport` with
+`clip=None`, which `ClipExport.__post_init__` has refused since day one ("a finished render an operator
+cannot open"); fixed by giving the helper a real minimal `RenderedClip` for the `DONE` case (mirroring
+`test_clip_routes.py`'s own `a_rendered_clip` helper) instead of the state that needed one. Separately,
+the pre-existing `test_the_cap_is_global_not_per_engine_or_per_operator` in
+`test_settings_capacity.py` pins the exact set of `"concurrent"`-named `Settings` fields precisely so a
+second one is added on purpose — which this slice did, on purpose, so the test's expectation was
+updated to name both fields rather than the addition being silently permitted.
+
+**Final state**: `pytest -m "not paid and not localmodel"` — **1894 passed, 41 skipped, 10 deselected**
+(up from the video-transcription-pipeline slice 13b-v state); `mypy src tests` — **clean over 233
+source files**.
 
 ---
 

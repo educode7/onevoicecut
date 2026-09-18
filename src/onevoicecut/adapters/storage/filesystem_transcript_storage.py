@@ -61,6 +61,11 @@ AUDIO_TRACK = "audio.flac"
 CHUNKS_DIRNAME = "chunks"
 RESULTS_DIRNAME = "results"
 RENDER_DIRNAME = "render"
+# A name distinct from `{profile}.json`, `.cmds`, `.ass` and `PENDING_SUFFIX`:
+# `load_clip_exports`'s `directory.glob("*.json")` must never pick this up,
+# and `_export_from_trajectory` writes its sidecars one directory over, under
+# `render/{profile}/`, never under `render/{clip_id}/` where this lives.
+RENDER_CLAIM = "claim"
 PENDING_SUFFIX = ".tmp"
 TRANSCRIPT = "transcript.json"
 TRANSCRIPT_TEXT = "transcript.txt"
@@ -239,6 +244,51 @@ class FilesystemTranscriptStorage:
             for path in directory.glob("*.json")
         ]
         return tuple(sorted(exports, key=lambda export: export.profile))
+
+    def list_clip_exports(self) -> tuple[ClipExport, ...]:
+        """Every export on the machine, discovered by directory glob -- the
+        render drain's `list_jobs`.
+
+        Scoped to directories that are real job ids, the way `list_jobs` scopes
+        its own listing, so a scratch folder under the jobs root cannot be
+        mistaken for one. Sorted by `(job_id, clip_id, profile)` so two reads
+        of an unchanged store agree, the same reason `load_clip_exports` sorts.
+        """
+        if not self._jobs_root.is_dir():
+            return ()
+        exports = [
+            decode_clip_export(path.read_text(encoding="utf-8"))
+            for directory in self._jobs_root.iterdir()
+            if directory.is_dir() and self._is_job_id(directory.name)
+            for path in (directory / RENDER_DIRNAME).glob("*/*.json")
+            if path.is_file()
+        ]
+        return tuple(
+            sorted(exports, key=lambda export: (export.job_id, export.clip_id, export.profile))
+        )
+
+    def write_render_claim(self, job_id: JobId, clip_id: ClipId, *, at_s: float) -> None:
+        """The render side of `write_heartbeat`: one timestamp per clip, not
+        per profile -- a whole clip's pending profiles are claimed by one
+        process in one call, so one file records it."""
+        directory = self._writable(job_id) / RENDER_DIRNAME / clip_id
+        self._write(directory / RENDER_CLAIM, repr(float(at_s)))
+
+    def render_claim_is_fresh(
+        self, job_id: JobId, clip_id: ClipId, *, now_s: float, stale_after_s: float
+    ) -> bool:
+        """The render side of `heartbeat_is_fresh`, same fail-closed asymmetry
+        and the same reading of a future timestamp as fresh under clock skew."""
+        raw = self._read_optional(
+            self.job_dir(job_id) / RENDER_DIRNAME / clip_id / RENDER_CLAIM
+        )
+        if raw is None:
+            return False
+        try:
+            written_at = float(raw)
+        except ValueError:
+            return False
+        return now_s - written_at <= stale_after_s
 
     @staticmethod
     def _export_path(render_dir: Path, clip_id: ClipId, profile: str) -> Path:
