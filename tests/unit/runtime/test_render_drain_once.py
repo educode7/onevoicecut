@@ -8,6 +8,12 @@ derived exactly the way the job drain's is -- listed off storage, grouped by
 clip, filtered by whether a `RENDERING` group's claim is still fresh -- so a
 render worker that dies frees its slot the moment the claim goes stale, with
 nothing to reconcile first.
+
+Storage cannot see a launch whose worker has not claimed yet, so the sweep
+learns of it two ways: from the keys it issued itself, which hold a slot for
+as long as they are in flight, and from the workers that have exited, which
+release theirs. Without the second, a worker that died before claiming would
+suppress its own clip until the supervisor process restarted.
 """
 
 from collections.abc import Callable
@@ -104,6 +110,7 @@ def sweep(
     *,
     cap: int = 1,
     spawned: set[tuple[JobId, ClipId]] | None = None,
+    exited: tuple[tuple[ClipId, int], ...] = (),
     now: Callable[[], float] = lambda: NOW,
 ) -> tuple[tuple[JobId, ClipId], ...]:
     return render_drain_once(
@@ -111,6 +118,7 @@ def sweep(
         max_concurrent_renders=cap,
         launch=lambda job_id, clip_id: launched.append((job_id, clip_id)),
         spawned=set() if spawned is None else spawned,
+        exited=exited,
         now=now,
     )
 
@@ -181,6 +189,24 @@ class TestTheCapIsNeverExceeded:
         sweep(storage, launched, cap=1)
 
         assert launched == []
+
+    def test_in_flight_launches_count_toward_the_cap(
+        self,
+        storage: FakeTranscriptStoragePort,
+        launched: list[tuple[JobId, ClipId]],
+    ) -> None:
+        """Clip A was launched on an earlier sweep and has not claimed yet, so
+        storage reports nothing running. It is still a process starting up and
+        it owns a slot: reading the cap off claims alone would run three
+        renders at once here."""
+        storage.save_clip_export(an_export(OLDEST, CLIP_A))
+        storage.save_clip_export(an_export(MIDDLE, CLIP_B))
+        storage.save_clip_export(an_export(NEWEST, CLIP_C))
+        spawned: set[tuple[JobId, ClipId]] = {(OLDEST, CLIP_A)}
+
+        sweep(storage, launched, cap=2, spawned=spawned)
+
+        assert launched == [(MIDDLE, CLIP_B)]
 
     def test_free_slots_are_filled_up_to_the_cap_and_no_further(
         self,
@@ -272,6 +298,24 @@ class TestTheSpawnedSet:
 
         assert launched == [(OLDEST, CLIP_A)]
 
+    def test_an_unclaimed_launch_holds_its_slot_on_the_next_sweep(
+        self,
+        storage: FakeTranscriptStoragePort,
+        launched: list[tuple[JobId, ClipId]],
+    ) -> None:
+        """Skipping a key is not the same as counting it. Five seconds after A
+        was launched its worker has still not claimed, so the cap reads empty
+        and the second sweep starts B beside it -- two render workers under a
+        cap of one, with no claim on disk to show either."""
+        storage.save_clip_export(an_export(OLDEST, CLIP_A))
+        storage.save_clip_export(an_export(MIDDLE, CLIP_B))
+        spawned: set[tuple[JobId, ClipId]] = set()
+
+        sweep(storage, launched, cap=1, spawned=spawned)
+        sweep(storage, launched, cap=1, spawned=spawned)
+
+        assert launched == [(OLDEST, CLIP_A)]
+
     def test_a_claimed_group_is_pruned_from_the_spawned_set(
         self,
         storage: FakeTranscriptStoragePort,
@@ -301,4 +345,59 @@ class TestTheSpawnedSet:
         storage.save_clip_export(an_export(OLDEST, CLIP_A, state=ClipState.DONE))
         sweep(storage, launched, cap=1, spawned=spawned)
 
+        assert spawned == set()
+
+
+class TestAnExitedWorkerReleasesItsSlot:
+    """A worker that dies before `write_render_claim` runs -- a bad
+    interpreter, a missing module, an immediate crash -- leaves its exports
+    `PENDING`, so the group stays eligible forever and its key stays in
+    `spawned` forever. Nothing on disk can report that no process is coming;
+    the exit status the parent already holds is the only evidence there is."""
+
+    def test_a_launch_that_exited_without_claiming_is_retried(
+        self,
+        storage: FakeTranscriptStoragePort,
+        launched: list[tuple[JobId, ClipId]],
+    ) -> None:
+        storage.save_clip_export(an_export(OLDEST, CLIP_A))
+        spawned: set[tuple[JobId, ClipId]] = set()
+        sweep(storage, launched, cap=1, spawned=spawned)
+
+        sweep(storage, launched, cap=1, spawned=spawned, exited=((CLIP_A, 1),))
+
+        assert launched == [(OLDEST, CLIP_A), (OLDEST, CLIP_A)]
+        assert spawned == {(OLDEST, CLIP_A)}
+
+    def test_an_exit_for_another_clip_leaves_this_launch_suppressed(
+        self,
+        storage: FakeTranscriptStoragePort,
+        launched: list[tuple[JobId, ClipId]],
+    ) -> None:
+        """Released per clip, never wholesale: an unrelated worker exiting says
+        nothing about a launch that may still be starting up."""
+        storage.save_clip_export(an_export(OLDEST, CLIP_A))
+        spawned: set[tuple[JobId, ClipId]] = set()
+        sweep(storage, launched, cap=1, spawned=spawned)
+
+        sweep(storage, launched, cap=1, spawned=spawned, exited=((CLIP_B, 1),))
+
+        assert launched == [(OLDEST, CLIP_A)]
+
+    def test_an_exit_after_the_render_finished_is_not_relaunched(
+        self,
+        storage: FakeTranscriptStoragePort,
+        launched: list[tuple[JobId, ClipId]],
+    ) -> None:
+        """The ordinary case: a worker that claimed, wrote `DONE` and exited
+        cleanly. Forgetting its key must not resurrect finished work -- the
+        group is no longer eligible, so the release has nothing to act on."""
+        storage.save_clip_export(an_export(OLDEST, CLIP_A))
+        spawned: set[tuple[JobId, ClipId]] = set()
+        sweep(storage, launched, cap=1, spawned=spawned)
+
+        storage.save_clip_export(an_export(OLDEST, CLIP_A, state=ClipState.DONE))
+        sweep(storage, launched, cap=1, spawned=spawned, exited=((CLIP_A, 0),))
+
+        assert launched == [(OLDEST, CLIP_A)]
         assert spawned == set()

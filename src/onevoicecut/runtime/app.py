@@ -399,6 +399,7 @@ def render_drain_once(
     max_concurrent_renders: int,
     launch: Callable[[JobId, ClipId], None],
     spawned: set[tuple[JobId, ClipId]],
+    exited: tuple[tuple[ClipId, int], ...] = (),
     now: Callable[[], float] = time.time,
 ) -> tuple[tuple[JobId, ClipId], ...]:
     """`drain_once`'s render-side twin: one sweep, one cap, nothing counted.
@@ -408,14 +409,26 @@ def render_drain_once(
     second sweep before it could exist at all. This is that sweep. The active
     count is derived exactly like the job drain's: listed off storage, grouped
     into one slot per clip, filtered by whether a live claim backs the
-    `RENDERING` rows. Nothing is persisted between sweeps here either, so a
+    `RENDERING` rows -- plus the launches still in flight, which storage
+    cannot see yet. Nothing is persisted between sweeps here either, so a
     render worker that dies frees its slot the moment its claim goes stale --
     no separate reaping pass has to notice first.
 
-    `spawned` plays the identical role `drain_once`'s own parameter does:
-    between the launch and the worker's own first claim write, storage still
-    reads `PENDING`, so without this memory the very next sweep would launch
-    a second worker on the same clip.
+    `spawned` is the caller's memory of issued-but-unclaimed launches, and it
+    is a slot-holder rather than a dedupe list. Until its worker claims, the
+    group still reads `PENDING`, so an in-flight key is invisible to the count
+    above: skipping it would let the next sweep start a second worker, on the
+    same clip or past the cap on another one. Counting it is what makes the cap
+    true through the launch-to-claim window instead of only once claims exist.
+
+    `exited` is the other half, and it is the reason the suppression is bounded.
+    A worker that dies before `write_render_claim` runs leaves its exports
+    `PENDING`, so the group stays eligible and its key would stay in `spawned`
+    forever -- the clip stranded until this process restarts, with nothing on
+    disk able to say that no worker is coming. The parent's exit report is the
+    only evidence that exists, so the sweep releases those keys and retries them
+    here. A worker that claimed first needs no release: its group is live, or
+    terminal, or abandoned, and each of those is already decided off storage.
     """
     at = now()
     groups = _group_clip_exports(storage.list_clip_exports())
@@ -428,7 +441,13 @@ def render_drain_once(
         elif _render_group_is_eligible(storage, key, group, at=at):
             eligible.append(key)
 
+    exited_clips = {clip_id for clip_id, _ in exited}
+    spawned -= {key for key in spawned if key[1] in exited_clips}
     spawned &= set(eligible)
+    # What survives both prunes is a launch in flight: still eligible, and
+    # invisible to the count above because its worker has not claimed yet. It
+    # holds a slot, so the cap is only true if the sweep counts it.
+    active += len(spawned)
 
     launched: list[tuple[JobId, ClipId]] = []
     for key in sorted(eligible):
@@ -463,20 +482,24 @@ async def render_drain_supervisor(
 ) -> None:
     """Sweep forever, and survive a bad sweep -- `drain_supervisor`'s twin.
 
-    `reap` is called for its side effect on the OS process table alone, never
-    for its return value: a render's `ClipExport` needs no equivalent of
-    `reap_exited_workers`, because a dead worker's abandoned claim already
-    self-heals the next time `render_drain_once` looks at it.
+    `reap` is read for exactly one thing: which render workers have exited. A
+    `ClipExport` needs no equivalent of `reap_exited_workers`, because a dead
+    worker's abandoned claim already self-heals the next time
+    `render_drain_once` looks at it -- but a worker that died *before* claiming
+    leaves its exports `PENDING` and its key in `spawned`, and that is the one
+    state no record on disk can report. Handing the exits to the sweep is what
+    makes it a retry five seconds later rather than a clip stranded until this
+    process restarts.
     """
     spawned: set[tuple[JobId, ClipId]] = set()
     while True:
         try:
-            reap()
             render_drain_once(
                 storage,
                 max_concurrent_renders=max_concurrent_renders,
                 launch=launch,
                 spawned=spawned,
+                exited=reap(),
             )
         except asyncio.CancelledError:
             raise
