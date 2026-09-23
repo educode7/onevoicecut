@@ -4,9 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A shared-server app — several operators, one machine — that turns multi-hour Spanish source video into a structured transcript,
-then into a summary plus timestamped clip candidates with short scripts. Video rendering/publishing is
-an explicit non-goal — the script artifact is the stopping point.
+A shared-server app — several operators, one machine — that turns multi-hour Spanish source video into a
+structured transcript, then into a summary plus timestamped clip candidates with short scripts, then into
+rendered vertical clips ready to upload by hand. Two non-goals frame everything downstream of the
+transcript. **Nothing is ever published**: `PublishPort` is declared and deliberately unimplemented.
+**No frame or word in an output clip may be one the source sermon did not contain** — no avatars, no
+synthesized footage, no dubbing, no B-roll, no stock beds; reframing real footage is editing and
+inventing a speaker is fabrication, and rev 4 separated the two on purpose. The stopping point used to
+be the script artifact; that was a **[BINDING]** non-goal and only the operator who bound it could
+reverse it, which is what rev 4 did. The seam moved to after the rendered clip rather than disappearing.
 
 Two facts about the input drive nearly every design decision. Neither is an edge case:
 
@@ -87,19 +93,20 @@ src/onevoicecut/
   domain/     # zero third-party imports; frozen slotted dataclasses only
   ports/      # typing.Protocol definitions; imports domain only
   usecases/   # imports domain + ports only — all orchestration lives here
-  adapters/   # web/ ffmpeg/ asr/local/ storage/   (asr/cloud/ and llm/ not built yet)
+  adapters/   # web/ ffmpeg/ storage/ asr/local/ asr/cloud/   (llm/ and vision/ not built yet)
   runtime/    # composition root — the ONLY place adapters are constructed
 ```
 
-`runtime/` holds `app.py` (web composition root, drain, reconcile), `supervisor.py` (liveness, the
-per-chunk watchdog, reaping), `engine_resolver.py`, `settings.py` and `worker.py`. `worker.py` is a
-second composition root in its own right: it is a separate process, and it reads its own environment.
+`runtime/` holds `app.py` (web composition root, the three supervisor loops, reconcile),
+`supervisor.py` (liveness, the per-chunk watchdog, reaping), `engine_resolver.py`, `settings.py`,
+`worker.py` and `render_worker.py`. The last two are each a composition root in their own right: a
+separate process, reading its own environment.
 
 `tests/test_architecture.py` walks `domain`, `usecases`, and `ports` with `ast` and fails if any of them
 imports `onevoicecut.adapters` or `onevoicecut.runtime`. It parses source text rather than importing, so it
 works before those packages exist. Do not weaken it.
 
-### The five ports
+### The seven ports
 
 | Port | Contract |
 | --- | --- |
@@ -108,6 +115,8 @@ works before those packages exist. Do not weaken it.
 | `TranscriptionPort` | `AudioChunk` → segments. **Returned times are chunk-local**, not absolute. Declares `capabilities()`. |
 | `TextGenerationPort` | Generic `complete()`. Knows nothing about summaries, clips, or chunking. |
 | `TranscriptStoragePort` | Job record, chunk plan, per-chunk results, transcript, artifacts. `save_chunk_result` MUST be atomic — resume is built on it. |
+| `VideoRenderPort` | `RenderRequest` → one file. **One ffmpeg process; no raw frames cross a process boundary.** Only `request.span` is cut, so a clip's cost never depends on the length of the sermon it came from. |
+| `SubjectTrackerPort` | `detect()` over a span at a sample rate. Declares `capabilities()` — and **has no adapter**. Production constructs `_UnconfiguredSubjectTracker`, which declares `UNSUPPORTED` so every clip reaches the proven `TrackingUnavailable` path instead of a process that cannot start. |
 
 Ports are `typing.Protocol`, not ABCs: adapters satisfy them structurally, with no import from the core.
 
@@ -185,12 +194,25 @@ change, not a refactor.
   asks what an *exited* one left behind, and classifies by what the record says rather than by the exit
   code: QUEUED means nothing will ever write it → FAILED with a reason; worker-bound means it died
   mid-flight → INTERRUPTED; terminal means the worker wrote its own account → left alone.
+- **Render liveness is a one-shot claim, not a pid-and-heartbeat pair.** `render/{clip_id}/claim`
+  carries one timestamp, written when the render worker picks the clip up, and nothing refreshes it.
+  A job worker needs a heartbeat because a multi-hour transcription has a *middle* — a stretch where
+  the pid is alive, the record reads TRANSCRIBING and nothing is moving. A render is a single bounded
+  ffmpeg invocation under `FfmpegVideoRenderer`'s own hard per-call timeout, so it has no middle in
+  which to stall unobserved, and a periodic refresh would prove nothing the one-shot claim does not.
+  The staleness bound is `render_timeout_for`, **imported rather than reimplemented**, so the drain's
+  notion of "too long" cannot drift from the timeout that actually kills the process. The cap counts
+  **clips, not export rows** — one process claims a whole clip's profiles at once, so three profiles
+  are one slot. And the keys surviving the eligibility prune are in-flight launches, invisible to a
+  count derived from storage, so they are *added* to it: without that, a cap of one starts a second
+  ffmpeg beside the first during every launch-to-claim window.
 
 ### Security invariants (already specified, tested per slice)
 
 - ffmpeg is invoked with list-form `subprocess.run([...])`, never `shell=True`, never string
   interpolation; `-nostdin`, `-protocol_whitelist file`, explicit timeout.
-- Client filenames are **metadata only**, never a path component. Storage path is `jobs/{ulid}/source{ext}`.
+- Client filenames are **metadata only**, never a path component. Storage path is `jobs/{ulid}/source`
+  — extensionless, so not even a suffix is the client's to choose.
 - All paths are `Path.resolve()`-checked to be inside the job directory before any spawn.
 - `job_id` is validated against the ULID regex in `domain/ids.py` before touching the filesystem.
 - Content type is validated by `ffprobe`, never by extension.
@@ -199,16 +221,19 @@ change, not a refactor.
 
 This repo runs **Spec-Driven Development** (`openspec/`) with **strict TDD** (`strict_tdd: true`).
 
-- `openspec/changes/video-transcription-pipeline/` holds `proposal.md`, `design.md`, seven
+- `openspec/changes/video-transcription-pipeline/` holds `proposal.md`, `design.md`, ten
   `specs/*/spec.md`, and `tasks.md`. **Read `tasks.md` before implementing** — it is the ordered,
-  RED-before-GREEN checklist, and it names the spec scenario each task closes.
-- Every task pair is RED first: write the failing test, then the implementation. Slice 1's checklist is
-  marked `[x]`; slices 2a onward are open.
-- Review budget is **400 lines** per slice (`review.budget_lines`). Slice 1 overran to 1,273 lines under
+  RED-before-GREEN checklist, and it names the spec scenario each task closes. Archived changes land
+  under `openspec/changes/archive/<date>-<name>/`, and their delta specs are promoted to canonical
+  `openspec/specs/<capability>/spec.md` — eight capabilities are canonical today.
+- Every task pair is RED first: write the failing test, then the implementation. **382 of the 396
+  checkboxes in `tasks.md` are checked**; the 14 open ones are named under Current state below.
+- The original review budget was **400 lines** per slice. Slice 1 overran to 1,273 lines under
   an accepted one-time exception; the rest were re-estimated from that measured cost. The measured
   ratio is tests 56% / `src` 36% / config 8% — budget accordingly, tests dominate.
-- `delivery_strategy: auto-chain`, `chain_strategy: stacked-to-main`. Work lands as 23 stacked units,
-  PR 1 → PR 23.
+- `delivery_strategy: auto-chain`, `chain_strategy: stacked-to-main`. The plan no longer lands as the
+  23 units it was first drawn as: slices have been re-split at their seams until `tasks.md` carries
+  **61 `## Slice` headings**, so a reviewable unit is a sub-slice (7a-ii, 13b-iv-b), not a slice.
 - **Measure the diff before committing a slice, not after.** The ×4 rule came from nine early slices that
   overran **3.2x to 5.1x, mean ≈ 4.0x**. It no longer describes how this repo works: the six units since
   `multi-operator-access` measured **0.86x, 0.92x, 1.06x, 1.26x, and 1.97x** (the last only because it
@@ -225,17 +250,45 @@ This repo runs **Spec-Driven Development** (`openspec/`) with **strict TDD** (`s
 
 ### Current state
 
-Two changes are in flight. `video-transcription-pipeline` is green through **slice 7c**; only 7b-ii is
-open in slice 7. `multi-operator-access` is **complete** (all six slices) and ready to archive. Together:
-**973 tests — 954 in the default run, 19 `localmodel`, no `paid` tests yet — mypy clean over 157 files.**
+One change is in flight. `video-transcription-pipeline` is green through **slice 13b-v**, and the last
+unit merged was 13b-iv-b (the render drain). `multi-operator-access` is **archived** at
+`openspec/changes/archive/2026-09-17-multi-operator-access/`, its seven delta specs promoted to
+canonical `openspec/specs/`. Measured on this tree: **1969 tests — 1939 in the default run, 20
+`localmodel`, 10 `paid`, zero skips — mypy clean over 233 source files.**
 
-On disk today are `domain/`, `ports/`, the use cases (`ingest_media`, `admit_job`, `plan_chunks`,
-`stitch_transcript`, `transcribe_job`, `resume_job`, `ownership`, `cancel_job`, plus the uncalled
-`purge_job_artifacts` seam), `adapters/ffmpeg/`, `adapters/storage/`, `adapters/web/` (including
-`auth.py`), `adapters/asr/local/faster_whisper_adapter.py`, `runtime/` (`app`, `supervisor`, `settings`,
-`engine_resolver`, `worker`), `tests/fakes/`, `tests/contract/` and `scripts/`. Still missing: the cloud
-ASR adapter, diarization, any LLM adapter, script generation, clip rendering, and the browser UI — the
-HTTP surface exists but nothing renders it.
+On disk today are `domain/` (nine modules: `chunking`, `errors`, `framing`, `generation`, `ids`,
+`jobs`, `media`, `rendering`, `transcript`), `ports/` (the seven plus `capabilities`), fifteen use
+cases (`admit_job`, `build_subtitle_cues`, `cancel_job`, `generate_artifacts`, `ingest_media`,
+`ownership`, `plan_chunks`, `plan_trajectory`, `purge_job_artifacts`, `render_clip`,
+`render_profiles`, `request_clip_export`, `resume_job`, `stitch_transcript`, `transcribe_job`),
+`adapters/ffmpeg/` (`argv`, `extractor`, `process`, `sendcmd`, `subtitles`, `video_render`),
+`adapters/storage/`, `adapters/web/` (`app`, `auth`, `schemas`, `routers/jobs`), both ASR adapters
+(`asr/local/faster_whisper_adapter` + `declarations`, `asr/cloud/openai_whisper_adapter`), `runtime/`
+(`app`, `engine_resolver`, `render_worker`, `settings`, `supervisor`, `worker`), `tests/{fakes,unit,
+integration,contract}/` and `scripts/`.
+
+Four things are still missing, and the first is the one that bites:
+
+- **No LLM adapter, so generation never runs in production.** `generate_artifacts` is built and
+  unit-tested above `TextGenerationPort`, but nothing constructs a `TextGenerationPort`, nothing calls
+  `run_map`/`write_script_variants`, and `save_artifacts` has no production caller. Consequence:
+  `load_artifacts` returns `None` for every real job, so `POST /api/jobs/{id}/clips` answers 409
+  `ArtifactsNotAvailable` and the whole render half downstream of it is unreachable from HTTP today.
+- **No vision-backed `SubjectTrackerPort`** (slice 13c). Production constructs
+  `_UnconfiguredSubjectTracker`, which declares `UNSUPPORTED`, so every clip that does get rendered
+  fails cleanly with `TrackingUnavailable` rather than producing a wrong crop.
+- **No diarization** (tasks 9.3/9.4), and `requirements-diarization.txt` is still a comment.
+- **No browser UI.** The HTTP surface is complete and authenticated; nothing renders it.
+
+And a fifth gap that is measurement, not code: **the one shipped render profile is deliberately
+unmeasured.** `RENDER_PROFILES` holds a single `vertical` (1080×1920) with `safe_area=None`, because
+nobody has measured where each destination's interface sits over the frame — and a profile declaring no
+safe area is *refused*, never defaulted, so `resolve_render_profiles` answers `RenderProfileInvalid` for
+every clip request even once generation and tracking exist. All four `SCRIPT_TARGETS` name that one
+profile, on purpose: one file shared by four networks is exactly what render dedup exists for.
+`check_target_profiles` cross-checks the two registries at boot for *membership* only and must not be
+tightened to renderability — doing so would refuse to start a server that transcribes and renders
+nothing.
 
 **The pipeline runs end to end with the real local engine** — real HTTP, real filesystem, real ffmpeg,
 real faster-whisper:
@@ -258,18 +311,40 @@ lands in the job directory.
 proves the device at construction, so this is a clean `EngineUnavailable` at engine resolution naming the
 variable — not a job that dies mid-chunk. Installing the CUDA runtime is the other way out.
 
-Three environment variables are new since slice 7b and none of them existed when the first drafts of this
-file were written: `ONEVOICECUT_LOCAL_MODEL_SIZE` (no default — an unset value registers *no* local
-engine rather than picking a size), `ONEVOICECUT_LOCAL_DEVICE` (default `auto`), and
-`ONEVOICECUT_CHUNK_TIMEOUT_SECONDS` (default 1800; also accepted as `..._CHUNK_TIMEOUT_S`). The worker
-reads the first two from its own inherited environment, because argv is visible to every user on a shared
-machine.
+Configuration is read once, in `runtime/settings.py` (`env_prefix="ONEVOICECUT_"`), and nothing below
+`runtime/` reads the environment at all:
 
-Five HTTP routes exist, **all of them authenticated** — a bearer token parsed from
-`ONEVOICECUT_OPERATOR_TOKENS`, fail-closed at boot: `POST /api/jobs` (admit), `GET /api/jobs` (shared
-listing with owner attribution and a server-side `?mine=true` filter), `GET /api/jobs/{id}`
-(chunk-level progress; read-only, and a test enforces that it writes nothing),
-`PUT /api/jobs/{id}/media` (raw-body streaming upload) and `POST /api/jobs/{id}/cancel`.
+| Variable | Default | Why that default |
+| --- | --- | --- |
+| `ONEVOICECUT_DATA_DIR` | *(required)* | No default on purpose: one would put multi-hour sermons somewhere the operator did not choose, and the first they would know of it is a full disk. |
+| `ONEVOICECUT_OPERATOR_TOKENS` | `""` | `name:token;name:token`. Empty rather than absent so the token-map parser — not a bare pydantic error — is what refuses an unconfigured boot. |
+| `ONEVOICECUT_MAX_UPLOAD_BYTES` | 16 GiB | Bounds one upload on a machine whose normal input is multi-hour video; it describes a ceiling, not a typical file. |
+| `ONEVOICECUT_MAX_CONCURRENT_JOBS` | 1, `ge=1` | Local ASR saturates this machine by itself. `ge=1` because 0 is not "unlimited", it is a queue with no exit. |
+| `ONEVOICECUT_MAX_CONCURRENT_RENDERS` | 1, `ge=1` | **Independent of the job cap, deliberately** — a render is minutes of ffmpeg work and a job is hours of ASR, so the two caps have no reason to move together. |
+| `ONEVOICECUT_CHUNK_TIMEOUT_SECONDS` | 1800, `gt=0` | Also accepted as `..._CHUNK_TIMEOUT_S` (the name pydantic would derive) because design.md documents the long one, and an operator setting the documented variable and watching it do nothing is the worst of both. This value reaches the *watchdog*. |
+| `ONEVOICECUT_SCRIPT_TARGETS` | `tiktok,instagram,youtube,facebook` | Comma-separated, the same shape `OPERATOR_TOKENS` uses: an operator who has to write JSON into an environment variable gets it wrong once. The default is also the billed cost — four `complete()` calls per candidate, not one. |
+
+Four more are read outside `Settings`, and two of them carry no `ONEVOICECUT_` prefix. The worker reads
+`ONEVOICECUT_LOCAL_MODEL_SIZE` (no default — an unset value registers *no* local engine rather than
+picking a size) and `ONEVOICECUT_LOCAL_DEVICE` (default `auto`) from its own inherited environment,
+because argv is visible to every user on a shared machine; `CLOUD_ASR_API_KEY` and
+`HUGGING_FACE_TOKEN` are named without the prefix, the latter because `huggingface_hub` recognises
+several spellings and that is the one this project documents. All four are values *handed in* at
+adapter construction — the modules that need them know only the variable's name, so a refusal can carry
+its own remedy. `CHUNK_TIMEOUT_ENV_NAMES` lives in `settings.py` rather than at either call site
+because two separate programs enforce the per-chunk timeout, and a spelling that drifted between them
+would be a setting silently applying to one and not the other.
+
+Eight HTTP operations across seven paths, **all of them authenticated** — a bearer token parsed from
+`ONEVOICECUT_OPERATOR_TOKENS`, fail-closed at boot. The five job-level ones: `POST /api/jobs` (admit,
+201), `GET /api/jobs` (shared listing with owner attribution and a server-side `?mine=true` filter),
+`GET /api/jobs/{id}` (chunk-level progress; read-only, and a test enforces that it writes nothing),
+`PUT /api/jobs/{id}/media` (raw-body streaming upload, 204) and `POST /api/jobs/{id}/cancel`. Then
+three for clips: `POST /api/jobs/{id}/clips` (202 — writes one `PENDING` export per distinct profile
+and renders nothing), `GET /api/jobs/{id}/clips/{clip_id}` (every profile's export, never just one: a
+single-object response would have to pick a profile to report and be wrong about the rest) and
+`GET /api/jobs/{id}/clips/{clip_id}/{profile}` (exactly one — a clip id alone never identifies a
+single rendered file, so an unknown profile on a known clip is a distinct 404 from an unknown clip).
 
 Three authorization invariants, each enforced by a test rather than by review:
 
@@ -296,16 +371,55 @@ Four things about the upload path are load-bearing and easy to undo by accident:
 ffmpeg 9.0.1 is installed (winget, `Gyan.FFmpeg`), so the `integration`-marked tests run rather than
 skip — the flag set in `adapters/ffmpeg/argv.py` is verified against the real binaries, not just argued.
 
-Two supervised tasks run for the app's lifetime, on deliberately different clocks. The **drain** sweeps
-every five seconds, reaping exited workers before it serves the queue. The **watchdog** sweeps every
-sixty against a thirty-minute per-chunk timeout; folding it into the drain would tie that judgement to
-the drain's cadence, and a drain sweep that raised would take the timeout down with it.
+**And a stale `$env:Path` quietly takes that away.** The binaries live at
+`%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_...\ffmpeg-9.0.1-full_build\bin`, and that
+directory *is* on the persisted user PATH — but a long-running agent or editor process holds the
+environment it was started with, so `Get-Command ffmpeg` finds nothing while the install is perfectly
+healthy. The failure is silent and green: **exactly 36 tests skip** and the suite still passes, so a
+result reporting 36 skips proves nothing about the ffmpeg surface. Diagnose with
+`[Environment]::GetEnvironmentVariable('Path','User')`, never `$env:Path` alone, and never conclude
+ffmpeg is uninstalled from a shallow recursive scan. To force a real run inside a stale session,
+prepend the bin directory to `$env:Path` in the same command that launches pytest. Slice 13b-iv-b's own
+note in `tasks.md` — "1894 passed, 41 skipped" — was written from exactly such a run and is not
+evidence about the ffmpeg surface; the same suite measured today against the same tree reports **1939
+passed, 30 deselected, zero skips**.
 
-Next up is **slice 7b-ii** (task 7.7) — but its own text says it is written against the cloud adapter that
-lands in slice 8a, so it will most likely find nothing to extract yet, the way task 4.20 and 5.18 did.
-The follow-up 7b-i noted for it (moving liveness out of `app.py`) is already done: slice 7c's wiring
-forced it, because `app.py` needed the sweep and the sweep needed the probe. After that, **slice 8a-i**:
-the cloud ASR adapter, which needs a provider choice and `CLOUD_ASR_API_KEY`.
+Three supervised tasks run for the app's lifetime, on deliberately different clocks. The **job drain**
+sweeps every five seconds, reaping exited workers before it serves the queue. The **watchdog** sweeps
+every sixty against a thirty-minute per-chunk timeout; folding it into the drain would tie that
+judgement to the drain's cadence, and a drain sweep that raised would take the timeout down with it.
+The **render drain** sweeps every five seconds as well, and still gets its own loop rather than a
+second body inside the job drain's `try`. It answers against a different cap
+(`MAX_CONCURRENT_RENDERS`, independent by design), a different liveness rule (claim age, not
+pid-and-heartbeat), and it has no reconcile step at all — an abandoned claim self-heals off storage
+the moment a sweep looks at it, where a job record needs `reap_exited_workers` to turn a dead pid into
+something an operator can read. Sharing one loop would also mean sharing one `except`: a render sweep
+that raised would strand every queued job on the machine, which is exactly the coupling the watchdog's
+own paragraph refuses. Each loop logs its own bad sweep, sleeps, and goes round again.
+
+Fourteen tasks are open, in two groups, and **neither is blocked on anything this repo can write**.
+
+- **9.3 / 9.4 (slice 9a-ii): the diarizing call and speaker labels.** `pyannote.audio`'s weights are
+  gated on HuggingFace — they do not download until a *human* accepts the terms on their own account,
+  and no token can be configured before that. Writing several hundred lines against a call shape,
+  return type and set of failure modes nobody has executed once was considered and rejected: it would
+  look finished and be unverified in every detail that matters. `requirements-diarization.txt` is
+  therefore still a comment rather than a pin, and gets one only from a real install, the way
+  `requirements-local-asr.txt` got `faster-whisper==1.2.1`. What ships today is the honest refusal:
+  9a-i flipped the declaration to `REQUIRES_SETUP`, so a speaker-mode job this machine cannot serve is
+  refused at admission. **To unblock**: accept the `pyannote/speaker-diarization-3.1` terms, install
+  the package, set `HUGGING_FACE_TOKEN`, pin from that install.
+- **13c.1 – 13c.12 (slices 13c-i / 13c-ii): the vision-backed `SubjectTrackerPort`.** The RED tests
+  (13c.1, .3, .5, .8) are `localmodel`-marked because the adapter they drive *is* model weights —
+  sequential in-process decode over the clip span, downscaled, every Nth frame; a pre-decode span guard
+  reading `max_clip_seconds`; a `capabilities()` probe that reports `REQUIRES_SETUP` while
+  `requirements-vision.txt` is absent; a tracker-resolver mirroring `runtime/engine_resolver.py`; and a
+  contract test putting the real adapter through the same body the fake passes. `_UnconfiguredSubjectTracker`
+  is the placeholder 13c-i replaces, and its own docstring records that nothing else about
+  `render_worker.py` changes on that day.
+
+Everything else through slice 13b-v is checked off, and the two `## Slice` headings left in `tasks.md`
+are exactly these.
 
 Two gaps are known and deliberately open:
 
@@ -317,6 +431,33 @@ Two gaps are known and deliberately open:
   reaches `no_speech_prob ≤ 0.6`. A human voice singing plausibly does, which would classify sung lyrics
   as `SPEECH` and put them in the message — the project's stated normal case. `scripts/try_local_asr.py`
   exists to test it against real material, since media must never be committed.
+
+The render drain's review left five follow-ups. They are **WARNINGs, explicitly informational** — none
+of them reopens the unit:
+
+- **One malformed export record stops every pending render.** `list_clip_exports` decodes every JSON its
+  glob finds inside one comprehension, so a single corrupt or half-written export raises out of the
+  whole sweep; `render_drain_supervisor` then only logs and sleeps. The queue stays stopped, with a line
+  on stderr, until an operator removes the file.
+- **The refused-range batch's terminal state is unproven.** `render_pending_exports` claims — writing
+  `RENDERING` and the claim timestamp — *before* `_range_disagreement` runs. A test proves the claim is
+  written for a refused range; none proves the refused batch ends `FAILED` rather than as freshly
+  `RENDERING` work the drain will later judge abandoned. Read the code and it does record `FAILED`;
+  nothing pins it.
+- **No test asserts `render_drain_supervisor` forwards `reap()` into the sweep's `exited` parameter.**
+  That wiring is verified by mypy and by reading. It is the weakest of the three and the easiest to break
+  silently: drop it and a worker that dies before claiming strands its clip until the web process
+  restarts.
+- **`RenderWorkerProcesses.finished`'s docstring now reads stronger than the truth.** It still says the
+  result is gathered "purely to reap it from the OS" and is "deliberately not read for any state
+  transition". Both were true when written; the sweep now reads it to release `spawned` keys.
+- **The job drain does not have the guarantees its render-side twin now has, and the divergence is
+  deliberate.** `drain_once` still derives `active` from records alone, so a launch whose worker has not
+  claimed yet consumes no cap slot; and it prunes `spawned` only by what the records still call QUEUED,
+  so a worker that dies before claiming strands its job until the web process restarts. Its docstring
+  accepts the second one explicitly — "after a restart the records are the truth, and a job whose worker
+  died before claiming is correctly started again" — and is silent on the first. `render_drain_once`
+  closes both. Do not "fix" the asymmetry by copying one sweep onto the other without re-arguing it.
 
 The proposal is at **rev 4**: rendering vertical clips is now in scope, which adds slices 11-13 after
 10b and modifies `transcript-artifacts` (word-level timing) and `MediaProbe` (frame dimensions). Those
