@@ -1,0 +1,22 @@
+# Vision-backed subject tracking dependencies (slice 13c).
+#
+# Deliberately separate from requirements.txt: installing this pulls torchvision
+# and its video backend, and the default `pytest -m "not paid and not localmodel"`
+# run must never need them — the trajectory arithmetic is proven against a fake
+# detector with no vision weights, per the subject-tracking spec.
+#
+# torch itself is not listed: torchvision pins the matching version and pulls it,
+# and a machine carrying requirements-diarization.txt already has the same build.
+#
+# Model weights are NOT pinned here — and unlike pyannote's, they are NOT gated:
+# Faster R-CNN ResNet50 FPN V2 (COCO) downloads from download.pytorch.org on
+# first use with no account and no token, and caches outside the repo. An absent
+# extra is the normal case on a fresh checkout: the tracker then declares
+# REQUIRES_SETUP and every clip reaches the proven TrackingUnavailable path.
+#
+# `av` is listed explicitly because torchvision 0.29 removed its own video APIs
+# (no `read_video`, no `VideoReader`): the adapter decodes in-process through
+# PyAV directly, which the binding constraint against subprocess frame pipes
+# makes the only sanctioned decode path.
+torchvision==0.29.0
+av==18.1.0
