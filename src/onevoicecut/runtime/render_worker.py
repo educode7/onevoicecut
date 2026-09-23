@@ -80,10 +80,11 @@ from onevoicecut.domain.rendering import (
     quality_of,
 )
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
-from onevoicecut.ports.capabilities import DetectionSupport, TrackerCapabilities
-from onevoicecut.ports.subject_tracker import SubjectDetection, SubjectTrackerPort
+from onevoicecut.ports.capabilities import DetectionSupport
+from onevoicecut.ports.subject_tracker import SubjectTrackerPort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.ports.video_render import RenderRequest, VideoRenderPort
+from onevoicecut.runtime.tracker_resolver import resolve_tracker
 from onevoicecut.usecases.build_subtitle_cues import build_subtitle_cues
 from onevoicecut.usecases.plan_trajectory import build_trajectory
 from onevoicecut.usecases.render_clip import (
@@ -593,37 +594,6 @@ def _ffmpeg_extractor(job_dir: Path, job_id: JobId) -> AudioExtractorPort:
     return FfmpegAudioExtractor(job_dir, job_id=job_id)
 
 
-class _UnconfiguredSubjectTracker:
-    """Declares `UNSUPPORTED` until 13c-i lands a real vision adapter.
-
-    Not a fake standing in for a test: production code constructs this today
-    because no vision-backed tracker has been built yet, the same way
-    `production_factories` can register no ASR engine on a build with neither
-    key configured. Declaring the capability rather than omitting a tracker
-    altogether routes every clip through the already-proven
-    `TrackingUnavailable` path -- a `FAILED` export an operator can read,
-    naming what to do next -- instead of a process that cannot start at all.
-    13c-i replaces this with a real tracker-resolver mirroring
-    `runtime/engine_resolver.py`'s shape; nothing else about this module
-    changes on that day.
-    """
-
-    _TRACKER_ID = "no-vision-adapter-configured"
-
-    def capabilities(self) -> TrackerCapabilities:
-        return TrackerCapabilities(
-            tracker_id=self._TRACKER_ID, detection=DetectionSupport.UNSUPPORTED
-        )
-
-    def detect(
-        self, media: SourceMedia, span: TimeSpan, *, sample_hz: float
-    ) -> tuple[SubjectDetection, ...]:
-        raise TrackingUnavailable(
-            f"{self._TRACKER_ID} declares {DetectionSupport.UNSUPPORTED.value}; "
-            f"no vision-backed tracker is built into this install yet"
-        )
-
-
 def run_render(
     job_id: JobId,
     clip_id: ClipId,
@@ -659,7 +629,11 @@ def run_render(
     job_dir = storage.job_dir(job_id)
     media = storage.load_media(job_id)
     probe = extractor_factory(job_dir, job_id).probe(media)
-    active_tracker = tracker if tracker is not None else _UnconfiguredSubjectTracker()
+    active_tracker = (
+        tracker
+        if tracker is not None
+        else resolve_tracker(max_clip_seconds=max_clip_seconds)
+    )
     active_renderer = (
         renderer
         if renderer is not None

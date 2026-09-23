@@ -80,6 +80,10 @@ venv + pip, hand-pinned, deliberately split so a unit-test run never downloads P
   ~90 MB of wheels before a single weight is fetched, which is why every module that touches it is
   imported lazily or behind `pytest.importorskip`
 - `requirements-diarization.txt` — `pyannote.audio==4.0.7`, pinned from a real install (pulls torch, CPU build)
+- `requirements-vision.txt` — `torchvision==0.29.0` + `av==18.1.0`, pinned from a real install.
+  torchvision 0.29 has **no video APIs**, so decoding goes through PyAV directly. The weights
+  (Faster R-CNN ResNet50 FPN V2, COCO) are not gated — they download unattended on first use and
+  cache in the torch hub directory, which is why the capability probe checks that cache
 - `requirements.lock.txt` — `pip freeze` of a full install, for reproduction only
 
 ffmpeg is a **system binary**, never a pip dependency.
@@ -93,14 +97,14 @@ src/onevoicecut/
   domain/     # zero third-party imports; frozen slotted dataclasses only
   ports/      # typing.Protocol definitions; imports domain only
   usecases/   # imports domain + ports only — all orchestration lives here
-  adapters/   # web/ ffmpeg/ storage/ asr/local/ asr/cloud/   (llm/ and vision/ not built yet)
+  adapters/   # web/ ffmpeg/ storage/ asr/local/ asr/cloud/ vision/   (llm/ not built yet)
   runtime/    # composition root — the ONLY place adapters are constructed
 ```
 
 `runtime/` holds `app.py` (web composition root, the three supervisor loops, reconcile),
-`supervisor.py` (liveness, the per-chunk watchdog, reaping), `engine_resolver.py`, `settings.py`,
-`worker.py` and `render_worker.py`. The last two are each a composition root in their own right: a
-separate process, reading its own environment.
+`supervisor.py` (liveness, the per-chunk watchdog, reaping), `engine_resolver.py`,
+`tracker_resolver.py`, `settings.py`, `worker.py` and `render_worker.py`. The last two are each a
+composition root in their own right: a separate process, reading its own environment.
 
 `tests/test_architecture.py` walks `domain`, `usecases`, and `ports` with `ast` and fails if any of them
 imports `onevoicecut.adapters` or `onevoicecut.runtime`. It parses source text rather than importing, so it
@@ -116,7 +120,7 @@ works before those packages exist. Do not weaken it.
 | `TextGenerationPort` | Generic `complete()`. Knows nothing about summaries, clips, or chunking. |
 | `TranscriptStoragePort` | Job record, chunk plan, per-chunk results, transcript, artifacts. `save_chunk_result` MUST be atomic — resume is built on it. |
 | `VideoRenderPort` | `RenderRequest` → one file. **One ffmpeg process; no raw frames cross a process boundary.** Only `request.span` is cut, so a clip's cost never depends on the length of the sermon it came from. |
-| `SubjectTrackerPort` | `detect()` over a span at a sample rate. Declares `capabilities()` — and **has no adapter**. Production constructs `_UnconfiguredSubjectTracker`, which declares `UNSUPPORTED` so every clip reaches the proven `TrackingUnavailable` path instead of a process that cannot start. |
+| `SubjectTrackerPort` | `detect()` over a span at a sample rate. **Times are clip-local; boxes are source-frame pixels.** Declares `capabilities()`. The real adapter (`adapters/vision/`) decodes in-process through PyAV — never a subprocess pipe of raw frames — and runs torchvision's Faster R-CNN over every Nth frame downscaled to ≤640px, scoped to the span. Its probe declares `REQUIRES_SETUP` on a bare checkout, so every clip still reaches the proven `TrackingUnavailable` path instead of a process that cannot start. |
 
 Ports are `typing.Protocol`, not ABCs: adapters satisfy them structurally, with no import from the core.
 
@@ -226,8 +230,8 @@ This repo runs **Spec-Driven Development** (`openspec/`) with **strict TDD** (`s
   RED-before-GREEN checklist, and it names the spec scenario each task closes. Archived changes land
   under `openspec/changes/archive/<date>-<name>/`, and their delta specs are promoted to canonical
   `openspec/specs/<capability>/spec.md` — eight capabilities are canonical today.
-- Every task pair is RED first: write the failing test, then the implementation. **384 of the 396
-  checkboxes in `tasks.md` are checked**; the 12 open ones are named under Current state below.
+- Every task pair is RED first: write the failing test, then the implementation. **391 of the 396
+  checkboxes in `tasks.md` are checked**; the 5 open ones are named under Current state below.
 - The original review budget was **400 lines** per slice. Slice 1 overran to 1,273 lines under
   an accepted one-time exception; the rest were re-estimated from that measured cost. The measured
   ratio is tests 56% / `src` 36% / config 8% — budget accordingly, tests dominate.
@@ -250,11 +254,12 @@ This repo runs **Spec-Driven Development** (`openspec/`) with **strict TDD** (`s
 
 ### Current state
 
-One change is in flight. `video-transcription-pipeline` is green through **slice 13b-v**, and the last
-unit merged was 13b-iv-b (the render drain). `multi-operator-access` is **archived** at
+One change is in flight. `video-transcription-pipeline` is green through **slice 13c-i**, and the
+last unit landed was 13c-i (the real vision tracker adapter). `multi-operator-access` is
+**archived** at
 `openspec/changes/archive/2026-09-17-multi-operator-access/`, its seven delta specs promoted to
-canonical `openspec/specs/`. Measured on this tree: **1998 tests — 1967 in the default run, 21
-`localmodel`, 10 `paid`, zero skips — mypy clean over 237 source files.**
+canonical `openspec/specs/`. Measured on this tree: **2056 tests — 2020 in the default run, 26
+`localmodel`, 10 `paid`, zero skips — mypy clean over 245 source files.**
 
 On disk today are `domain/` (nine modules: `chunking`, `errors`, `framing`, `generation`, `ids`,
 `jobs`, `media`, `rendering`, `transcript`), `ports/` (the seven plus `capabilities`), fifteen use
@@ -264,20 +269,18 @@ cases (`admit_job`, `build_subtitle_cues`, `cancel_job`, `generate_artifacts`, `
 `adapters/ffmpeg/` (`argv`, `extractor`, `process`, `sendcmd`, `subtitles`, `video_render`),
 `adapters/storage/`, `adapters/web/` (`app`, `auth`, `schemas`, `routers/jobs`), both ASR adapters
 (`asr/local/faster_whisper_adapter` + `declarations` + `diarization`,
-`asr/cloud/openai_whisper_adapter`), `runtime/`
-(`app`, `engine_resolver`, `render_worker`, `settings`, `supervisor`, `worker`), `tests/{fakes,unit,
-integration,contract}/` and `scripts/`.
+`asr/cloud/openai_whisper_adapter`), the vision adapter
+(`vision/torchvision_tracker_adapter` + `declarations`), `runtime/`
+(`app`, `engine_resolver`, `render_worker`, `settings`, `supervisor`, `tracker_resolver`,
+`worker`), `tests/{fakes,unit,integration,contract}/` and `scripts/`.
 
-Three things are still missing, and the first is the one that bites:
+Two things are still missing, and the first is the one that bites:
 
 - **No LLM adapter, so generation never runs in production.** `generate_artifacts` is built and
   unit-tested above `TextGenerationPort`, but nothing constructs a `TextGenerationPort`, nothing calls
   `run_map`/`write_script_variants`, and `save_artifacts` has no production caller. Consequence:
   `load_artifacts` returns `None` for every real job, so `POST /api/jobs/{id}/clips` answers 409
   `ArtifactsNotAvailable` and the whole render half downstream of it is unreachable from HTTP today.
-- **No vision-backed `SubjectTrackerPort`** (slice 13c). Production constructs
-  `_UnconfiguredSubjectTracker`, which declares `UNSUPPORTED`, so every clip that does get rendered
-  fails cleanly with `TrackingUnavailable` rather than producing a wrong crop.
 - **No browser UI.** The HTTP surface is complete and authenticated; nothing renders it.
 
 Diarization is no longer on that list: slice 9a-ii landed the diarizing call (tasks 9.3/9.4). A
@@ -288,6 +291,19 @@ from 9a-i. Cross-chunk identity remains open by design — that is 9b's `Speaker
 end-to-end proof runs on a Windows SAPI two-voice fixture under `localmodel`, which asserts the
 contract rather than ground-truth identity: two synthesized voices may cluster as one, and no
 synthetic fixture reproduces real singing over a real sermon.
+
+Subject tracking left that list the same way: slice 13c-i landed the real adapter. A machine with
+`requirements-vision.txt` installed and the weights cached declares `AVAILABLE` and detects people
+over a span — decode in-process through PyAV, scoped to the span by a seek and a break, downscaled
+to ≤640px, every Nth frame, boxes rescaled to source-frame pixels, times clip-local from each
+frame's own pts, and a miss always explicit (`box=None`, never a centred guess). A machine without
+them gets the honest `REQUIRES_SETUP` from the two-fact probe, which `render_worker` turns into the
+proven `TrackingUnavailable` refusal — `runtime/tracker_resolver.py` resolves the real adapter
+everywhere, and the `_UnconfiguredSubjectTracker` placeholder that used to stand in is gone. What
+remains open is the contract-test slice 13c-ii, and one honesty caveat: no deterministic person
+fixture exists on this machine, so the hit path is proven as arithmetic over injected predictions
+in the default suite, while the `localmodel` tests assert the contract — span-scoped coverage,
+clip-local times, explicit misses — on a genuinely person-free `testsrc2` fixture.
 
 And a fourth gap that is measurement, not code: **the one shipped render profile is deliberately
 unmeasured.** `RENDER_PROFILES` holds a single `vertical` (1080×1920) with `safe_area=None`, because
@@ -418,7 +434,7 @@ something an operator can read. Sharing one loop would also mean sharing one `ex
 that raised would strand every queued job on the machine, which is exactly the coupling the watchdog's
 own paragraph refuses. Each loop logs its own bad sweep, sleeps, and goes round again.
 
-Twelve tasks are open, in one group, and **it is not blocked on anything this repo can write**.
+Five tasks are open, in one group, and **nothing is waiting on anyone but the author**.
 
 The 9.3/9.4 group closed: the gated acceptances were done by the operator on their own HuggingFace
 account (all four repos the 3.1 checkpoint pulls), `pyannote.audio==4.0.7` was pinned from that real
@@ -427,17 +443,16 @@ blind-write refusal in `tasks.md` stood exactly as long as the call could not be
 slice's own notes record what the installed 4.x API turned out to be, since it differs from the
 widely-documented 3.x in three load-bearing ways.
 
-- **13c.1 – 13c.12 (slices 13c-i / 13c-ii): the vision-backed `SubjectTrackerPort`.** The RED tests
-  (13c.1, .3, .5, .8) are `localmodel`-marked because the adapter they drive *is* model weights —
-  sequential in-process decode over the clip span, downscaled, every Nth frame; a pre-decode span guard
-  reading `max_clip_seconds`; a `capabilities()` probe that reports `REQUIRES_SETUP` while
-  `requirements-vision.txt` is absent; a tracker-resolver mirroring `runtime/engine_resolver.py`; and a
-  contract test putting the real adapter through the same body the fake passes. `_UnconfiguredSubjectTracker`
-  is the placeholder 13c-i replaces, and its own docstring records that nothing else about
-  `render_worker.py` changes on that day.
+- **13c.8 – 13c.12 (slice 13c-ii): the real adapter's contract test.** 13c-i landed the adapter
+  itself — in-process PyAV decode over the clip span, ≤640px downscale, every Nth frame, the
+  pre-decode span guard reading `max_clip_seconds`, the two-fact `capabilities()` probe, and
+  `runtime/tracker_resolver.py` — and deleted `_UnconfiguredSubjectTracker` on the day its own
+  docstring named. What remains is the `localmodel`-marked contract half: putting the real adapter
+  through the same shared body the fake passes, the never-synthesized-centre proof on a genuinely
+  subject-free fixture, and confirming no `localmodel` test executes outside `pytest -m localmodel`.
 
-Everything else through slice 13b-v is checked off, and the two `## Slice` headings left in `tasks.md`
-are exactly these.
+Everything else through slice 13c-i is checked off, and the one `## Slice` heading left in
+`tasks.md` is exactly this one.
 
 Two gaps are known and deliberately open:
 

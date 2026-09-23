@@ -4987,18 +4987,136 @@ Closes: `subject-tracking` Detection is scoped to the clip (real-adapter half); 
 **vision adapter decode**. Depends on 12a-ii's port and on 13b-i for `max_clip_seconds`, which `13c.3`'s
 span refusal reads. Independent of 13b-ii through 13b-v.
 
-- [ ] 13c.1 RED: `localmodel`-marked test — the real adapter decodes only the requested clip span,
+- [x] 13c.1 RED: `localmodel`-marked test — the real adapter decodes only the requested clip span,
       in-process, with no subprocess pipe of raw frames.
-- [ ] 13c.2 GREEN: `adapters/vision/*_tracker_adapter.py` — sequential in-process decode over the span,
+- [x] 13c.2 GREEN: `adapters/vision/*_tracker_adapter.py` — sequential in-process decode over the span,
       downscaled to ≤640px, evaluating every Nth frame.
-- [ ] 13c.3 RED: `localmodel`-marked test — a span longer than `max_clip_seconds` is refused before any
+- [x] 13c.3 RED: `localmodel`-marked test — a span longer than `max_clip_seconds` is refused before any
       decode.
-- [ ] 13c.4 GREEN: the pre-decode span guard.
-- [ ] 13c.5 RED: `localmodel`-marked test — `capabilities().detection` reports `REQUIRES_SETUP` when the
+- [x] 13c.4 GREEN: the pre-decode span guard.
+- [x] 13c.5 RED: `localmodel`-marked test — `capabilities().detection` reports `REQUIRES_SETUP` when the
       vision weights/`requirements-vision.txt` extra is absent, `AVAILABLE` once installed.
-- [ ] 13c.6 GREEN: implement the capability probe.
-- [ ] 13c.7 REFACTOR: register the adapter in a tracker-resolver mirroring
+- [x] 13c.6 GREEN: implement the capability probe.
+- [x] 13c.7 REFACTOR: register the adapter in a tracker-resolver mirroring
       `runtime/engine_resolver.py`'s shape; suite green.
+
+### Everything the slice claims was executed once before it was written
+
+The weights load and a CPU forward pass runs (measured on this machine: 1.0 s load once cached, 4.0 s
+first forward on a 3×240×320 tensor); `torchvision==0.29.0` and `av==18.1.0` were pinned from that real
+install in the commit this branch opened with. **torchvision 0.29 has no video APIs at all** — no
+`read_video`, no `VideoReader`, verified by `dir()` — so decoding goes through PyAV directly,
+in-process: `av.open` → `container.seek(int(t * av.time_base))` → sequential `decode(stream)` →
+`frame.to_ndarray(format="rgb24")` → `(H, W, 3)` uint8, with `stream.average_rate` as fps. The backward
+seek lands on a keyframe *before* the span start (verified on a real fixture: seeking to 2.0 s on a
+single-keyframe file starts the decode at 0.0 s), so pre-roll frames are decoded and dropped rather
+than sampled — which is what makes the first sample truthful instead of merely first. This satisfies
+the binding "no subprocess pipe of raw frames" constraint by construction, and an `ast` test in the
+default suite keeps it satisfied: no module under `adapters/vision` may import `subprocess` at all,
+because an absence cannot be proven by a request.
+
+### The person label is 1, pinned by introspection rather than arithmetic
+
+The development probe's `categories.index('person') + 1` printed **2 and was wrong**: the installed
+weights' `meta['categories']` carries `'__background__'` at index 0 and `'person'` at index 1, and
+torchvision detection output carries the COCO category ids directly — the model's own label for a
+person is 1, not 2. `PERSON_LABEL = 1` is a named constant, and a `localmodel` test asserts
+`categories[PERSON_LABEL] == 'person'` plus `WEIGHTS_FILENAME == PurePosixPath(weights.url).name`
+against the installed package, so a torchvision upgrade that moves either fact fails a test instead
+of mislabelling people or mis-declaring every install.
+
+### Coordinates: boxes are rescaled to source pixels, inside the adapter
+
+The port's `BoundingBox` already decided this — its docstring promises *source-frame pixels*, and the
+render pass crops in source geometry. Inference runs on a frame downscaled to a ≤640 px long edge
+(the threat matrix's bound), so a 1080p box comes back 3× too small until `best_person` rescales it
+per axis. The rescale lives at the boundary where the downscale happens, once, so nothing downstream
+ever needs to know inference ran small. Boxes are deliberately not clamped to the frame: the
+trajectory's clamp stage owns in-frame geometry, with a proof.
+
+### The span guard raises `DetectionFailed`, and runs first
+
+Of the two errors the port declares, `TrackingUnavailable` describes the *build* ("cannot run on this
+build at all") and an over-long span is a property of *this clip request* — so `DetectionFailed`,
+per-clip, with the ceiling in its message. `ClipRangeInvalid` would fit the semantics exactly but is
+the render side's vocabulary and this port does not declare it. The guard precedes the declaration
+check, the model build and the file open, proven three ways in the default suite (failing loader spy,
+failing opener spy, absent-extras finder) and once in the `localmodel` suite with a file that does
+not exist returning the *same* refusal — which it could only do if the span was judged first.
+
+### Honest absence is declared, and the placeholder is gone — a recorded deviation
+
+The plan text for 13c.7 said the resolver would yield "the existing `UNSUPPORTED` placeholder" when
+the extra is absent. It does not, and the reason is 9a-i's whole argument: `UNSUPPORTED` means *no
+vision adapter in this build*, which stopped being true the day this slice landed, and
+`DetectionSupport`'s own docstring assigns "adapter present, weights or extras absent" to
+`REQUIRES_SETUP` — the value whose remedy is `pip install -r requirements-vision.txt` plus one
+weights download, rather than a dead end. So `runtime/tracker_resolver.py` always resolves the real
+adapter (construction is cheap; nothing heavy is imported until the first `detect()`), and a bare
+checkout gets `REQUIRES_SETUP` from the adapter's own probe. The behaviour the placeholder existed
+for is preserved exactly: `render_worker._require_detection` turns every non-`AVAILABLE` declaration
+into the proven `TrackingUnavailable` path — a `FAILED` export an operator can read.
+`_UnconfiguredSubjectTracker` was deleted; its own docstring had named the day.
+
+### The probe reads two facts and never downloads
+
+`capabilities()` requires both packages (`torchvision` *and* `av` — 0.29 removed the video APIs, so
+`av` is a first-class extra) **and** the cached weights file, resolved through `torch.hub.get_dir()`'s
+own precedence (`TORCH_HOME` → `XDG_CACHE_HOME` → `~/.cache`) without importing torch. The weights
+are not gated, unlike pyannote's — no token, no acceptance — but a first clip stalling mid-render on
+a 167 MB download, possibly with no network, is exactly what declaring `REQUIRES_SETUP` up front
+prevents. Probe, not proof: reading the declaration never builds the model (a failing loader spy
+proves it in the default suite); the proof is paid at the first `detect()`, once per adapter, and an
+adapter lives for one render.
+
+### Sampling arithmetic, and what an empty answer would have meant
+
+`N = max(1, round(fps / sample_hz))`, derived from the stream's own `average_rate` (fallback:
+`guessed_rate`; neither: `DetectionFailed` — defaulting to 25 would sample a 30 fps source at the
+wrong spacing and nothing downstream could tell). `at_s` is clip-local and comes from each frame's
+own pts, never a nominal grid; the loop breaks at the span end, so cost is bounded by clip length.
+**A span no frame falls inside is a `DetectionFailed`, not an empty tuple**: a zero-sample series
+reads exactly like a subject who never moved, which is the misreading the miss axis exists to
+prevent. A zero-length span still returns `()` — `TimeSpan` keeps that legal and the fake answers it
+the same way. `MIN_PERSON_SCORE = 0.5` (inclusive) is the floor under which nothing was *located at
+all*; whether a weak hit is good enough remains `plan_trajectory`'s policy, and a miss is `box=None`,
+never a centred guess.
+
+### Fixture honesty: the hit path is proven as arithmetic, not as a person
+
+The `localmodel` fixture is ffmpeg's `testsrc2`, which contains no person, and that is a forced move:
+no deterministic person fixture exists on this machine, and a crude synthetic drawing would make the
+hit path flaky rather than proven. What the fixture proves is the contract — detection covers only
+the requested span, times are clip-local and strictly advancing, and a genuinely person-free frame
+comes back as an explicit miss (`box=None`). The all-miss assertion is stable, not lucky: CPU
+inference in eval mode is deterministic and was observed finding zero persons in both noise and the
+test pattern. The hit path's arithmetic (person filter, inclusive floor, highest-score-wins, per-axis
+rescale to source pixels) is proven in the default suite against injected predictions — plain lists,
+no torch tensor crosses that seam. What remains unproven is a real person frame end to end, the
+standing caveat this project already carries for real singing against synthetic ASR fixtures.
+
+### The default suite never touches torch, structurally
+
+Four injected seams — spec finder, hub directory, model loader, container opener — plus a fake PyAV
+container (seek offsets, pts-driven frame times, closed-flag) prove the probe's both branches, the
+span guard, the refusal ladder, the build-once lifecycle, a failed build never being cached, and the
+decode boundary (microsecond seek target, no-video-stream, no-frame-rate, no-frame-in-span) in the
+default run. `ast` tests assert the adapter imports no heavy extra at module scope and the resolver
+imports no adapter at module scope, mirroring `test_engine_registration.py`. mypy gained one scoped
+override, `[mypy-torchvision.*] ignore_missing_imports` (torchvision ships no py.typed; torch and av
+do), on the `faster_whisper` precedent: the untyped surface stops at the adapter that wraps it. The
+`localmodel` marker's description now names vision weights alongside ASR and diarization, because
+that is what it now covers.
+
+### Measured cost
+
+**1,461 changed lines against the ~475 estimate (3.1x)** — src 616 added / 34 removed (adapter 424,
+declarations 114, resolver 64, package `__init__` 6, `render_worker` net −26), tests 801, config 10
+(`mypy.ini` 8, `pytest.ini` 2). Test share 55%, almost exactly the repo's measured 56/36/8 split.
+Over the 800-line budget and not trimmed to fit: the four seams that keep the whole lifecycle
+provable without torch, a first-of-its-kind fake container, and module docstrings at the density
+this repo writes are most of the volume — the same accounting 9a-ii gave at 1.5x, on a slice
+carrying one more injected boundary than it did.
 
 ---
 
