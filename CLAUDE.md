@@ -312,7 +312,10 @@ proves the device at construction, so this is a clean `EngineUnavailable` at eng
 variable — not a job that dies mid-chunk. Installing the CUDA runtime is the other way out.
 
 Configuration is read once, in `runtime/settings.py` (`env_prefix="ONEVOICECUT_"`), and nothing below
-`runtime/` reads the environment at all:
+`runtime/` reads the environment at all. Each composition root that reads the environment — the web
+factory and the worker entrypoint — first loads a gitignored `.env` beside the app via
+`load_env_file()` with `override=False`, so a real exported variable always wins over the file;
+`.env.example` names every variable. The variables:
 
 | Variable | Default | Why that default |
 | --- | --- | --- |

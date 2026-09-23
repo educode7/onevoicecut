@@ -10,6 +10,7 @@ either up.
 from collections.abc import Mapping
 from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -34,6 +35,30 @@ CHUNK_TIMEOUT_ENV_NAMES = (
     "ONEVOICECUT_CHUNK_TIMEOUT_SECONDS",
     "ONEVOICECUT_CHUNK_TIMEOUT_S",
 )
+
+
+def load_env_file() -> None:
+    """Read a gitignored `.env` beside the app, without overriding exported values.
+
+    Operators of this shared server launch the composition roots by hand from
+    the app's directory, and the secrets they need — `HUGGING_FACE_TOKEN`,
+    `CLOUD_ASR_API_KEY` — otherwise have to be exported per session: a ritual
+    that lands credentials in shell history and, when skipped, spawns a worker
+    that refuses hours later. A `.env` in the working directory is read instead,
+    once, at each root, before anything consults the environment.
+
+    `override=False` is the invariant: a real exported variable always wins, so
+    the file is a floor and not a mask. An operator who exports a variable for
+    one run gets that run, not the file's opinion of it.
+
+    The path is pinned to the working directory because `load_dotenv`'s own
+    discovery resolves relative to *this module's* location and walks upward to
+    the drive root — it would miss the file the operator actually placed and
+    could pick up an unrelated ancestor `.env` nobody intended to configure this
+    server with. A missing file is a silent no-op: an environment-only install
+    is equally supported.
+    """
+    load_dotenv(dotenv_path=Path.cwd() / ".env", override=False)
 
 
 def check_target_profiles(

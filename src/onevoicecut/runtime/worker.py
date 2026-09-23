@@ -32,7 +32,7 @@ from onevoicecut.domain.jobs import TERMINAL_STATES, JobRecord, JobState
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
 from onevoicecut.ports.transcription import TranscriptionPort
 from onevoicecut.runtime.engine_resolver import EngineResolver, production_factories
-from onevoicecut.runtime.settings import CHUNK_TIMEOUT_ENV_NAMES
+from onevoicecut.runtime.settings import CHUNK_TIMEOUT_ENV_NAMES, load_env_file
 from onevoicecut.usecases.transcribe_job import DEFAULT_CHUNK_TIMEOUT_S, transcribe_job
 
 ExtractorFactory = Callable[[Path, JobId], AudioExtractorPort]
@@ -263,8 +263,13 @@ def main(
 
     # An injected resolver wins: the E2E harness drives this entrypoint with a
     # fake engine, and reading the environment anyway would let the machine's
-    # configuration leak into a run that supplied its own.
-    resolver = resolver if resolver is not None else configured_resolver()
+    # configuration leak into a run that supplied its own — which is why the
+    # `.env` load lives inside this branch too: it is part of consulting the
+    # environment, and a spawned worker already inherits the web process's
+    # loaded values, so override=False keeps the two sources in agreement.
+    if resolver is None:
+        load_env_file()
+        resolver = configured_resolver()
     if resolver is None:
         # Before the record is touched. A worker that claimed the job, wrote its
         # pid and then exited would leave the drain counting a slot as busy for a

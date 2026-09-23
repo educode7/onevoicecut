@@ -33,7 +33,7 @@ from onevoicecut.domain.jobs import WORKER_BOUND_STATES, JobRecord, JobState
 from onevoicecut.domain.rendering import ClipExport, ClipState
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.runtime.engine_resolver import declared_support
-from onevoicecut.runtime.settings import Settings
+from onevoicecut.runtime.settings import Settings, load_env_file
 
 # Re-exported, not merely used: liveness moved to `supervisor.py` when the
 # watchdog wiring made `app.py` need the sweep and the sweep need the probe —
@@ -711,6 +711,11 @@ def get_app() -> FastAPI:
     it starts the server; a module-level app would read it whenever anything
     imported this module, including a test collecting it.
     """
+    # Before `Settings`, and before `build_dependencies` reads the HF token: the
+    # operator's gitignored `.env` is one of the places configuration comes from,
+    # and loading it here also covers every spawned worker, which inherits this
+    # environment.
+    load_env_file()
     settings = Settings()  # type: ignore[call-arg]
     workers = spawn_worker(settings.data_dir)
     render_workers = spawn_render_worker(settings.data_dir)
