@@ -1721,29 +1721,68 @@ decision out into a pure function made most of it testable without any of it.
 Closes: `speech-transcription` Reject Speaker-Mode Jobs the Adapter Cannot Satisfy (positive path, local). The
 rejection path itself was already proven in slice 6. Depends on 9a-i.
 
-- [ ] 9.3 RED: diarizing-adapter-receives-multi-speaker-job test — returned segments include a speaker
+- [x] 9.3 RED: diarizing-adapter-receives-multi-speaker-job test — returned segments include a speaker
       label per segment, namespaced `c{chunk_index:02d}/S{speaker:02d}`.
-- [ ] 9.4 GREEN: implement the diarization call + namespaced label assignment.
+- [x] 9.4 GREEN: implement the diarization call + namespaced label assignment.
 
-### Blocked, and not on anything that can be written
+### The block cleared, from the human side it was blocked on
 
-`pyannote.audio`'s models are gated on Hugging Face: the weights do not download until a **human accepts the
-terms on their own account**. That is not a dependency an implementer can install past — no token exists to
-configure until someone has clicked through, and no amount of code substitutes for it.
+Everything this slice was waiting on was a person, not code, and the person did it: all four gated repos were
+accepted under the operator's account (`speaker-diarization-3.1`, `segmentation-3.0`,
+`wespeaker-voxceleb-resnet34-LM`, `speaker-diarization-community-1`), `pyannote.audio==4.0.7` was installed
+and pinned from that real install the way `requirements-local-asr.txt` was pinned, `HUGGING_FACE_TOKEN` is
+configured, and `Pipeline.from_pretrained` was proven to load **and run** on cpu before this slice's first
+line was written. The blind-write refusal below stood until the call could be executed once; then it was
+executed once, and the slice became writable.
 
-Writing the pipeline blind was considered and rejected. 8a-iv already ships assertions that have never
-executed, which is defensible for a handful of declarations checked against a documented API; a diarization
-integration is a different proposition — several hundred lines against a library whose call shape, return type
-and failure modes could not be run once. It would look finished and be unverified in every detail that
-matters, which is the failure mode this project spends its docstrings warning about.
+### pyannote 4.x is not the documented 3.x, and was treated as untrusted accordingly
 
-**9b-ii runs ahead of it instead**, which is legitimate: the seam is a use-case change with no dependency on
-the local adapter at all. Slice 9a-i already flipped the declaration to `REQUIRES_SETUP`, so the honest
-refusal an operator meets today is in place.
+Every call shape was verified against the installed package — by introspection and by one real run — rather
+than against memory of the widely-documented 3.x API. Three findings shaped the code: `from_pretrained` is
+typed `Optional`, so `None` is a refusal and is never cached; the `speaker-diarization-3.1` checkpoint builds
+a `SpeakerDiarization` whose clustering does **not** require `num_speakers`; and the call returns a
+`DiarizeOutput` bundle whose `.speaker_diarization` holds the annotation (a legacy-mode pipeline returns the
+bare annotation; one `getattr` serves both). Loading the 3.1 checkpoint also fetches `plda/xvec_transform.npz`
+from `pyannote/speaker-diarization-community-1` — the fourth gated acceptance.
 
-**To unblock**: accept the `pyannote/speaker-diarization-3.1` terms on a Hugging Face account, install
-`pyannote.audio`, set `HUGGING_FACE_TOKEN`, then pin `requirements-diarization.txt` from that real install the
-way `requirements-local-asr.txt` was pinned.
+### The proof is paid once per speaker-mode job, as 9a-i designed
+
+`diarization.py`'s `LocalDiarizer` holds the pipeline behind a lazy `pipeline()`, and the adapter holds one
+diarizer for its whole life — and an adapter lives for one job. A single-speaker job never touches torch
+through this path at all. Construction failures (gated weights, revoked licence, offline machine, the `None`)
+become `EngineUnavailable` at first use; mid-call failures land in `transcribe`'s existing guard and become
+`TranscriptionFailed` for the chunk. No provider exception crosses the boundary, and the whole lifecycle is
+proven in the default suite through an injected loader — no pipeline, no torch, no weights.
+
+### What the labels promise, and what they deliberately do not
+
+Assignment is maximal temporal overlap between each tiled segment and the diarized speech regions, ties to
+the earlier region, over the same decoded samples the decoder and the voice-activity pass saw. Labels are
+`c{chunk:02d}/S{speaker:02d}`, the speaker index dense and stable per chunk (sorted annotation labels), so
+the same voice in two chunks carries two labels — exactly the ambiguity 9b's `SpeakerResolver` exists to
+resolve, and the reason the namespace exists until then. A segment no speech region touches keeps
+`speaker=None`: the spec's "a label per segment" is read as per segment *of speech*, because `_tile`'s
+restored musical ranges have no speaker, and handing one the preacher's label would fabricate attribution —
+the same class of quiet lie as unlabelled output, pointed the other way.
+
+### The fixture is two Windows SAPI voices, and that is a first here
+
+No ffmpeg lavfi source contains a human voice, pyannote's segmentation model is trained on speech, and a sine
+comes back as an empty annotation — so the end-to-end proof needs real voices, and SAPI is the only
+zero-dependency source of them on this machine. The `localmodel` test skips honestly where SAPI or the token
+is absent. It asserts the contract, never the ground truth: two synthesized voices may cluster as one, the
+clustering threshold is not this slice's to tune, and cross-chunk identity is 9b's. What it proves is that
+labels exist, carry the chunk's own index, and cover every decoded sentence — and that the adapter declares
+`AVAILABLE` on a real install, the branch 9a-i could only prove as arithmetic. What remains unproven is this
+project's standing caveat about synthetic material: real singing over a real sermon is still only reachable
+through `scripts/try_local_asr.py` and a real recording.
+
+### Measured cost
+
+**697 lines against the ~460 estimate (1.5x)** — `src` 245 (`diarization.py` 210, adapter wiring 35), tests
+452. Test share 65%. Over, and not trimmed to fit: the pure/injected split that keeps the pipeline lifecycle
+provable in the default suite is most of the test volume, and a first-of-its-kind SAPI fixture costs what a
+first-of-its-kind fixture costs.
 
 ---
 

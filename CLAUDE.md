@@ -79,7 +79,7 @@ venv + pip, hand-pinned, deliberately split so a unit-test run never downloads P
 - `requirements-local-asr.txt` — `faster-whisper==1.2.1`, installed. Pulls CTranslate2 and onnxruntime,
   ~90 MB of wheels before a single weight is fetched, which is why every module that touches it is
   imported lazily or behind `pytest.importorskip`
-- `requirements-diarization.txt` — pyannote.audio / WhisperX (slice 9, still empty)
+- `requirements-diarization.txt` — `pyannote.audio==4.0.7`, pinned from a real install (pulls torch, CPU build)
 - `requirements.lock.txt` — `pip freeze` of a full install, for reproduction only
 
 ffmpeg is a **system binary**, never a pip dependency.
@@ -226,8 +226,8 @@ This repo runs **Spec-Driven Development** (`openspec/`) with **strict TDD** (`s
   RED-before-GREEN checklist, and it names the spec scenario each task closes. Archived changes land
   under `openspec/changes/archive/<date>-<name>/`, and their delta specs are promoted to canonical
   `openspec/specs/<capability>/spec.md` — eight capabilities are canonical today.
-- Every task pair is RED first: write the failing test, then the implementation. **382 of the 396
-  checkboxes in `tasks.md` are checked**; the 14 open ones are named under Current state below.
+- Every task pair is RED first: write the failing test, then the implementation. **384 of the 396
+  checkboxes in `tasks.md` are checked**; the 12 open ones are named under Current state below.
 - The original review budget was **400 lines** per slice. Slice 1 overran to 1,273 lines under
   an accepted one-time exception; the rest were re-estimated from that measured cost. The measured
   ratio is tests 56% / `src` 36% / config 8% — budget accordingly, tests dominate.
@@ -253,8 +253,10 @@ This repo runs **Spec-Driven Development** (`openspec/`) with **strict TDD** (`s
 One change is in flight. `video-transcription-pipeline` is green through **slice 13b-v**, and the last
 unit merged was 13b-iv-b (the render drain). `multi-operator-access` is **archived** at
 `openspec/changes/archive/2026-09-17-multi-operator-access/`, its seven delta specs promoted to
-canonical `openspec/specs/`. Measured on this tree: **1969 tests — 1939 in the default run, 20
-`localmodel`, 10 `paid`, zero skips — mypy clean over 233 source files.**
+canonical `openspec/specs/`. Measured on this tree: **1998 tests — 1967 in the default run, 21
+`localmodel`, 10 `paid`, zero skips — mypy clean over 237 source files.** A default run with the
+current local `.env` additionally shows 27 runtime failures from empty template values; they pass in
+isolation, and the mechanism is documented under the `.env` paragraph below.
 
 On disk today are `domain/` (nine modules: `chunking`, `errors`, `framing`, `generation`, `ids`,
 `jobs`, `media`, `rendering`, `transcript`), `ports/` (the seven plus `capabilities`), fifteen use
@@ -263,11 +265,12 @@ cases (`admit_job`, `build_subtitle_cues`, `cancel_job`, `generate_artifacts`, `
 `render_profiles`, `request_clip_export`, `resume_job`, `stitch_transcript`, `transcribe_job`),
 `adapters/ffmpeg/` (`argv`, `extractor`, `process`, `sendcmd`, `subtitles`, `video_render`),
 `adapters/storage/`, `adapters/web/` (`app`, `auth`, `schemas`, `routers/jobs`), both ASR adapters
-(`asr/local/faster_whisper_adapter` + `declarations`, `asr/cloud/openai_whisper_adapter`), `runtime/`
+(`asr/local/faster_whisper_adapter` + `declarations` + `diarization`,
+`asr/cloud/openai_whisper_adapter`), `runtime/`
 (`app`, `engine_resolver`, `render_worker`, `settings`, `supervisor`, `worker`), `tests/{fakes,unit,
 integration,contract}/` and `scripts/`.
 
-Four things are still missing, and the first is the one that bites:
+Three things are still missing, and the first is the one that bites:
 
 - **No LLM adapter, so generation never runs in production.** `generate_artifacts` is built and
   unit-tested above `TextGenerationPort`, but nothing constructs a `TextGenerationPort`, nothing calls
@@ -277,10 +280,18 @@ Four things are still missing, and the first is the one that bites:
 - **No vision-backed `SubjectTrackerPort`** (slice 13c). Production constructs
   `_UnconfiguredSubjectTracker`, which declares `UNSUPPORTED`, so every clip that does get rendered
   fails cleanly with `TrackingUnavailable` rather than producing a wrong crop.
-- **No diarization** (tasks 9.3/9.4), and `requirements-diarization.txt` is still a comment.
 - **No browser UI.** The HTTP surface is complete and authenticated; nothing renders it.
 
-And a fifth gap that is measurement, not code: **the one shipped render profile is deliberately
+Diarization is no longer on that list: slice 9a-ii landed the diarizing call (tasks 9.3/9.4). A
+speaker-mode job on a machine with `pyannote.audio` installed and `HUGGING_FACE_TOKEN` set now gets
+per-chunk namespaced speaker labels (`c{chunk:02d}/S{speaker:02d}`), assigned by maximal overlap with
+the diarized speech regions; a machine without them still gets the honest `REQUIRES_SETUP` refusal
+from 9a-i. Cross-chunk identity remains open by design — that is 9b's `SpeakerResolver`. The
+end-to-end proof runs on a Windows SAPI two-voice fixture under `localmodel`, which asserts the
+contract rather than ground-truth identity: two synthesized voices may cluster as one, and no
+synthetic fixture reproduces real singing over a real sermon.
+
+And a fourth gap that is measurement, not code: **the one shipped render profile is deliberately
 unmeasured.** `RENDER_PROFILES` holds a single `vertical` (1080×1920) with `safe_area=None`, because
 nobody has measured where each destination's interface sits over the frame — and a profile declaring no
 safe area is *refused*, never defaulted, so `resolve_render_profiles` answers `RenderProfileInvalid` for
@@ -326,6 +337,14 @@ factory and the worker entrypoint — first loads a gitignored `.env` beside the
 | `ONEVOICECUT_MAX_CONCURRENT_RENDERS` | 1, `ge=1` | **Independent of the job cap, deliberately** — a render is minutes of ffmpeg work and a job is hours of ASR, so the two caps have no reason to move together. |
 | `ONEVOICECUT_CHUNK_TIMEOUT_SECONDS` | 1800, `gt=0` | Also accepted as `..._CHUNK_TIMEOUT_S` (the name pydantic would derive) because design.md documents the long one, and an operator setting the documented variable and watching it do nothing is the worst of both. This value reaches the *watchdog*. |
 | `ONEVOICECUT_SCRIPT_TARGETS` | `tiktok,instagram,youtube,facebook` | Comma-separated, the same shape `OPERATOR_TOKENS` uses: an operator who has to write JSON into an environment variable gets it wrong once. The default is also the billed cost — four `complete()` calls per candidate, not one. |
+
+**A `.env` that still carries its template's empty assignments quietly breaks the default test run.**
+`load_env_file()` copies every named variable into the process environment — an empty string included,
+because an empty string is a value — and the first composition-root test to build the app poisons
+`os.environ` for the whole session: `ONEVOICECUT_MAX_UPLOAD_BYTES=` in the file becomes an env var that
+pydantic refuses to parse as an integer, and every later `Settings()` construction fails. It looks like
+27 runtime-test failures that pass in isolation. Keep in `.env` only the variables actually set; the
+template belongs in `.env.example`, which nothing loads.
 
 Four more are read outside `Settings`, and two of them carry no `ONEVOICECUT_` prefix. The worker reads
 `ONEVOICECUT_LOCAL_MODEL_SIZE` (no default — an unset value registers *no* local engine rather than
@@ -400,18 +419,15 @@ something an operator can read. Sharing one loop would also mean sharing one `ex
 that raised would strand every queued job on the machine, which is exactly the coupling the watchdog's
 own paragraph refuses. Each loop logs its own bad sweep, sleeps, and goes round again.
 
-Fourteen tasks are open, in two groups, and **neither is blocked on anything this repo can write**.
+Twelve tasks are open, in one group, and **it is not blocked on anything this repo can write**.
 
-- **9.3 / 9.4 (slice 9a-ii): the diarizing call and speaker labels.** `pyannote.audio`'s weights are
-  gated on HuggingFace — they do not download until a *human* accepts the terms on their own account,
-  and no token can be configured before that. Writing several hundred lines against a call shape,
-  return type and set of failure modes nobody has executed once was considered and rejected: it would
-  look finished and be unverified in every detail that matters. `requirements-diarization.txt` is
-  therefore still a comment rather than a pin, and gets one only from a real install, the way
-  `requirements-local-asr.txt` got `faster-whisper==1.2.1`. What ships today is the honest refusal:
-  9a-i flipped the declaration to `REQUIRES_SETUP`, so a speaker-mode job this machine cannot serve is
-  refused at admission. **To unblock**: accept the `pyannote/speaker-diarization-3.1` terms, install
-  the package, set `HUGGING_FACE_TOKEN`, pin from that install.
+The 9.3/9.4 group closed: the gated acceptances were done by the operator on their own HuggingFace
+account (all four repos the 3.1 checkpoint pulls), `pyannote.audio==4.0.7` was pinned from that real
+install, and the pipeline was proven to load and run on cpu before the slice was written — the
+blind-write refusal in `tasks.md` stood exactly as long as the call could not be executed once. The
+slice's own notes record what the installed 4.x API turned out to be, since it differs from the
+widely-documented 3.x in three load-bearing ways.
+
 - **13c.1 – 13c.12 (slices 13c-i / 13c-ii): the vision-backed `SubjectTrackerPort`.** The RED tests
   (13c.1, .3, .5, .8) are `localmodel`-marked because the adapter they drive *is* model weights —
   sequential in-process decode over the clip span, downscaled, every Nth frame; a pre-decode span guard

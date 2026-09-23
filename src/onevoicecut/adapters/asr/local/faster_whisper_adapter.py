@@ -6,13 +6,16 @@ run starts; a lazily-loaded model would move "these weights are not on this
 machine" three hours into a multi-hour job, after the operator walked away. It
 costs one eager load per job, which is the same load the first chunk would pay.
 
-Diarization is no longer a flat UNSUPPORTED: `diarization.py` probes what this
+Diarization is no longer a flat UNSUPPORTED: `declarations.py` probes what this
 install can actually support, and the answer is REQUIRES_SETUP until the package
 and a licence token are both present. UNSUPPORTED would be a claim about the
 engine rather than about the machine, and the engine is not the problem. The
 weaker claim still refuses a speaker-mode job — only AVAILABLE admits one — which
 is the failure this axis was built to prevent, because the transcript that comes
-back from a silently unlabelled run looks correct.
+back from a silently unlabelled run looks correct. When a speaker-mode job *is*
+admitted, `diarization.py` makes the call: one pipeline per job, built on the
+first chunk that asks, labelling every segment by maximal overlap with the
+diarized speech regions under a per-chunk namespace.
 
 Content classification, the independent second axis, is now AVAILABLE: a Silero
 voice-activity pass runs over the chunk, and the decode runs behind the same
@@ -44,8 +47,10 @@ from onevoicecut.adapters.asr.local.declarations import (
     diarization_support,
     is_installed,
 )
+from onevoicecut.adapters.asr.local.diarization import LocalDiarizer, assign_speakers
 from onevoicecut.domain.chunking import AudioChunk
 from onevoicecut.domain.errors import DomainError, EngineUnavailable, TranscriptionFailed
+from onevoicecut.domain.jobs import SpeakerMode
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
 from onevoicecut.ports.capabilities import (
     TranscriptionCapabilities,
@@ -120,6 +125,11 @@ class FasterWhisperTranscriber:
         # here either — see `diarization.py` on why install state is a probe and
         # not a proof.
         self._hf_token = hf_token
+        # Built on the first speaker-mode chunk, never before: the pipeline
+        # loads torch and gated weights, and a single-speaker job must not pay
+        # for any of it. One adapter lives for one job, so the instance field
+        # is what makes "once per job" a property of the wiring.
+        self._diarizer: LocalDiarizer | None = None
         try:
             self._model = WhisperModel(
                 model_size,
@@ -183,6 +193,18 @@ class FasterWhisperTranscriber:
             max_chunk_duration_s=None,
         )
 
+    def _diarizer_for_job(self) -> LocalDiarizer:
+        """This job's diarizer, constructed on first use.
+
+        Inside `transcribe`'s guard, so a token problem surfaces as the
+        `EngineUnavailable` it is rather than as a chunk failure — though
+        admission has already refused any speaker-mode job this constructor
+        would reject.
+        """
+        if self._diarizer is None:
+            self._diarizer = LocalDiarizer(self._hf_token)
+        return self._diarizer
+
     def transcribe(
         self, chunk: AudioChunk, request: TranscriptionRequest
     ) -> tuple[TranscriptSegment, ...]:
@@ -215,7 +237,14 @@ class FasterWhisperTranscriber:
             # The engine returns a generator; decode failures surface while it is
             # being drained, so materialise inside the guard, not outside it.
             spoken = tuple(_classify(segment) for segment in decoded)
-            return _tile(spoken, speech, duration_s)
+            tiled = _tile(spoken, speech, duration_s)
+            if request.speaker_mode is SpeakerMode.MULTI:
+                tiled = assign_speakers(
+                    tiled,
+                    self._diarizer_for_job().regions(audio, sample_rate=SAMPLE_RATE),
+                    chunk.index,
+                )
+            return tiled
         except DomainError:
             raise
         except Exception as error:
