@@ -254,9 +254,7 @@ One change is in flight. `video-transcription-pipeline` is green through **slice
 unit merged was 13b-iv-b (the render drain). `multi-operator-access` is **archived** at
 `openspec/changes/archive/2026-09-17-multi-operator-access/`, its seven delta specs promoted to
 canonical `openspec/specs/`. Measured on this tree: **1998 tests — 1967 in the default run, 21
-`localmodel`, 10 `paid`, zero skips — mypy clean over 237 source files.** A default run with the
-current local `.env` additionally shows 27 runtime failures from empty template values; they pass in
-isolation, and the mechanism is documented under the `.env` paragraph below.
+`localmodel`, 10 `paid`, zero skips — mypy clean over 237 source files.**
 
 On disk today are `domain/` (nine modules: `chunking`, `errors`, `framing`, `generation`, `ids`,
 `jobs`, `media`, `rendering`, `transcript`), `ports/` (the seven plus `capabilities`), fifteen use
@@ -338,13 +336,14 @@ factory and the worker entrypoint — first loads a gitignored `.env` beside the
 | `ONEVOICECUT_CHUNK_TIMEOUT_SECONDS` | 1800, `gt=0` | Also accepted as `..._CHUNK_TIMEOUT_S` (the name pydantic would derive) because design.md documents the long one, and an operator setting the documented variable and watching it do nothing is the worst of both. This value reaches the *watchdog*. |
 | `ONEVOICECUT_SCRIPT_TARGETS` | `tiktok,instagram,youtube,facebook` | Comma-separated, the same shape `OPERATOR_TOKENS` uses: an operator who has to write JSON into an environment variable gets it wrong once. The default is also the billed cost — four `complete()` calls per candidate, not one. |
 
-**A `.env` that still carries its template's empty assignments quietly breaks the default test run.**
-`load_env_file()` copies every named variable into the process environment — an empty string included,
-because an empty string is a value — and the first composition-root test to build the app poisons
-`os.environ` for the whole session: `ONEVOICECUT_MAX_UPLOAD_BYTES=` in the file becomes an env var that
-pydantic refuses to parse as an integer, and every later `Settings()` construction fails. It looks like
-27 runtime-test failures that pass in isolation. Keep in `.env` only the variables actually set; the
-template belongs in `.env.example`, which nothing loads.
+**An empty assignment in `.env` quietly breaks the default test run.** `load_env_file()` copies every
+named variable into the process environment — an empty string included, because an empty string is a
+value — and the first composition-root test to build the app poisons `os.environ` for the whole
+session: `ONEVOICECUT_MAX_UPLOAD_BYTES=` in the file becomes an env var that pydantic refuses to parse
+as an integer, and every later `Settings()` construction fails. It looks like 27 runtime-test failures
+that pass in isolation. This is why every assignment in `.env.example` is commented out: a fresh copy
+of the template exports nothing until the operator gives a variable a real value. Keep in `.env` only
+the variables actually set.
 
 Four more are read outside `Settings`, and two of them carry no `ONEVOICECUT_` prefix. The worker reads
 `ONEVOICECUT_LOCAL_MODEL_SIZE` (no default — an unset value registers *no* local engine rather than
