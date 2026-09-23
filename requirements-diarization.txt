@@ -1,1 +1,17 @@
-# Speaker diarization dependencies (pyannote.audio / WhisperX). Populated in Slice 9.
+# Speaker diarization dependencies (pyannote.audio). Slice 9.
+#
+# Deliberately separate from requirements.txt: installing this pulls torch and
+# its dependency tree, hundreds of megabytes of wheels before a single model
+# weight is downloaded. A default `pytest -m "not paid and not localmodel"` run
+# must never need them, which is what keeps the unit suite installable and fast
+# on a bare checkout.
+#
+# Model weights are NOT pinned here — and unlike faster-whisper's, they are
+# GATED: `pyannote/speaker-diarization-3.1` (and the segmentation model it
+# depends on) only download after a human accepts their terms on huggingface.co
+# with their own account. The download then authenticates with
+# HUGGING_FACE_TOKEN, named without the project prefix because that is the
+# spelling huggingface_hub itself recognises. An absent token is the normal
+# case on a fresh checkout: the local engine then declares REQUIRES_SETUP and
+# a speaker-mode job is refused at admission rather than delivered unlabelled.
+pyannote.audio==4.0.7
