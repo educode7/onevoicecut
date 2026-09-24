@@ -24,7 +24,7 @@ from onevoicecut.runtime.app import (
     reconcile_interrupted_jobs,
     spawn_worker,
 )
-from onevoicecut.runtime.settings import Settings
+from onevoicecut.shared.infrastructure.settings import Settings
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
 OTHER_JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFF")

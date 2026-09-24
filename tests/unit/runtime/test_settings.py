@@ -30,8 +30,9 @@ import pytest
 
 from onevoicecut.shared.domain.errors import RenderProfileInvalid
 from onevoicecut.domain.rendering import OutputSpec, RenderProfile, SafeArea
-from onevoicecut.runtime import settings as settings_module
-from onevoicecut.runtime.settings import Settings, check_target_profiles
+from onevoicecut.shared.infrastructure.settings import Settings
+from onevoicecut.runtime import app as runtime_app
+from onevoicecut.runtime.app import build_dependencies, check_target_profiles
 from onevoicecut.usecases.generate_artifacts import SCRIPT_TARGETS, ScriptTarget
 from onevoicecut.usecases.render_profiles import RENDER_PROFILES
 
@@ -142,8 +143,30 @@ class TestTheShippedRegistries:
         will select eventually, and the typo would surface then -- after the
         transcription hours are already spent."""
         assert set(SCRIPT_TARGETS) - set(
-            settings_module.Settings.model_fields["script_targets"].default.split(",")
+            Settings.model_fields["script_targets"].default.split(",")
         ) == set()
+
+    def test_the_inlined_default_resolves_to_defined_profiles(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Drift pin for the inlined `DEFAULT_SCRIPT_TARGETS` literal.
+
+        1b.2 replaced the import from `usecases.generate_artifacts` with a
+        hand-written string. If that string and the `SCRIPT_TARGETS` registry
+        ever disagree -- a name dropped here, a profile renamed there -- the
+        operator discovers it only after the transcription hours are spent.
+        Resolve the shipped default exactly as the worker will and pin every
+        profile it names against `RENDER_PROFILES`.
+        """
+        settings = _settings(monkeypatch, tmp_path)
+        names = [n.strip() for n in settings.script_targets.split(",") if n.strip()]
+        assert names, "the shipped default names at least one target"
+        for name in names:
+            target = SCRIPT_TARGETS[name]
+            assert target.profile in RENDER_PROFILES, (
+                f"default target {name!r} names profile {target.profile!r} "
+                f"not in RENDER_PROFILES: {sorted(RENDER_PROFILES)}"
+            )
 
 
 class TestItRunsAtComposition:
@@ -157,21 +180,58 @@ class TestItRunsAtComposition:
     ) -> None:
         """Before a job runs, not at render time. A profile name that only
         failed once ffmpeg was reached would fail after the transcription hours
-        were already spent."""
+        were already spent. The refusal now lives in `build_dependencies`
+        (1b.6): `Settings` itself no longer imports the registries."""
+        monkeypatch.setenv("ONEVOICECUT_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("ONEVOICECUT_OPERATOR_TOKENS", "maria:tok-boot")
         monkeypatch.setattr(
-            settings_module, "SCRIPT_TARGETS", {"tiktok": _target("tiktok", "vertcal")}
+            runtime_app, "SCRIPT_TARGETS", {"tiktok": _target("tiktok", "vertcal")}
         )
 
+        settings = Settings()  # type: ignore[call-arg]
         with pytest.raises(RenderProfileInvalid):
-            _settings(monkeypatch, tmp_path)
+            build_dependencies(settings)
+
+    def test_a_dangling_row_is_refused_by_the_composition_root(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The refusal after the validator leaves `Settings` (1b.6).
+
+        1b.5 pins the behavior against the composition root, not against
+        `Settings()` construction: construct first (which now succeeds), then
+        prove `build_dependencies` -- the boot path that builds the
+        authenticator -- still refuses a registry whose script targets name a
+        profile nobody defined. Same exception, same message discipline; only
+        the call site moves.
+        """
+        monkeypatch.setenv("ONEVOICECUT_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv(
+            "ONEVOICECUT_OPERATOR_TOKENS", "maria:tok-composition-root"
+        )
+        monkeypatch.setattr(
+            runtime_app, "SCRIPT_TARGETS", {"tiktok": _target("tiktok", "vertcal")}
+        )
+
+        settings = Settings()  # type: ignore[call-arg]
+
+        with pytest.raises(RenderProfileInvalid) as refusal:
+            build_dependencies(settings)
+
+        message = str(refusal.value)
+        assert "tiktok" in message
+        assert "vertcal" in message
 
     def test_an_unmeasured_registry_still_boots(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """An unmeasured registry is still a legal one, so this is the test that
         would fail if the check were ever rewritten to call the resolver."""
+        monkeypatch.setenv("ONEVOICECUT_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("ONEVOICECUT_OPERATOR_TOKENS", "maria:tok-unmeasured")
         monkeypatch.setattr(
-            settings_module, "RENDER_PROFILES", {"vertical": UNMEASURED}
+            runtime_app, "RENDER_PROFILES", {"vertical": UNMEASURED}
         )
 
-        assert _settings(monkeypatch, tmp_path).script_targets
+        settings = Settings()  # type: ignore[call-arg]
+        deps = build_dependencies(settings)
+        assert deps.authenticate is not None

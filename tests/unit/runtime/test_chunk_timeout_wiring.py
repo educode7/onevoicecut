@@ -42,7 +42,7 @@ from onevoicecut.shared.domain.capabilities import (
 from onevoicecut.ports.transcription import TranscriptionRequest
 from onevoicecut.runtime import worker
 from onevoicecut.runtime.engine_resolver import EngineResolver
-from onevoicecut.runtime.settings import CHUNK_TIMEOUT_ENV_NAMES, Settings
+from onevoicecut.shared.infrastructure.settings import CHUNK_TIMEOUT_ENV_NAMES, Settings
 from onevoicecut.runtime.worker import EXIT_UNUSABLE, configured_chunk_timeout_s
 from onevoicecut.usecases.transcribe_job import DEFAULT_CHUNK_TIMEOUT_S
 from tests.fakes.audio_extractor import FakeAudioExtractorPort

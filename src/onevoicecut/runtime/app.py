@@ -12,7 +12,7 @@ import os
 import subprocess
 import sys
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -28,12 +28,18 @@ from onevoicecut.adapters.storage.filesystem_transcript_storage import (
 )
 from onevoicecut.adapters.web.app import WebDependencies, create_app
 from onevoicecut.adapters.web.auth import build_authenticator, parse_operator_tokens
+from onevoicecut.shared.domain.errors import RenderProfileInvalid
 from onevoicecut.shared.domain.ids import ClipId, JobId
 from onevoicecut.domain.jobs import WORKER_BOUND_STATES, JobRecord, JobState
-from onevoicecut.domain.rendering import ClipExport, ClipState
+from onevoicecut.domain.rendering import ClipExport, ClipState, RenderProfile
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.runtime.engine_resolver import declared_support
-from onevoicecut.runtime.settings import Settings, load_env_file
+from onevoicecut.shared.infrastructure.settings import (
+    Settings,
+    load_env_file,
+)
+from onevoicecut.usecases.generate_artifacts import SCRIPT_TARGETS, ScriptTarget
+from onevoicecut.usecases.render_profiles import RENDER_PROFILES
 
 # Re-exported, not merely used: liveness moved to `supervisor.py` when the
 # watchdog wiring made `app.py` need the sweep and the sweep need the probe —
@@ -604,11 +610,68 @@ class WatchdogConfig:
     is_alive: LivenessProbe = process_is_alive
 
 
+def check_target_profiles(
+    targets: Mapping[str, ScriptTarget], profiles: Mapping[str, RenderProfile]
+) -> None:
+    """Refuse a script target that names a render profile nobody defined.
+
+    The two registries are edited independently — adding a network is a row in
+    one, adding a destination shape is a row in the other — and the only thing
+    joining them is a string. `profil="vertcal"` type-checks, imports, and
+    transcribes three hours of audio before anybody finds out. So they are read
+    against each other while the server boots, which is the last moment before a
+    job can start.
+
+    **This asserts membership, not renderability, and the distinction is the
+    reason the function exists rather than a call to `resolve_render_profiles`.**
+    That resolver also refuses a profile whose caption safe area nobody has
+    measured — on purpose, because the fractions are a measurement against each
+    destination's live interface rather than a value this project may invent. The
+    shipped profile is now measured, but an unmeasured one remains a legal
+    registry state any future profile can be in, and it stays refused at
+    resolution rather than at boot. Calling the resolver here would refuse to
+    start the server over a destination gap that only rendering needs, and would
+    refuse it for transcription, which renders nothing.
+
+    The two failures differ in both directions that matter. A dangling name is a
+    typo: fixed by editing a row, identical on every retry, unrecoverable
+    downstream — refused here. An unmeasured safe area is a recorded and
+    intended state that the render path already refuses **by name**, at the point
+    where a frame is genuinely needed. Escalating it to a boot refusal would take
+    the transcription pipeline down for a gap in a capability the operator may
+    not be using yet, and would make measuring four destinations a precondition
+    for starting the server at all.
+
+    Every offending row is named, not the first: fixing one and rebooting to be
+    told about the next is a boot loop an operator walks through by hand.
+    """
+    dangling = sorted(
+        f"{target.name} -> {target.profile}"
+        for target in targets.values()
+        if target.profile not in profiles
+    )
+    if dangling:
+        raise RenderProfileInvalid(
+            f"script target(s) {dangling} name a render profile that is not "
+            f"defined; available: {', '.join(sorted(profiles))}"
+        )
+
+
 def build_dependencies(settings: Settings) -> WebDependencies:
+    # Membership preflight: the inlined default `script_targets` and the
+    # registry must agree before anything serves. The model validator that
+    # used to enforce this on `Settings` is gone — `shared/infrastructure`
+    # must not import the clip use case — so the composition root checks it
+    # here, one call later, same exception and message discipline.
+    check_target_profiles(SCRIPT_TARGETS, RENDER_PROFILES)
     # Parsing the token map is the composition root's one authentication act.
     # It refuses an empty or malformed map before anything can serve a request —
     # a server must never come up with authentication disabled or ambiguous.
-    authenticate = build_authenticator(parse_operator_tokens(settings.operator_tokens))
+    # AUTH-17: the SecretStr is peeled open here, and only here — no module
+    # under shared/ or adapters/ ever holds the plaintext.
+    authenticate = build_authenticator(
+        parse_operator_tokens(settings.operator_tokens.get_secret_value())
+    )
     return WebDependencies(
         storage=FilesystemTranscriptStorage(settings.data_dir),
         authenticate=authenticate,

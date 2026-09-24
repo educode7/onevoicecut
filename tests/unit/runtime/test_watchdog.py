@@ -320,7 +320,7 @@ def test_the_timeout_comes_from_settings() -> None:
     """Unlike the two-hour liveness bound, this one is an operator's to set: it
     depends on the machine, the model size and the chunk length, and design.md
     lists `ONEVOICECUT_CHUNK_TIMEOUT_SECONDS` for exactly that reason."""
-    from onevoicecut.runtime.settings import Settings
+    from onevoicecut.shared.infrastructure.settings import Settings
 
     assert "chunk_timeout_s" in Settings.model_fields
 

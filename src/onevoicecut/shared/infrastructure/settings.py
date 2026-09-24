@@ -7,22 +7,21 @@ takes a `data_dir` and the ffmpeg adapter takes a `job_dir` rather than looking
 either up.
 """
 
-from collections.abc import Mapping
 from pathlib import Path
 
 from dotenv import load_dotenv
-from pydantic import AliasChoices, Field, model_validator
+from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from onevoicecut.adapters.web.app import DEFAULT_MAX_UPLOAD_BYTES
-from onevoicecut.shared.domain.errors import RenderProfileInvalid
-from onevoicecut.domain.rendering import RenderProfile
-from onevoicecut.usecases.generate_artifacts import (
-    DEFAULT_SCRIPT_TARGETS,
-    SCRIPT_TARGETS,
-    ScriptTarget,
-)
-from onevoicecut.usecases.render_profiles import RENDER_PROFILES
+# 16 GiB. Multi-hour video is the normal input here, so this bounds what one
+# upload may consume rather than describing a typical file.
+DEFAULT_MAX_UPLOAD_BYTES = 16 * 1024**3
+
+# Literal on purpose: the shared settings module must not import the clip
+# use case just to know the default destination list. The registry itself
+# stays in `usecases.generate_artifacts`; composition still cross-checks the
+# two (see `check_target_profiles`, relocated to `runtime/app.py`).
+DEFAULT_SCRIPT_TARGETS = "tiktok,instagram,youtube,facebook"
 
 
 # Two processes enforce the per-chunk timeout — the web process's watchdog from
@@ -61,53 +60,6 @@ def load_env_file() -> None:
     load_dotenv(dotenv_path=Path.cwd() / ".env", override=False)
 
 
-def check_target_profiles(
-    targets: Mapping[str, ScriptTarget], profiles: Mapping[str, RenderProfile]
-) -> None:
-    """Refuse a script target that names a render profile nobody defined.
-
-    The two registries are edited independently — adding a network is a row in
-    one, adding a destination shape is a row in the other — and the only thing
-    joining them is a string. `profil="vertcal"` type-checks, imports, and
-    transcribes three hours of audio before anybody finds out. So they are read
-    against each other while the server boots, which is the last moment before a
-    job can start.
-
-    **This asserts membership, not renderability, and the distinction is the
-    reason the function exists rather than a call to `resolve_render_profiles`.**
-    That resolver also refuses a profile whose caption safe area nobody has
-    measured — on purpose, because the fractions are a measurement against each
-    destination's live interface rather than a value this project may invent. The
-    shipped profile is now measured, but an unmeasured one remains a legal
-    registry state any future profile can be in, and it stays refused at
-    resolution rather than at boot. Calling the resolver here would refuse to
-    start the server over a destination gap that only rendering needs, and would
-    refuse it for transcription, which renders nothing.
-
-    The two failures differ in both directions that matter. A dangling name is a
-    typo: fixed by editing a row, identical on every retry, unrecoverable
-    downstream — refused here. An unmeasured safe area is a recorded and
-    intended state that the render path already refuses **by name**, at the point
-    where a frame is genuinely needed. Escalating it to a boot refusal would take
-    the transcription pipeline down for a gap in a capability the operator may
-    not be using yet, and would make measuring four destinations a precondition
-    for starting the server at all.
-
-    Every offending row is named, not the first: fixing one and rebooting to be
-    told about the next is a boot loop an operator walks through by hand.
-    """
-    dangling = sorted(
-        f"{target.name} -> {target.profile}"
-        for target in targets.values()
-        if target.profile not in profiles
-    )
-    if dangling:
-        raise RenderProfileInvalid(
-            f"script target(s) {dangling} name a render profile that is not "
-            f"defined; available: {', '.join(sorted(profiles))}"
-        )
-
-
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ONEVOICECUT_", extra="ignore")
 
@@ -121,7 +73,8 @@ class Settings(BaseSettings):
     # `name:token;name:token`. Defaults to empty rather than absent so the
     # token-map parser — not a bare pydantic validation error — is what refuses
     # an unconfigured boot, with a message naming the actual failure.
-    operator_tokens: str = ""
+    # SecretStr: repr/str of Settings must never carry a token value (AUTH-16).
+    operator_tokens: SecretStr = SecretStr("")
 
     # Comma-separated names, the same shape `operator_tokens` uses, because an
     # operator who has to write a JSON list into an environment variable is an
@@ -161,16 +114,3 @@ class Settings(BaseSettings):
         gt=0,
         validation_alias=AliasChoices(*CHUNK_TIMEOUT_ENV_NAMES),
     )
-
-    @model_validator(mode="after")
-    def _targets_name_defined_profiles(self) -> "Settings":
-        """The whole registry, not only the selection in `script_targets`.
-
-        A destination sitting unselected in the configuration is one an operator
-        will select eventually, and a typo in its row would surface then — after
-        the transcription hours are already spent. Reading the module globals at
-        call time rather than binding them as defaults is what lets a test prove
-        the refusal without editing the shipped registries.
-        """
-        check_target_profiles(SCRIPT_TARGETS, RENDER_PROFILES)
-        return self

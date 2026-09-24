@@ -27,6 +27,7 @@ from onevoicecut.shared.domain.ids import (
     generate_job_id,
     generate_media_id,
 )
+from onevoicecut.shared.infrastructure.settings import DEFAULT_MAX_UPLOAD_BYTES
 from onevoicecut.domain.jobs import EngineChoice
 from onevoicecut.domain.rendering import RenderProfile
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
@@ -35,10 +36,6 @@ from onevoicecut.ports.media_source import MediaSourcePort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.usecases.generate_artifacts import SCRIPT_TARGETS, ScriptTarget
 from onevoicecut.usecases.render_profiles import RENDER_PROFILES
-
-# 16 GiB. Multi-hour video is the normal input here, so this bounds what one
-# upload may consume rather than describing a typical file.
-DEFAULT_MAX_UPLOAD_BYTES = 16 * 1024**3
 
 
 MediaSourceFactory = Callable[[TranscriptStoragePort, JobId], MediaSourcePort]

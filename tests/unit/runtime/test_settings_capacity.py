@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from onevoicecut.runtime.settings import Settings
+from onevoicecut.shared.infrastructure.settings import Settings
 
 
 def _settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Settings:

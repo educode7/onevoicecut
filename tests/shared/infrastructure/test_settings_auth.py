@@ -8,16 +8,45 @@ failure, and the refusal message never carries a token value.
 from pathlib import Path
 
 import pytest
+from pydantic import SecretStr
 
 from onevoicecut.adapters.web.auth import InvalidTokenMap
 from onevoicecut.shared.domain.ids import make_operator_id
 from onevoicecut.runtime.app import build_dependencies
-from onevoicecut.runtime.settings import Settings
+from onevoicecut.shared.infrastructure.settings import Settings
 
 
 def _settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Settings:
     monkeypatch.setenv("ONEVOICECUT_DATA_DIR", str(tmp_path))
     return Settings()  # type: ignore[call-arg]
+
+
+def test_operator_tokens_are_carried_as_secret_str(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """AUTH-16: the raw token map never appears in `repr`/`str` of `Settings`.
+
+    A plain `str` field would put every operator token into any structured log
+    derived from the settings object — the one channel AUTH-09's boot refusal
+    already protects is exactly the channel a plain field would re-open.
+    """
+    monkeypatch.setenv("ONEVOICECUT_OPERATOR_TOKENS", "maria:sekrit-value-9f3c")
+
+    settings = _settings(monkeypatch, tmp_path)
+
+    assert isinstance(settings.operator_tokens, SecretStr)
+
+
+def test_settings_repr_and_str_redact_the_token_map(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """AUTH-16: both string forms of a configured `Settings` omit the token."""
+    monkeypatch.setenv("ONEVOICECUT_OPERATOR_TOKENS", "maria:sekrit-value-9f3c")
+
+    settings = _settings(monkeypatch, tmp_path)
+
+    assert "sekrit-value-9f3c" not in repr(settings)
+    assert "sekrit-value-9f3c" not in str(settings)
 
 
 def test_an_absent_token_map_refuses_boot(

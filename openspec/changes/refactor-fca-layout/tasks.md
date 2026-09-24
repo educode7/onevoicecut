@@ -115,34 +115,34 @@ Closes: `operator-authentication` AUTH-16, AUTH-17, AUTH-18; supports AB-08 (sha
 not reach module code — the whole point of the split). Design decision: pure env parsing in
 `shared/infrastructure/settings.py`; profile preflight moves to composition roots.
 
-- [ ] 1b.1 RED: extend `tests/shared/infrastructure/test_settings_auth.py` — AUTH-16: a
+- [x] 1b.1 RED: extend `tests/shared/infrastructure/test_settings_auth.py` — AUTH-16: a
       `Settings` instance carrying operator tokens produces `repr`/`str` containing **no token
       value**, and `operator_tokens` is an instance of `SecretStr`. Fails against today's plain
       `str` field. `[unit 1b]`
-- [ ] 1b.2 GREEN: relocate `runtime/settings.py` to `shared/infrastructure/settings.py`; type
+- [x] 1b.2 GREEN: relocate `runtime/settings.py` to `shared/infrastructure/settings.py`; type
       `operator_tokens: SecretStr`; inline `DEFAULT_MAX_UPLOAD_BYTES` as `16 * 1024**3` and
       `DEFAULT_SCRIPT_TARGETS` as its literal string (killing the imports from
       `usecases.*`/`adapters.web.app`/`domain.rendering`); move `CHUNK_TIMEOUT_ENV_NAMES` and
       `load_env_file()` verbatim. `[unit 1b]`
-- [ ] 1b.3 RED: AUTH-17 AST test — every `get_secret_value()` call on the operator-token field
+- [x] 1b.3 RED: AUTH-17 AST test — every `get_secret_value()` call on the operator-token field
       resides in a composition root (`main.py` or `runtime/`); no file under `shared/`
       presentation/application/domain or (later) `systems/` extracts the plaintext. Fails while
       extraction still happens inside shared/module code paths. `[unit 1b]`
-- [ ] 1b.4 GREEN: move the one-time extraction to the composition root(s) that build the token
+- [x] 1b.4 GREEN: move the one-time extraction to the composition root(s) that build the token
       map (during Phases 1–4 that is `runtime/app.py` until `main.py` lands in 1d — both are
       legal per AUTH-17); `parse_operator_tokens` keeps its str-in signature; existing
       `test_secret_discipline.py` and `InvalidTokenMap` refusal tests stay green unchanged
       (AUTH-18 preservation — no new test invented where one already exists; extend only if a
       gap is found). `[unit 1b]`
-- [ ] 1b.5 RED: preflight-drift test — pin `Settings().script_targets` is a subset of
+- [x] 1b.5 RED: preflight-drift test — pin `Settings().script_targets` is a subset of
       `RENDER_PROFILES` as a cross-module unit test so the inlined default cannot drift from
       the registry; plus a boot-refusal test: a dangling target still raises
       `RenderProfileInvalid` naming every offending row (the behavior of the moved validator,
       not a new rule). `[unit 1b]`
-- [ ] 1b.6 GREEN: extract the `_targets_name_defined_profiles` model validator out of `Settings`
+- [x] 1b.6 GREEN: extract the `_targets_name_defined_profiles` model validator out of `Settings`
       into `check_target_profiles`, a composition-root preflight called on the boot path before
       serving (same exception, same message discipline). `[unit 1b]`
-- [ ] 1b.7 Verify: `runtime/` import lines rewire to `shared.infrastructure.settings` — import
+- [x] 1b.7 Verify: `runtime/` import lines rewire to `shared.infrastructure.settings` — import
       lines only, bodies frozen; suite + mypy green. Commit
       `refactor(fca): split settings tangle, carry operator tokens as SecretStr`. `[unit 1b]`
 

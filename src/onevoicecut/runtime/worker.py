@@ -34,7 +34,7 @@ from onevoicecut.ports.text_generation import TextGenerationPort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.ports.transcription import TranscriptionPort
 from onevoicecut.runtime.engine_resolver import EngineResolver, production_factories
-from onevoicecut.runtime.settings import CHUNK_TIMEOUT_ENV_NAMES, load_env_file
+from onevoicecut.shared.infrastructure.settings import CHUNK_TIMEOUT_ENV_NAMES, load_env_file
 from onevoicecut.usecases.generate_artifacts import (
     DEFAULT_SCRIPT_TARGETS,
     resolve_script_targets,

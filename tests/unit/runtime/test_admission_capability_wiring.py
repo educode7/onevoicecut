@@ -36,7 +36,7 @@ from onevoicecut.domain.jobs import EngineChoice
 from onevoicecut.shared.domain.capabilities import DiarizationSupport
 from onevoicecut.runtime.app import build_dependencies
 from onevoicecut.runtime.engine_resolver import declared_diarization
-from onevoicecut.runtime.settings import Settings
+from onevoicecut.shared.infrastructure.settings import Settings
 from onevoicecut.runtime.worker import CLOUD_API_KEY_ENV, LOCAL_MODEL_SIZE_ENV
 
 TOKEN_MAP = "maria:some-token"

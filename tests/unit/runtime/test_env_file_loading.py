@@ -30,7 +30,7 @@ from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMo
 from onevoicecut.runtime import worker
 from onevoicecut.runtime.app import get_app
 from onevoicecut.runtime.engine_resolver import EngineResolver
-from onevoicecut.runtime.settings import load_env_file
+from onevoicecut.shared.infrastructure.settings import load_env_file
 from onevoicecut.runtime.worker import LOCAL_MODEL_SIZE_ENV
 
 JOB_ID = "01HQ3M8XKJ7VNPQR2ZYWB4TCFD"

@@ -136,7 +136,7 @@ class TestTheBound:
         """A property of the liveness rule, not an operator preference. Tuning it
         down orphans healthy jobs; tuning it up is indistinguishable from not
         having it. Neither is a knob worth exposing."""
-        from onevoicecut.runtime.settings import Settings
+        from onevoicecut.shared.infrastructure.settings import Settings
 
         assert not [f for f in Settings.model_fields if "heartbeat" in f.lower()]
         assert not [f for f in Settings.model_fields if "stale" in f.lower()]
