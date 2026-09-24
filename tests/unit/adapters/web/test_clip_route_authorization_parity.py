@@ -10,15 +10,17 @@ own parametrized tests to cover it without a line changing here.
 Second, and this is the finding the task asked to verify rather than assume:
 those two generators sent every POST route the *same* canned body
 (`{"engine": "local"}` for JSON, `b"x"` for everything else). That body
-satisfies `AdmitJobRequest` but not `ClipExportRequest`, and FastAPI resolves
-a declared body model before a handler's first line -- including
-`_authorized` -- ever runs. Sent unauthenticated, a request whose body fails
-validation comes back `422`, not `401`; sent by a non-owner, `422` not `403`.
-The generators were "seeing" the route and refusing it for the wrong reason.
-Fixed in `conftest.py`'s `route_request_body`, keyed by route rather than
-by method, so both generators reach each route's own authentication step
-before that route's own body validation could intercept the request -- no
-change to the routes themselves.
+satisfies `AdmitJobRequest` but not `ClipExportRequest`, and ownership is
+decided inside the handler, after FastAPI resolves a declared body model --
+so a non-owner's malformed body came back `422`, not `403`, and the generator
+was "seeing" the route while refusing it for the wrong reason. (At the time,
+authentication was also handler-first and an unauthenticated caller saw `422`
+before `401`; since slice 1c the principal resolves as a route dependency, so
+the 401 gate refuses whatever body arrives -- the body shapes below matter to
+the 403 matrix.) Fixed in `conftest.py`'s `route_request_body`, keyed by
+route rather than by method, so both generators reach each route's own
+authorization step before that route's own body validation could intercept
+the request -- no change to the routes themselves.
 """
 
 import pytest

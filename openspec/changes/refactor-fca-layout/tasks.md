@@ -154,28 +154,28 @@ Closes: AUTH-10, AUTH-11, AUTH-12 (extended); AUTH-02 through AUTH-06 preserved 
 wiring (deny-by-default generated tests stay green, now derived via the dependency). Design
 decision: no JWT; static bearer map adapted to `CurrentPrincipal`.
 
-- [ ] 1c.1 RED: AUTH-10 — a request bearing `Bearer t-a` against a server configured with
+- [x] 1c.1 RED: AUTH-10 — a request bearing `Bearer t-a` against a server configured with
       operator `a`/token `t-a` resolves `CurrentPrincipal` to identity `"a"`; the use case
       receives `"a"` as its principal; no token value crosses from presentation into
       application (assert the principal carries only identity/roles). Fails: the type and
       dependency do not exist yet. `[unit 1c]`
-- [ ] 1c.2 RED: AUTH-11 — inspection test over the shipped auth stack: no JWT issuing or
+- [x] 1c.2 RED: AUTH-11 — inspection test over the shipped auth stack: no JWT issuing or
       verification component participates; only the static operator-token map can authenticate.
       Fails pre-implementation because `shared/application/principal.py` and
       `shared/presentation/security.py` do not exist (import failure is the RED). `[unit 1c]`
-- [ ] 1c.3 GREEN: create `shared/application/principal.py` — frozen `Principal(identity, roles)`
+- [x] 1c.3 GREEN: create `shared/application/principal.py` — frozen `Principal(identity, roles)`
       plus `parse_operator_tokens`/`build_authenticator` moved **verbatim** from
       `adapters/web/auth.py` (constant-time scan behavior-frozen); create
       `shared/presentation/security.py` — `make_current_principal(authenticate)` returning an
       `Annotated[Principal, Depends(...)]`, unconstructable without an authenticator
       (deny-by-default in two layers). `[unit 1c]`
-- [ ] 1c.4 GREEN: rewire the still-present `adapters/web` routes from the closure-over-
+- [x] 1c.4 GREEN: rewire the still-present `adapters/web` routes from the closure-over-
       `WebDependencies` `_authorized` helper to `principal: CurrentPrincipal`; routes stay
       under `/api` until Phase 5. Existing generated 401 (AUTH-06) and owner-only 403 checks
       derive from `app.routes` and must pass without hand-edited path lists (AV-08's machinery
       preserved). AUTH-12 log discipline re-verified by extending `test_secret_discipline.py`
       if any gap is found (no invented duplicate). `[unit 1c]`
-- [ ] 1c.5 Verify: AUTH-02 through AUTH-06 generated/precedence tests green through the new
+- [x] 1c.5 Verify: AUTH-02 through AUTH-06 generated/precedence tests green through the new
       dependency wiring; suite + mypy. Commit
       `refactor(fca): resolve principals through CurrentPrincipal (bearer map, no JWT)`.
       `[unit 1c]`

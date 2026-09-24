@@ -13,7 +13,7 @@ sends a default operator's token unless a test says otherwise.
 from pathlib import Path
 
 from onevoicecut.adapters.web.app import WebDependencies
-from onevoicecut.adapters.web.auth import build_authenticator
+from onevoicecut.shared.application.principal import build_authenticator
 from onevoicecut.shared.domain.ids import JobId, make_operator_id
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
@@ -45,10 +45,12 @@ def route_request_body(method: str, path: str) -> tuple[bytes | None, dict[str, 
     model (if any) a route declares, for the generated 401/403 checks in
     `test_auth_gate.py` and `test_mutation_ownership_matrix.py`.
 
-    FastAPI resolves a declared body model before the handler's first line
-    ever runs, so a request whose body fails that model's validation never
-    reaches `_authorized`/`_owned` at all -- it is refused 422 first. A
-    single body shared across every POST route only ever worked by
+    Authentication resolves as a route dependency, before body validation, so
+    an unauthenticated request is refused 401 whatever body it carries.
+    Ownership is still decided inside the handler, and FastAPI resolves a
+    declared body model before the handler's first line ever runs: a request
+    whose body fails that model never reaches `_owned` -- it is refused 422
+    first. A single body shared across every POST route only ever worked by
     coincidence: `{"engine": "local"}` happens to satisfy `AdmitJobRequest`,
     the one POST route that existed before `POST .../clips` needed a
     different shape. Keying on the route rather than the method is what

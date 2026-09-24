@@ -9,7 +9,7 @@ how close a wrong token came.
 
 import pytest
 
-from onevoicecut.adapters.web.auth import (
+from onevoicecut.shared.application.principal import (
     InvalidCredential,
     InvalidTokenMap,
     build_authenticator,

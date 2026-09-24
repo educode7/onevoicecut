@@ -1,9 +1,9 @@
-"""Operator authentication for the web adapter: token map and authenticator.
+"""Operator identity and the static bearer-token map — the only credential channel.
 
-Identity lives at the adapter boundary. The composition root parses the token
-map once and injects the authenticator into `WebDependencies`; nothing below
-the router ever sees a header or a token — use cases receive the resolved
-`OperatorId` as an argument.
+Identity is shared vocabulary, not an adapter's private detail: `Principal` is
+what the application layer receives, and the parse/compare loop moved here
+verbatim from `adapters/web/auth.py` — behavior frozen (an early exit would
+leak, by timing, how far the scan got), only the module changed.
 
 Token values never leave this module's comparison loop: they are not logged,
 not persisted, and not carried in error messages.
@@ -11,8 +11,24 @@ not persisted, and not carried in error messages.
 
 import hmac
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 
 from onevoicecut.shared.domain.ids import InvalidIdError, OperatorId, make_operator_id
+
+Authenticator = Callable[[str | None], OperatorId]
+
+
+@dataclass(frozen=True, slots=True)
+class Principal:
+    """The caller as the application layer sees them: identity and roles.
+
+    Carries nothing that resolved it — a token that authenticated this
+    principal never crosses the presentation→application boundary, so no use
+    case can log, persist, or echo a credential by receiving one.
+    """
+
+    identity: OperatorId
+    roles: frozenset[str] = frozenset()
 
 
 class InvalidCredential(Exception):
@@ -89,9 +105,7 @@ def parse_operator_tokens(raw: str | None) -> Mapping[OperatorId, str]:
     return mapping
 
 
-def build_authenticator(
-    token_map: Mapping[OperatorId, str],
-) -> Callable[[str | None], OperatorId]:
+def build_authenticator(token_map: Mapping[OperatorId, str]) -> Authenticator:
     """Resolve a raw `Authorization` header to the operator it belongs to.
 
     The scheme is `Bearer`, case-insensitive; anything else is a credential

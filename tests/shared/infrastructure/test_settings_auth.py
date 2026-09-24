@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr
 
-from onevoicecut.adapters.web.auth import InvalidTokenMap
+from onevoicecut.shared.application.principal import InvalidTokenMap
 from onevoicecut.shared.domain.ids import make_operator_id
 from onevoicecut.runtime.app import build_dependencies
 from onevoicecut.shared.infrastructure.settings import Settings

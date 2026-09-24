@@ -6,12 +6,12 @@ which ids it gets — lives in the use case, where it is testable without a clie
 """
 
 from dataclasses import replace
+from typing import Annotated
 from urllib.parse import unquote
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from onevoicecut.adapters.web.app import WebDependencies
-from onevoicecut.adapters.web.auth import InvalidCredential
 from onevoicecut.adapters.web.schemas import (
     AdmitJobRequest,
     AdmitJobResponse,
@@ -25,6 +25,7 @@ from onevoicecut.adapters.web.schemas import (
     JobStatusResponse,
     ProgressResponse,
 )
+from onevoicecut.shared.application.principal import Principal
 from onevoicecut.shared.domain.errors import (
     ArtifactsNotAvailable,
     ClassificationUnsupported,
@@ -38,6 +39,7 @@ from onevoicecut.shared.domain.errors import (
     UploadTooLarge,
 )
 from onevoicecut.shared.domain.ids import ClipId, InvalidIdError, JobId, OperatorId, make_clip_id, make_job_id
+from onevoicecut.shared.presentation.security import make_current_principal
 from onevoicecut.domain.jobs import JobRecord, JobState, derive_progress
 from onevoicecut.domain.media import SourceMedia
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
@@ -50,24 +52,6 @@ from onevoicecut.usecases.request_clip_export import request_clip_export
 # The client's filename travels as metadata, never in the URL — a path parameter
 # would invite treating it as one.
 FILENAME_HEADER = "x-filename"
-
-
-def _authorized(request: Request, deps: WebDependencies) -> OperatorId:
-    """Resolve the caller's identity, or refuse with the one 401 shape.
-
-    First statement of every handler, so no route can serve a request it never
-    authenticated. Every credential failure — missing header, malformed header,
-    unknown token — becomes the SAME response: one status, one body, one header.
-    Distinguishing the causes would tell a caller which operators exist.
-    """
-    try:
-        return deps.authenticate(request.headers.get("authorization"))
-    except InvalidCredential as error:
-        raise HTTPException(
-            status_code=401,
-            detail="not authenticated",
-            headers={"WWW-Authenticate": "Bearer"},
-        ) from error
 
 
 def _owned(job: JobRecord, operator: OperatorId) -> None:
@@ -226,23 +210,34 @@ def _client_filename(raw: str) -> str:
 
 
 def build_jobs_router(deps: WebDependencies) -> APIRouter:
-    """A closure over the dependencies rather than FastAPI's `Depends`.
+    """A closure over the dependencies, with authentication as the one exception.
 
     The wiring is decided once by the composition root and never varies per
     request, so a closure says exactly that — and keeps the handlers free of
     framework-specific injection that would have to be unpicked to test them.
+    The principal is deliberately NOT in the closure: it is a `Depends`
+    dependency declared on every route, because a gate in the route table is
+    what the generated 401 check derives from — a route written without
+    `principal: CurrentPrincipal` fails that check the day it appears, where a
+    forgotten `_authorized(...)` first statement only failed review.
     """
     router = APIRouter(prefix="/api/jobs", tags=["jobs"])
+    # Written here rather than returned by the factory: only a literal
+    # Annotated expression binds as a type annotation, so the factory builds
+    # the resolver and this line binds it to this router's dependencies.
+    CurrentPrincipal = Annotated[
+        Principal, Depends(make_current_principal(deps.authenticate))
+    ]
 
     @router.post("", status_code=201, response_model=AdmitJobResponse)
-    def admit(body: AdmitJobRequest, request: Request) -> AdmitJobResponse:
+    def admit(principal: CurrentPrincipal, body: AdmitJobRequest) -> AdmitJobResponse:
         """Returns before anything expensive happens.
 
         Admission records a decision. The upload that follows and the hours of
         transcription after it are separate, precisely so neither sits inside an
         HTTP request.
         """
-        operator = _authorized(request, deps)
+        operator = principal.identity
         try:
             admission = admit_job(
                 engine=body.engine,
@@ -263,7 +258,7 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         )
 
     @router.get("", response_model=JobListResponse)
-    def listing(request: Request, mine: bool = False) -> JobListResponse:
+    def listing(principal: CurrentPrincipal, mine: bool = False) -> JobListResponse:
         """The shared board: every job, attributed, hidden from nobody.
 
         One ministry team cuts one church's sermons, so "is Sunday's sermon
@@ -283,7 +278,7 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         identity as a parameter — a client-supplied one has nowhere to arrive,
         so a legacy record (owner None) can never match anybody.
         """
-        operator = _authorized(request, deps)
+        operator = principal.identity
         jobs = deps.storage.list_jobs()
         if mine:
             jobs = tuple(job for job in jobs if job.owner == operator)
@@ -303,7 +298,7 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         )
 
     @router.get("/{job_id}", response_model=JobStatusResponse)
-    def status(job_id: str, request: Request) -> JobStatusResponse:
+    def status(job_id: str, principal: CurrentPrincipal) -> JobStatusResponse:
         """Read-only by construction, which is what makes it safe to poll.
 
         The worker is the sole writer of the job record. This reads the record,
@@ -315,7 +310,6 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         the upload, so the rate comes out slightly low and the ETA slightly long.
         That is the direction to be wrong in.
         """
-        _authorized(request, deps)
         job = _load(job_id, deps)
         progress = derive_progress(
             deps.storage.load_chunk_plan(job.job_id),
@@ -334,7 +328,7 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         )
 
     @router.post("/{job_id}/cancel", response_model=CancelJobResponse)
-    def cancel(job_id: str, request: Request) -> CancelJobResponse:
+    def cancel(job_id: str, principal: CurrentPrincipal) -> CancelJobResponse:
         """Records the request and answers. It does not wait for the worker.
 
         Waiting would hold the request open for the length of one chunk — ten
@@ -347,7 +341,7 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         the handler must produce the 403 before the branch is taken, so the
         duplication is two different jobs, not one done twice.
         """
-        operator = _authorized(request, deps)
+        operator = principal.identity
         job = _load(job_id, deps)
         _owned(job, operator)
 
@@ -357,7 +351,9 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         return CancelJobResponse(job_id=cancelled.job_id, state=cancelled.state)
 
     @router.put("/{job_id}/media", status_code=204)
-    async def upload_media(job_id: str, request: Request) -> Response:
+    async def upload_media(
+        job_id: str, principal: CurrentPrincipal, request: Request
+    ) -> Response:
         """Raw body straight to disk. No multipart, no `UploadFile`.
 
         `request.stream()` hands over chunks as they arrive off the socket, so the
@@ -370,7 +366,7 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         metadata. It is never consulted when deciding where anything goes: storage
         decided that before this handler ran.
         """
-        operator = _authorized(request, deps)
+        operator = principal.identity
         job = _load(job_id, deps)
         # Ownership is decided before the writer exists: a non-owner's request
         # never opens a partial file, never accepts a byte. The state check
@@ -425,7 +421,7 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         "/{job_id}/clips", status_code=202, response_model=ClipExportResponse
     )
     def request_clip(
-        job_id: str, body: ClipExportRequest, request: Request
+        job_id: str, body: ClipExportRequest, principal: CurrentPrincipal
     ) -> ClipExportResponse:
         """Writes `PENDING` exports and returns. It does not render.
 
@@ -433,7 +429,7 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         `PENDING` export with no render worker is precisely the queued state,
         the same way a `QUEUED` job with no worker is one.
         """
-        operator = _authorized(request, deps)
+        operator = principal.identity
         job = _load(job_id, deps)
         _owned(job, operator)
 
@@ -469,14 +465,13 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         "/{job_id}/clips/{clip_id}", response_model=ClipExportListResponse
     )
     def clip_status(
-        job_id: str, clip_id: str, request: Request
+        job_id: str, clip_id: str, principal: CurrentPrincipal
     ) -> ClipExportListResponse:
         """Every profile's export, never just one -- a single-object response
         would have to pick a profile to report and be wrong about the rest.
 
         Read-only, like `status`: nothing here has a worker to race against.
         """
-        _authorized(request, deps)
         job = _load(job_id, deps)
         exports = deps.storage.load_clip_exports(
             job.job_id, _validated_clip_id(clip_id)
@@ -491,14 +486,13 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         "/{job_id}/clips/{clip_id}/{profile}", response_model=ClipExportItem
     )
     def clip_profile_status(
-        job_id: str, clip_id: str, profile: str, request: Request
+        job_id: str, clip_id: str, profile: str, principal: CurrentPrincipal
     ) -> ClipExportItem:
         """Resolves to exactly one export. A clip id alone never identifies a
         single rendered file, so an unknown profile on a known clip is a
         distinct refusal from an unknown clip -- both 404, for different
         reasons a caller can tell apart by the message.
         """
-        _authorized(request, deps)
         job = _load(job_id, deps)
         exports = deps.storage.load_clip_exports(
             job.job_id, _validated_clip_id(clip_id)
