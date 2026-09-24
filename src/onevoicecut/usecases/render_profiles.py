@@ -13,11 +13,13 @@ local player, and wrong only in the app it was made for. A shared default margin
 is exactly how that failure gets introduced — right for the profile it was
 measured against, silently wrong for every profile that inherited it.
 
-**The registry ships profile *shapes*, not measured values.** The safe-area
-fractions and duration ceilings per destination are measurements against each
-app's current interface, and they go stale when that interface changes. The spec
-fixes that they must be declared and per profile; it deliberately does not fix
-what they are. So a profile nobody has measured records `safe_area=None` and is
+**The registry ships profile *shapes*, and any values in it are measurements,
+not inventions.** The safe-area fractions per destination are measurements
+against each app's current interface, and they go stale when that interface
+changes. The spec fixes that they must be declared and per profile; it
+deliberately does not fix what they are. The shipped `vertical` profile now
+carries a measured intersection (2026 sources, attributed at the registry
+entry); a profile nobody has measured still records `safe_area=None` and is
 refused here by name — populating it is an operator task with a measurement
 step, not a coding task.
 """
@@ -26,19 +28,33 @@ from collections.abc import Mapping
 
 from onevoicecut.domain.errors import RenderProfileInvalid
 from onevoicecut.domain.generation import ScriptVariant
-from onevoicecut.domain.rendering import OutputSpec, RenderProfile
+from onevoicecut.domain.rendering import OutputSpec, RenderProfile, SafeArea
 from onevoicecut.usecases.generate_artifacts import ScriptTarget
 
 # Every destination this change delivers to is vertical 9:16, so they share one
-# profile and therefore one rendered file. `safe_area=None` is not an oversight:
-# nobody has measured where TikTok's interface sits over the frame, and the
-# registry has to be able to say that. `max_duration_s` is unmeasured too, and
-# unreachable while the safe area gates the profile.
+# profile and therefore one rendered file — the render dedup made structural.
+#
+# `safe_area` is the measured *intersection* across TikTok, Instagram Reels,
+# YouTube Shorts and Facebook Reels: the most restrictive margin per edge, so one
+# shared file clears every destination's interface overlay rather than a
+# per-network average that would sit under the worst of them. Measured from the
+# apps' 2026 interfaces, not from official ad-copy allowances (Meta's 14%/35%
+# Reels guidance is a logo allowance, not UI geometry — its 35% bottom would burn
+# half the frame). Per-edge driver:
+#   top    0.115 — TikTok/IG Reels measured cluster (220px @1080x1920)
+#   bottom 0.252 — TikTok worst case (483px), the caption/caption-CTA band
+#   left   0.080 — TikTok bezel buffer (86px)
+#   right  0.130 — TikTok action rail (140px), the only double-sourced edge
+# These fractions go stale the moment an app redesigns its interface, so they are
+# a re-measurement target, never a value to average or extrapolate: re-measure
+# against the live interfaces. Sources and the full decision record live in
+# odd/tasks/measure-safe-areas.md. `max_duration_s` is the operator's ceiling, not
+# a measurement — reachable now that the safe area no longer gates the profile.
 RENDER_PROFILES: Mapping[str, RenderProfile] = {
     "vertical": RenderProfile(
         name="vertical",
         output=OutputSpec(width=1080, height=1920),
-        safe_area=None,
+        safe_area=SafeArea(top=0.115, bottom=0.252, left=0.080, right=0.130),
         max_duration_s=90.0,
     ),
 }

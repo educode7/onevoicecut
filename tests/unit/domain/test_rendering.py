@@ -54,7 +54,8 @@ JOB_ID = make_job_id("01BX5ZZKBKACTAV9WEVGEMMVRZ")
 
 # Illustrative only. The real per-destination values are measured against each
 # app's current interface and go stale when that interface changes, which is why
-# the registry ships shapes and the resolver refuses an unmeasured one.
+# the resolver refuses an unmeasured profile by name and why the shipped
+# registry's own measured values are pinned in test_render_profiles.py, not here.
 SAFE_AREA = SafeArea(top=0.06, bottom=0.18, left=0.05, right=0.14)
 PROFILE = RenderProfile(
     name="vertical",

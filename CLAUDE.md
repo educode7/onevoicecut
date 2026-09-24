@@ -292,9 +292,9 @@ render half instead of answering 409 `ArtifactsNotAvailable`. A machine without 
 COMPLETED job with its transcript and no artifacts: a probe negative is a logged skip naming
 `ollama pull`, and any domain error from generation is one line on stderr — a dead Ollama must
 never eat a finished three-hour transcription, and COMPLETED-with-no-artifacts is the state
-`ArtifactsNotAvailable` was written to describe. Reaching the render half is as far as it goes:
-every clip request is still refused at the render-profile gap below, because the one shipped
-profile declares no measured safe area.
+`ArtifactsNotAvailable` was written to describe. Reaching the render half used to stop there — every
+clip request was refused at the render-profile gap below — and that gap is now closed: the shipped
+profile carries a measured safe area, so a clip request resolves and renders.
 
 Diarization is no longer on that list: slice 9a-ii landed the diarizing call (tasks 9.3/9.4). A
 speaker-mode job on a machine with `pyannote.audio` installed and `HUGGING_FACE_TOKEN` set now gets
@@ -321,16 +321,21 @@ arithmetic over injected predictions in the default suite, while the `localmodel
 contract — span-scoped coverage, clip-local times, explicit misses, and the never-synthesized-centre
 proof on a genuinely person-free `testsrc2` fixture — never a real person end to end.
 
-And a gap that is measurement, not code: **the one shipped render profile is deliberately
-unmeasured.** `RENDER_PROFILES` holds a single `vertical` (1080×1920) with `safe_area=None`, because
-nobody has measured where each destination's interface sits over the frame — and a profile declaring no
-safe area is *refused*, never defaulted, so `resolve_render_profiles` answers `RenderProfileInvalid` for
-every clip request — now that generation and tracking both exist, this gap is the only thing standing
-between a finished transcript and a rendered file. All four `SCRIPT_TARGETS` name that one
-profile, on purpose: one file shared by four networks is exactly what render dedup exists for.
+And a gap that was measurement, not code, is now closed: **the one shipped render profile carries a
+measured safe area.** `RENDER_PROFILES` holds a single `vertical` (1080×1920) whose `safe_area` is the
+measured *intersection* across TikTok, Instagram Reels, YouTube Shorts and Facebook Reels (2026
+sources, decision record in `odd/tasks/measure-safe-areas.md`): the most restrictive margin per edge, so
+one shared file clears every destination's overlay. With it populated, `resolve_render_profiles("vertical")`
+now resolves instead of refusing, so generation → tracking → render runs end to end. All four
+`SCRIPT_TARGETS` still name that one profile, on purpose: one file shared by four networks is exactly
+what render dedup exists for. **The margins are re-measurement-sensitive** — they go stale the moment an
+app redesigns its interface, so the registry entry is a target to re-measure against the live interfaces,
+never a value to average or extrapolate; the pinned test in `test_render_profiles.py` moves only when an
+operator deliberately re-measures. A profile that declares no safe area is still *refused by name*, never
+defaulted, so a future unmeasured profile keeps the old `RenderProfileInvalid` path.
 `check_target_profiles` cross-checks the two registries at boot for *membership* only and must not be
-tightened to renderability — doing so would refuse to start a server that transcribes and renders
-nothing.
+tightened to renderability — doing so would refuse to start a server over a destination gap that only
+rendering needs, and transcription renders nothing.
 
 **The pipeline runs end to end with the real local engine** — real HTTP, real filesystem, real ffmpeg,
 real faster-whisper:

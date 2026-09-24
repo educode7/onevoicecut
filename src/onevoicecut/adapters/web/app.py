@@ -77,10 +77,11 @@ class WebDependencies:
     new_media_id: Callable[[], MediaId] = field(default=generate_media_id)
     new_clip_id: Callable[[], ClipId] = field(default=generate_clip_id)
     # The same two registries `runtime/settings.py` cross-checks at boot,
-    # injectable here for the same reason `capabilities` is: every shipped
-    # render profile is deliberately unmeasured (`safe_area=None`) today, so a
-    # test proving a clip request succeeds needs a registry standing in for a
-    # destination somebody has actually measured.
+    # injectable here for the same reason `capabilities` is: the shipped
+    # profile's safe area is a measurement against the live 2026 destination
+    # interfaces and moves whenever an operator re-measures, so a test proving
+    # a clip request succeeds pins the registry it asserts against instead of
+    # inheriting whatever the shipped one currently holds.
     render_profiles: Mapping[str, RenderProfile] = field(
         default_factory=lambda: RENDER_PROFILES
     )

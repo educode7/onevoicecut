@@ -8,11 +8,12 @@ booting, which is the last moment before a job can start.
 
 **The check is membership, not renderability, and the difference is the whole
 design.** `resolve_render_profiles` refuses a profile whose caption safe area
-nobody has measured, and every profile shipped today is in exactly that state --
-deliberately, because the fractions are a measurement against each destination's
-current interface rather than a value this project may invent. A boot check that
-called the resolver would therefore refuse to start the server at all, and it
-would refuse it for transcription, which does not render.
+nobody has measured -- deliberately, because the fractions are a measurement
+against each destination's current interface rather than a value this project may
+invent. The shipped profile is now measured, but an unmeasured one stays a legal
+registry state that any future profile can be in. A boot check that called the
+resolver would refuse to start the server over such a gap, and it would refuse it
+for transcription, which does not render.
 
 The two failures are different in both directions that matter. A dangling name
 is a typo: it is fixed by editing a row, it fails identically forever, and
@@ -40,7 +41,9 @@ MEASURED = RenderProfile(
     safe_area=SafeArea(top=0.06, bottom=0.18, left=0.05, right=0.14),
     max_duration_s=90.0,
 )
-# The state every shipped profile is in: recorded, and not yet measured.
+# A state the registry must still be able to hold: recorded, and not yet
+# measured. The shipped `vertical` profile is measured now; this fixture stands
+# in for the next profile somebody adds before sitting down with the app.
 UNMEASURED = RenderProfile(
     name="vertical",
     output=OutputSpec(width=1080, height=1920),
@@ -114,9 +117,10 @@ class TestTheCheckItself:
 
     def test_an_unmeasured_profile_is_not_a_dangling_one(self) -> None:
         """The trap this check is built around. `resolve_render_profiles`
-        refuses an unmeasured profile, and every shipped profile is unmeasured --
-        so a boot check that asked for renderability would refuse to start a
-        server whose transcription half renders nothing.
+        refuses an unmeasured profile, and an unmeasured profile stays a legal
+        registry state (the shipped one is measured now; the next addition need
+        not be) -- so a boot check that asked for renderability would refuse to
+        start a server whose transcription half renders nothing.
 
         The name resolves to a row. Whether that row is ready to render is a
         question asked where a frame is needed, by the code that owns the answer.
@@ -164,8 +168,8 @@ class TestItRunsAtComposition:
     def test_an_unmeasured_registry_still_boots(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        """Which is the shipped state, so this is the test that would fail if
-        the check were ever rewritten to call the resolver."""
+        """An unmeasured registry is still a legal one, so this is the test that
+        would fail if the check were ever rewritten to call the resolver."""
         monkeypatch.setattr(
             settings_module, "RENDER_PROFILES", {"vertical": UNMEASURED}
         )

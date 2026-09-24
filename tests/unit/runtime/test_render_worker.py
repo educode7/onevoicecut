@@ -64,9 +64,10 @@ JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
 MEDIA_ID = make_media_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFE")
 CLIP_ID = make_clip_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFG")
 
-# Measured here rather than taken from RENDER_PROFILES, whose every entry
-# declares no safe area on purpose. A render legitimately refuses until an
-# operator measures a destination, so a test that wants one must bring it.
+# Declared here rather than taken from RENDER_PROFILES: the shipped registry's
+# safe area is a measurement against the 2026 destination interfaces and moves
+# whenever an operator re-measures, and the render loop's behaviour does not
+# depend on the fractions' values — only on a profile being measured at all.
 PROFILE = RenderProfile(
     name="vertical",
     output=OutputSpec(width=1080, height=1920),
