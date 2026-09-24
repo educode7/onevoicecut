@@ -29,7 +29,7 @@ from onevoicecut.adapters.llm.ollama_generator import (
     OllamaTextGenerator,
 )
 from onevoicecut.adapters.llm.probe import model_is_pulled
-from onevoicecut.domain.errors import GenerationFailed
+from onevoicecut.shared.domain.errors import GenerationFailed
 
 pytestmark = pytest.mark.localmodel
 

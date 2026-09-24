@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from onevoicecut.domain.ids import JobId
+from onevoicecut.shared.domain.ids import JobId
 from onevoicecut.domain.transcript import TranscriptSegment
 
 

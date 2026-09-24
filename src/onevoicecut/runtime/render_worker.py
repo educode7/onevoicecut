@@ -46,7 +46,7 @@ from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     RENDER_DIRNAME,
     FilesystemTranscriptStorage,
 )
-from onevoicecut.domain.errors import (
+from onevoicecut.shared.domain.errors import (
     CorruptedRecord,
     DomainError,
     FrameGeometryUnavailable,
@@ -59,7 +59,7 @@ from onevoicecut.domain.framing import (
     crop_size_for,
 )
 from onevoicecut.domain.generation import ScriptVariant
-from onevoicecut.domain.ids import (
+from onevoicecut.shared.domain.ids import (
     ClipId,
     InvalidIdError,
     JobId,
@@ -80,7 +80,7 @@ from onevoicecut.domain.rendering import (
     quality_of,
 )
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
-from onevoicecut.ports.capabilities import DetectionSupport
+from onevoicecut.shared.domain.capabilities import DetectionSupport
 from onevoicecut.ports.subject_tracker import SubjectTrackerPort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.ports.video_render import RenderRequest, VideoRenderPort

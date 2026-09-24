@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor
-from onevoicecut.domain.ids import make_job_id, make_media_id
+from onevoicecut.shared.domain.ids import make_job_id, make_media_id
 from onevoicecut.domain.media import SourceMedia
 
 pytestmark = pytest.mark.integration
@@ -246,7 +246,7 @@ def test_a_slice_keeps_the_normalized_format(
 def test_a_non_media_file_is_refused(ffmpeg_available: None, job_dir: Path) -> None:
     """Content decides, not the extension — the threat-matrix row for a text file
     wearing a media extension."""
-    from onevoicecut.domain.errors import UnsupportedContainer
+    from onevoicecut.shared.domain.errors import UnsupportedContainer
 
     source = job_dir / "source.mp4"
     source.write_text("this is plainly not a video", encoding="utf-8")

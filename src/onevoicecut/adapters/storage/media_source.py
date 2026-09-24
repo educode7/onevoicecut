@@ -20,8 +20,8 @@ import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-from onevoicecut.domain.errors import UploadTooLarge
-from onevoicecut.domain.ids import MediaId
+from onevoicecut.shared.domain.errors import UploadTooLarge
+from onevoicecut.shared.domain.ids import MediaId
 from onevoicecut.domain.media import SourceMedia
 
 # What a container is before anything has looked inside it. A literal rather than

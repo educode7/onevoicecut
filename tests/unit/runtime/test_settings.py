@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.errors import RenderProfileInvalid
+from onevoicecut.shared.domain.errors import RenderProfileInvalid
 from onevoicecut.domain.rendering import OutputSpec, RenderProfile, SafeArea
 from onevoicecut.runtime import settings as settings_module
 from onevoicecut.runtime.settings import Settings, check_target_profiles

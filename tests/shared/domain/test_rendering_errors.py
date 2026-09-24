@@ -13,7 +13,7 @@ downstream can take.
 
 import pytest
 
-from onevoicecut.domain.errors import ClipRangeInvalid, DomainError, RenderFailed
+from onevoicecut.shared.domain.errors import ClipRangeInvalid, DomainError, RenderFailed
 
 
 @pytest.mark.parametrize("error", [RenderFailed, ClipRangeInvalid])

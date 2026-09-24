@@ -13,15 +13,15 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from onevoicecut.adapters.web.app import WebDependencies, create_app
-from onevoicecut.domain.errors import DiarizationUnsupported
-from onevoicecut.domain.ids import (
+from onevoicecut.shared.domain.errors import DiarizationUnsupported
+from onevoicecut.shared.domain.ids import (
     JobId,
     MediaId,
     generate_job_id,
     generate_media_id,
 )
 from onevoicecut.domain.jobs import EngineChoice, SpeakerMode
-from onevoicecut.ports.capabilities import (
+from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DeclaredSupport,
     DiarizationSupport,

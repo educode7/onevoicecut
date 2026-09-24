@@ -35,7 +35,7 @@ from onevoicecut.domain.framing import (
     TrajectoryPolicy,
 )
 from onevoicecut.domain.generation import ClipCandidate, ScriptVariant
-from onevoicecut.domain.ids import make_clip_id, make_job_id, make_media_id
+from onevoicecut.shared.domain.ids import make_clip_id, make_job_id, make_media_id
 from onevoicecut.domain.media import FrameSize, MediaProbe, SourceMedia
 from onevoicecut.domain.rendering import (
     CaptionCoverage,
@@ -50,7 +50,7 @@ from onevoicecut.domain.rendering import (
     SubtitleTimingSource,
 )
 from onevoicecut.domain.transcript import SegmentKind, Transcript, TranscriptSegment
-from onevoicecut.ports.capabilities import RenderCapabilities, RenderSupport
+from onevoicecut.shared.domain.capabilities import RenderCapabilities, RenderSupport
 from onevoicecut.ports.subject_tracker import SubjectDetection
 from onevoicecut.ports.video_render import RenderedFile, RenderRequest
 from onevoicecut.runtime.render_worker import render_pending_exports

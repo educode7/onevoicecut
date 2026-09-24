@@ -40,14 +40,14 @@ from typing import Any
 import httpx
 
 from onevoicecut.domain.chunking import AudioChunk
-from onevoicecut.domain.errors import (
+from onevoicecut.shared.domain.errors import (
     ChunkTimeout,
     ChunkTooLarge,
     EngineUnavailable,
     TranscriptionFailed,
 )
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
-from onevoicecut.ports.capabilities import (
+from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
     TranscriptionCapabilities,

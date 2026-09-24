@@ -30,7 +30,7 @@ import time
 from collections.abc import Callable
 from dataclasses import replace
 
-from onevoicecut.domain.ids import JobId, OperatorId
+from onevoicecut.shared.domain.ids import JobId, OperatorId
 from onevoicecut.domain.jobs import (
     TERMINAL_STATES,
     WORKER_BOUND_STATES,

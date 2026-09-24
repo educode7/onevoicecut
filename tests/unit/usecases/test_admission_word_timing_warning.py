@@ -28,10 +28,10 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.errors import DiarizationUnsupported
-from onevoicecut.domain.ids import make_operator_id
+from onevoicecut.shared.domain.errors import DiarizationUnsupported
+from onevoicecut.shared.domain.ids import make_operator_id
 from onevoicecut.domain.jobs import EngineChoice, JobState, SpeakerMode
-from onevoicecut.ports.capabilities import (
+from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DeclaredSupport,
     DiarizationSupport,

@@ -25,7 +25,7 @@ from onevoicecut.adapters.web.schemas import (
     JobStatusResponse,
     ProgressResponse,
 )
-from onevoicecut.domain.errors import (
+from onevoicecut.shared.domain.errors import (
     ArtifactsNotAvailable,
     ClassificationUnsupported,
     ClipCandidateNotFound,
@@ -37,7 +37,7 @@ from onevoicecut.domain.errors import (
     UnsupportedContainer,
     UploadTooLarge,
 )
-from onevoicecut.domain.ids import ClipId, InvalidIdError, JobId, OperatorId, make_clip_id, make_job_id
+from onevoicecut.shared.domain.ids import ClipId, InvalidIdError, JobId, OperatorId, make_clip_id, make_job_id
 from onevoicecut.domain.jobs import JobRecord, JobState, derive_progress
 from onevoicecut.domain.media import SourceMedia
 from onevoicecut.ports.audio_extractor import AudioExtractorPort

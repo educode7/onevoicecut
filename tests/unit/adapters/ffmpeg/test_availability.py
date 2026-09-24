@@ -17,8 +17,8 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor
-from onevoicecut.domain.errors import FfmpegUnavailable
-from onevoicecut.domain.ids import make_job_id, make_media_id
+from onevoicecut.shared.domain.errors import FfmpegUnavailable
+from onevoicecut.shared.domain.ids import make_job_id, make_media_id
 from onevoicecut.domain.media import SourceMedia
 
 JOB_ID = make_job_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")

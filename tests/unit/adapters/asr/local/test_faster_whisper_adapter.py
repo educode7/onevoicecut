@@ -34,11 +34,11 @@ from onevoicecut.adapters.asr.local.faster_whisper_adapter import (  # noqa: E40
     FasterWhisperTranscriber,
 )
 from onevoicecut.domain.chunking import AudioChunk  # noqa: E402
-from onevoicecut.domain.errors import DiarizationUnsupported  # noqa: E402
-from onevoicecut.domain.ids import JobId  # noqa: E402
+from onevoicecut.shared.domain.errors import DiarizationUnsupported  # noqa: E402
+from onevoicecut.shared.domain.ids import JobId  # noqa: E402
 from onevoicecut.domain.jobs import SpeakerMode  # noqa: E402
 from onevoicecut.domain.transcript import SegmentKind  # noqa: E402
-from onevoicecut.ports.capabilities import ClassificationSupport, DiarizationSupport  # noqa: E402
+from onevoicecut.shared.domain.capabilities import ClassificationSupport, DiarizationSupport  # noqa: E402
 from onevoicecut.ports.transcription import TranscriptionPort, TranscriptionRequest  # noqa: E402
 
 pytestmark = pytest.mark.localmodel

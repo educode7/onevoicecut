@@ -29,7 +29,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from onevoicecut.ports.capabilities import DetectionSupport
+from onevoicecut.shared.domain.capabilities import DetectionSupport
 
 # The two packages `requirements-vision.txt` pins. torchvision 0.29 removed its
 # own video APIs (no `read_video`, no `VideoReader`), so decoding goes through

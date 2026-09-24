@@ -12,7 +12,7 @@ clip did not work* — retry it, or look at the source. Collapsing them would ha
 an operator one message for a setup problem and a bad file alike.
 """
 
-from onevoicecut.domain.errors import DetectionFailed, DomainError, TrackingUnavailable
+from onevoicecut.shared.domain.errors import DetectionFailed, DomainError, TrackingUnavailable
 
 
 def test_tracking_unavailable_is_a_domain_error() -> None:

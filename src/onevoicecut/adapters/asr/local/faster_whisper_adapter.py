@@ -49,10 +49,10 @@ from onevoicecut.adapters.asr.local.declarations import (
 )
 from onevoicecut.adapters.asr.local.diarization import LocalDiarizer, assign_speakers
 from onevoicecut.domain.chunking import AudioChunk
-from onevoicecut.domain.errors import DomainError, EngineUnavailable, TranscriptionFailed
+from onevoicecut.shared.domain.errors import DomainError, EngineUnavailable, TranscriptionFailed
 from onevoicecut.domain.jobs import SpeakerMode
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
-from onevoicecut.ports.capabilities import (
+from onevoicecut.shared.domain.capabilities import (
     TranscriptionCapabilities,
     WordTimingSupport,
 )

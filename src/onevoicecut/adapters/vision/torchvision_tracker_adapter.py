@@ -52,10 +52,10 @@ from onevoicecut.adapters.vision.declarations import (
     is_installed,
     weights_cached,
 )
-from onevoicecut.domain.errors import DetectionFailed, TrackingUnavailable
+from onevoicecut.shared.domain.errors import DetectionFailed, TrackingUnavailable
 from onevoicecut.domain.framing import TimeSpan
 from onevoicecut.domain.media import SourceMedia
-from onevoicecut.ports.capabilities import DetectionSupport, TrackerCapabilities
+from onevoicecut.shared.domain.capabilities import DetectionSupport, TrackerCapabilities
 from onevoicecut.ports.subject_tracker import BoundingBox, SubjectDetection
 
 TRACKER_ID = "torchvision-fasterrcnn"

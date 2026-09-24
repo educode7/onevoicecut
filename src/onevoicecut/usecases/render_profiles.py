@@ -26,7 +26,7 @@ step, not a coding task.
 
 from collections.abc import Mapping
 
-from onevoicecut.domain.errors import RenderProfileInvalid
+from onevoicecut.shared.domain.errors import RenderProfileInvalid
 from onevoicecut.domain.generation import ScriptVariant
 from onevoicecut.domain.rendering import OutputSpec, RenderProfile, SafeArea
 from onevoicecut.usecases.generate_artifacts import ScriptTarget

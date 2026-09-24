@@ -29,11 +29,11 @@ from onevoicecut.domain.framing import (
     TimeSpan,
     TrackingConfidence,
 )
-from onevoicecut.domain.ids import make_media_id
+from onevoicecut.shared.domain.ids import make_media_id
 from onevoicecut.domain.media import SourceMedia
 from onevoicecut.domain.rendering import OutputSpec, SubtitleCue
 from onevoicecut.ports import video_render
-from onevoicecut.ports.capabilities import (
+from onevoicecut.shared.domain.capabilities import (
     DiarizationSupport,
     RenderCapabilities,
     RenderSupport,

@@ -33,13 +33,13 @@ from onevoicecut.adapters.ffmpeg.process import (
     real_process,
 )
 from onevoicecut.domain.chunking import AudioChunk, PlannedChunk
-from onevoicecut.domain.errors import (
+from onevoicecut.shared.domain.errors import (
     DomainError,
     ExtractionFailed,
     FfmpegUnavailable,
     UnsupportedContainer,
 )
-from onevoicecut.domain.ids import JobId
+from onevoicecut.shared.domain.ids import JobId
 from onevoicecut.domain.media import AudioTrack, FrameSize, MediaProbe, SourceMedia
 
 # Generous, because multi-hour input is the normal case: this bounds a hung

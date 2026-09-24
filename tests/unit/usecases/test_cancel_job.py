@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.errors import JobNotFound, JobNotOwned
-from onevoicecut.domain.ids import (
+from onevoicecut.shared.domain.errors import JobNotFound, JobNotOwned
+from onevoicecut.shared.domain.ids import (
     OperatorId,
     make_job_id,
     make_media_id,

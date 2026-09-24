@@ -36,9 +36,29 @@ LEGACY_HEXAGONAL = RuleGroup(
     forbidden_prefixes=("onevoicecut.adapters", "onevoicecut.runtime"),
 )
 
+# AB-08: the shared kernel is domain-agnostic — no file under `shared/` may
+# import any `onevoicecut.systems.*` module package.
+SHARED_KERNEL = RuleGroup(
+    name="shared-kernel",
+    guarded_subtrees=("shared",),
+    forbidden_prefixes=("onevoicecut.systems",),
+)
+
+# AB-03: `shared/domain` is the innermost layer — it may not import the
+# shared kernel's own outer layers (infrastructure, application, presentation).
+SHARED_DOMAIN_LAYER = RuleGroup(
+    name="shared-domain-layer",
+    guarded_subtrees=("shared/domain",),
+    forbidden_prefixes=(
+        "onevoicecut.shared.infrastructure",
+        "onevoicecut.shared.application",
+        "onevoicecut.shared.presentation",
+    ),
+)
+
 # AB-11 registration seam: migration slices append their module's RuleGroup
 # here, in the slice that migrates the module.
-RULE_GROUPS: list[RuleGroup] = [LEGACY_HEXAGONAL]
+RULE_GROUPS: list[RuleGroup] = [LEGACY_HEXAGONAL, SHARED_KERNEL, SHARED_DOMAIN_LAYER]
 
 
 def _iter_guarded_python_files(root: Path, subtrees: Sequence[str]) -> list[Path]:
@@ -167,3 +187,41 @@ def test_registered_subtree_scan_flags_plants_but_not_compliant_imports(
         )
     finally:
         RULE_GROUPS.remove(scaffold_group)
+
+
+def test_shared_rules_are_registered_and_both_sides_bite(tmp_path: Path) -> None:
+    """AB-08/AB-03 (shared side) and AB-11 (both sides): the shared kernel
+    rules are live in `RULE_GROUPS`, a `systems` plant under `shared/` fails,
+    a shared-outer-layer plant under `shared/domain/` fails, and a legacy
+    plant still fails in the same run while `domain/`/`ports/` exist."""
+    shared_file = tmp_path / "shared" / "kernel.py"
+    shared_file.parent.mkdir(parents=True)
+    shared_file.write_text(
+        "import onevoicecut.systems.pipeline.jobs.domain\n", encoding="utf-8"
+    )
+    shared_domain_file = tmp_path / "shared" / "domain" / "errors.py"
+    shared_domain_file.parent.mkdir(parents=True, exist_ok=True)
+    shared_domain_file.write_text(
+        "from onevoicecut.shared.infrastructure.settings import Settings\n",
+        encoding="utf-8",
+    )
+    legacy_file = tmp_path / "domain" / "planted.py"
+    legacy_file.parent.mkdir(parents=True, exist_ok=True)
+    legacy_file.write_text(
+        "import onevoicecut.runtime.supervisor\n", encoding="utf-8"
+    )
+
+    registered = {group.name for group in RULE_GROUPS}
+    assert "shared-kernel" in registered, registered
+    assert "shared-domain-layer" in registered, registered
+
+    violations = check_tree(tmp_path)
+    assert violations.get(str(shared_file)) == {
+        "onevoicecut.systems.pipeline.jobs.domain"
+    }, violations
+    assert violations.get(str(shared_domain_file)) == {
+        "onevoicecut.shared.infrastructure.settings"
+    }, violations
+    assert violations.get(str(legacy_file)) == {
+        "onevoicecut.runtime.supervisor"
+    }, violations

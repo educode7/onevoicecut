@@ -15,10 +15,10 @@ from collections.abc import Callable
 from dataclasses import replace
 
 from onevoicecut.domain.chunking import AudioChunk
-from onevoicecut.domain.errors import DiarizationUnsupported, TranscriptionFailed
+from onevoicecut.shared.domain.errors import DiarizationUnsupported, TranscriptionFailed
 from onevoicecut.domain.jobs import SpeakerMode
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment, WordTiming
-from onevoicecut.ports.capabilities import (
+from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
     TranscriptionCapabilities,

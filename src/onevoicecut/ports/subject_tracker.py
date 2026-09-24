@@ -37,7 +37,7 @@ from typing import Protocol
 
 from onevoicecut.domain.framing import TimeSpan
 from onevoicecut.domain.media import SourceMedia
-from onevoicecut.ports.capabilities import TrackerCapabilities
+from onevoicecut.shared.domain.capabilities import TrackerCapabilities
 
 
 @dataclass(frozen=True, slots=True)

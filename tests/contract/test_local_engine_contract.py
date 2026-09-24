@@ -28,7 +28,7 @@ from onevoicecut.adapters.asr.local.faster_whisper_adapter import (  # noqa: E40
     FasterWhisperTranscriber,
 )
 from onevoicecut.domain.chunking import AudioChunk  # noqa: E402
-from onevoicecut.domain.ids import make_job_id  # noqa: E402
+from onevoicecut.shared.domain.ids import make_job_id  # noqa: E402
 from onevoicecut.ports.transcription import TranscriptionPort  # noqa: E402
 from tests.contract.transcription import (  # noqa: E402
     CHUNK_START_S,

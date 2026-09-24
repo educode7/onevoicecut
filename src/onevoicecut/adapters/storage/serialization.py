@@ -29,10 +29,10 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
-from onevoicecut.domain.errors import CorruptedRecord
+from onevoicecut.shared.domain.errors import CorruptedRecord
 from onevoicecut.domain.framing import TrackingConfidence
 from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
-from onevoicecut.domain.ids import (
+from onevoicecut.shared.domain.ids import (
     ClipId,
     InvalidIdError,
     JobId,

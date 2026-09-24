@@ -16,8 +16,8 @@ import pytest
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
-from onevoicecut.domain.errors import CorruptedRecord, JobNotFound
-from onevoicecut.domain.ids import JobId, make_job_id, make_media_id
+from onevoicecut.shared.domain.errors import CorruptedRecord, JobNotFound
+from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 

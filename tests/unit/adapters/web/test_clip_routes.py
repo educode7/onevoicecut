@@ -18,7 +18,7 @@ from httpx import ASGITransport, AsyncClient
 
 from onevoicecut.adapters.web.app import WebDependencies, create_app
 from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
-from onevoicecut.domain.ids import JobId, make_clip_id, make_job_id, make_media_id
+from onevoicecut.shared.domain.ids import JobId, make_clip_id, make_job_id, make_media_id
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.domain.rendering import (
     CaptionCoverage,

@@ -13,7 +13,7 @@ from httpx import ASGITransport, AsyncClient
 
 from onevoicecut.adapters.web.app import WebDependencies, create_app
 from onevoicecut.domain.jobs import EngineChoice, SpeakerMode
-from onevoicecut.ports.capabilities import (
+from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DeclaredSupport,
     DiarizationSupport,

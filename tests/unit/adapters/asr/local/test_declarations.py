@@ -28,7 +28,7 @@ from onevoicecut.adapters.asr.local.declarations import (
     diarization_support,
     is_installed,
 )
-from onevoicecut.ports.capabilities import DiarizationSupport
+from onevoicecut.shared.domain.capabilities import DiarizationSupport
 
 TOKEN = "hf_not-a-real-token"
 

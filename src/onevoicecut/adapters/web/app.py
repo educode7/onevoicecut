@@ -18,7 +18,7 @@ Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None]] | None
 
 from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor
 from onevoicecut.adapters.storage.media_source import FilesystemMediaSource
-from onevoicecut.domain.ids import (
+from onevoicecut.shared.domain.ids import (
     ClipId,
     JobId,
     MediaId,
@@ -30,7 +30,7 @@ from onevoicecut.domain.ids import (
 from onevoicecut.domain.jobs import EngineChoice
 from onevoicecut.domain.rendering import RenderProfile
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
-from onevoicecut.ports.capabilities import DeclaredSupport
+from onevoicecut.shared.domain.capabilities import DeclaredSupport
 from onevoicecut.ports.media_source import MediaSourcePort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.usecases.generate_artifacts import SCRIPT_TARGETS, ScriptTarget

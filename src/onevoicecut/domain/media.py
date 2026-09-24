@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from onevoicecut.domain.ids import MediaId
+from onevoicecut.shared.domain.ids import MediaId
 
 
 @dataclass(frozen=True, slots=True)

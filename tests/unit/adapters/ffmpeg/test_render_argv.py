@@ -31,9 +31,9 @@ from onevoicecut.adapters.ffmpeg.argv import (
     RenderInvocation,
     build_render_argv,
 )
-from onevoicecut.domain.errors import ClipRangeInvalid
+from onevoicecut.shared.domain.errors import ClipRangeInvalid
 from onevoicecut.domain.framing import TimeSpan
-from onevoicecut.domain.ids import InvalidIdError, make_clip_id
+from onevoicecut.shared.domain.ids import InvalidIdError, make_clip_id
 from onevoicecut.domain.rendering import OutputSpec
 
 CLIP_ID = make_clip_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")

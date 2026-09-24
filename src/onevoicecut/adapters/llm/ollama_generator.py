@@ -33,7 +33,7 @@ from typing import Any
 
 import httpx
 
-from onevoicecut.domain.errors import GenerationFailed
+from onevoicecut.shared.domain.errors import GenerationFailed
 
 ENGINE_NAME = "ollama"
 

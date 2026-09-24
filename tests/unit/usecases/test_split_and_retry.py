@@ -30,12 +30,12 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.domain.chunking import AudioChunk, ChunkState, PlannedChunk
-from onevoicecut.domain.errors import ChunkTooLarge
-from onevoicecut.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
+from onevoicecut.shared.domain.errors import ChunkTooLarge
+from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.domain.media import AudioTrack, MediaProbe, SourceMedia
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
-from onevoicecut.ports.capabilities import (
+from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
     TranscriptionCapabilities,

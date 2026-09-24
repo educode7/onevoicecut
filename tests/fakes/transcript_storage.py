@@ -10,9 +10,9 @@ from collections.abc import Callable
 from pathlib import Path
 
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult
-from onevoicecut.domain.errors import JobNotFound
+from onevoicecut.shared.domain.errors import JobNotFound
 from onevoicecut.domain.generation import GenerationResult
-from onevoicecut.domain.ids import ClipId, JobId
+from onevoicecut.shared.domain.ids import ClipId, JobId
 from onevoicecut.domain.jobs import JobRecord, JobState
 from onevoicecut.domain.media import SourceMedia
 from onevoicecut.domain.rendering import ClipExport

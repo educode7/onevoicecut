@@ -89,21 +89,21 @@ Closes: AB-08, AB-03 (shared/domain as the innermost layer), AB-11 (legacy `doma
 `ports/` still exist while `shared/` appears — dual coverage live), AB-12 (first FCA rule group
 proven RED). Behavior-frozen relocation.
 
-- [ ] 1a.1 RED: register the `shared/` rule group in `tests/test_architecture.py` — plant
+- [x] 1a.1 RED: register the `shared/` rule group in `tests/test_architecture.py` — plant
       `import onevoicecut.systems...` under a `shared/` file then fail (AB-08); plant a
       `shared/infrastructure`/`shared/presentation` import under `shared/domain/` then fail
       (AB-03); remove plants then green. Legacy rules must still bite a legacy plant in the
       same run (AB-11 both sides while `domain/`, `ports/` exist). `[unit 1a]`
-- [ ] 1a.2 GREEN: relocate `domain/errors.py` to `shared/domain/errors.py`, `domain/ids.py` to
+- [x] 1a.2 GREEN: relocate `domain/errors.py` to `shared/domain/errors.py`, `domain/ids.py` to
       `shared/domain/ids.py`, `ports/capabilities.py` to `shared/domain/capabilities.py`;
       update every importer across `src/` and `tests/`; move the corresponding unit tests to
       `tests/shared/domain/`. **No new behavior test** — this is a behavior-frozen relocation
       proven by the unchanged assertions. `[unit 1a]`
-- [ ] 1a.3 Verify (relocation honesty): full default suite green with the *same* test bodies,
+- [x] 1a.3 Verify (relocation honesty): full default suite green with the *same* test bodies,
       mypy strict clean; `git diff` shows only file moves and import-line edits — `runtime/`
       bodies untouched (import lines only if any runtime module named these types).
       `[unit 1a]`
-- [ ] 1a.4 Commit
+- [x] 1a.4 Commit
       `refactor(fca): move kernel vocabulary (errors, ids, capabilities) to shared/domain`.
       `[unit 1a]`
 

@@ -20,8 +20,8 @@ from fastapi.routing import APIRoute
 from httpx import ASGITransport, AsyncClient
 
 from onevoicecut.adapters.web.app import WebDependencies, create_app
-from onevoicecut.domain.errors import JobNotOwned
-from onevoicecut.domain.ids import JobId, make_job_id, make_operator_id
+from onevoicecut.shared.domain.errors import JobNotOwned
+from onevoicecut.shared.domain.ids import JobId, make_job_id, make_operator_id
 from onevoicecut.domain.jobs import JobState
 from onevoicecut.usecases.ownership import require_owner
 from onevoicecut.usecases.purge_job_artifacts import PurgeJobArtifacts

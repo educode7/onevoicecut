@@ -20,10 +20,10 @@ unambiguous, so that whatever survives smoothing is attributable.
 
 import math
 
-from onevoicecut.domain.errors import TrackingUnavailable
+from onevoicecut.shared.domain.errors import TrackingUnavailable
 from onevoicecut.domain.framing import TimeSpan
 from onevoicecut.domain.media import SourceMedia
-from onevoicecut.ports.capabilities import DetectionSupport, TrackerCapabilities
+from onevoicecut.shared.domain.capabilities import DetectionSupport, TrackerCapabilities
 from onevoicecut.ports.subject_tracker import BoundingBox, SubjectDetection
 
 TRACKER_ID = "fake-tracker"

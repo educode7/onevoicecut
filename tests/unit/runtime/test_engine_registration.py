@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.errors import EngineUnavailable
+from onevoicecut.shared.domain.errors import EngineUnavailable
 from onevoicecut.domain.jobs import EngineChoice
 from onevoicecut.runtime.engine_resolver import EngineResolver, production_factories
 

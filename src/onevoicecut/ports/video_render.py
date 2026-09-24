@@ -33,7 +33,7 @@ from typing import Protocol
 from onevoicecut.domain.framing import CropTrajectory, TimeSpan
 from onevoicecut.domain.media import SourceMedia
 from onevoicecut.domain.rendering import OutputSpec, SubtitleCue
-from onevoicecut.ports.capabilities import RenderCapabilities
+from onevoicecut.shared.domain.capabilities import RenderCapabilities
 
 
 @dataclass(frozen=True, slots=True)

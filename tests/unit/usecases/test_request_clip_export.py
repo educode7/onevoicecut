@@ -20,14 +20,14 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.errors import (
+from onevoicecut.shared.domain.errors import (
     ArtifactsNotAvailable,
     ClipCandidateNotFound,
     ClipTargetsInvalid,
     RenderProfileInvalid,
 )
 from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
-from onevoicecut.domain.ids import ClipId, JobId, make_clip_id, make_job_id
+from onevoicecut.shared.domain.ids import ClipId, JobId, make_clip_id, make_job_id
 from onevoicecut.domain.rendering import ClipState, OutputSpec, RenderProfile, SafeArea
 from onevoicecut.usecases.generate_artifacts import ScriptTarget
 from onevoicecut.usecases.request_clip_export import request_clip_export

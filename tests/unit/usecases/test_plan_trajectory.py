@@ -28,7 +28,7 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.domain.framing import TimeSpan, TrajectoryPolicy
-from onevoicecut.domain.ids import make_media_id
+from onevoicecut.shared.domain.ids import make_media_id
 from onevoicecut.domain.media import FrameSize, SourceMedia
 from onevoicecut.ports.subject_tracker import BoundingBox, SubjectDetection
 from onevoicecut.usecases.plan_trajectory import (

@@ -14,10 +14,10 @@ from tests.fakes.transcription import (
     NonClassifyingFakeTranscriptionPort,
 )
 from onevoicecut.domain.chunking import AudioChunk
-from onevoicecut.domain.ids import make_job_id
+from onevoicecut.shared.domain.ids import make_job_id
 from onevoicecut.domain.jobs import SpeakerMode
 from onevoicecut.domain.transcript import SegmentKind
-from onevoicecut.ports.capabilities import ClassificationSupport
+from onevoicecut.shared.domain.capabilities import ClassificationSupport
 from onevoicecut.ports.transcription import TranscriptionRequest
 
 JOB_ID = make_job_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")

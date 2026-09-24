@@ -39,13 +39,13 @@ from onevoicecut.adapters.storage.serialization import (
 )
 from onevoicecut.domain.media import SourceMedia
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult
-from onevoicecut.domain.errors import (
+from onevoicecut.shared.domain.errors import (
     JobAlreadyExists,
     JobNotFound,
     RenderProfileInvalid,
 )
 from onevoicecut.domain.generation import GenerationResult
-from onevoicecut.domain.ids import ClipId, InvalidIdError, JobId, make_job_id
+from onevoicecut.shared.domain.ids import ClipId, InvalidIdError, JobId, make_job_id
 from onevoicecut.domain.jobs import JobRecord
 from onevoicecut.domain.rendering import ClipExport
 from onevoicecut.domain.transcript import Transcript

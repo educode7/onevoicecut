@@ -24,11 +24,11 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.errors import DetectionFailed, TrackingUnavailable
+from onevoicecut.shared.domain.errors import DetectionFailed, TrackingUnavailable
 from onevoicecut.domain.framing import TimeSpan
-from onevoicecut.domain.ids import make_media_id
+from onevoicecut.shared.domain.ids import make_media_id
 from onevoicecut.domain.media import SourceMedia
-from onevoicecut.ports.capabilities import DetectionSupport
+from onevoicecut.shared.domain.capabilities import DetectionSupport
 from onevoicecut.ports.subject_tracker import BoundingBox, SubjectTrackerPort
 from tests.fakes.subject_tracker import (
     FakeSubjectTrackerPort,

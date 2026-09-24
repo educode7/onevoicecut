@@ -15,7 +15,7 @@ from onevoicecut.adapters.web.auth import (
     build_authenticator,
     parse_operator_tokens,
 )
-from onevoicecut.domain.ids import make_operator_id
+from onevoicecut.shared.domain.ids import make_operator_id
 
 TWO_OPERATORS = {
     make_operator_id("maria"): "tok-maria",

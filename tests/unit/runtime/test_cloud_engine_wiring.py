@@ -28,8 +28,8 @@ from onevoicecut.adapters.asr.cloud.openai_whisper_adapter import (
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
-from onevoicecut.domain.errors import EngineUnavailable, ExtractionFailed
-from onevoicecut.domain.ids import (
+from onevoicecut.shared.domain.errors import EngineUnavailable, ExtractionFailed
+from onevoicecut.shared.domain.ids import (
     JobId,
     make_job_id,
     make_media_id,

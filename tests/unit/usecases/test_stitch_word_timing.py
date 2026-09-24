@@ -21,7 +21,7 @@ production today produces exactly that.
 """
 
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
-from onevoicecut.domain.ids import make_job_id
+from onevoicecut.shared.domain.ids import make_job_id
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment, WordTiming
 from onevoicecut.usecases.stitch_transcript import stitch_transcript
 

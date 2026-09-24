@@ -24,7 +24,7 @@ import dataclasses
 import pytest
 
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment, WordTiming
-from onevoicecut.ports.capabilities import (
+from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
     TranscriptionCapabilities,

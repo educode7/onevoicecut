@@ -13,7 +13,7 @@ import pytest
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
-from onevoicecut.domain.errors import (
+from onevoicecut.shared.domain.errors import (
     CorruptedRecord,
     JobAlreadyExists,
     JobNotFound,
@@ -21,7 +21,7 @@ from onevoicecut.domain.errors import (
 )
 from onevoicecut.domain.framing import TrackingConfidence
 from onevoicecut.domain.generation import ScriptVariant
-from onevoicecut.domain.ids import ClipId, JobId, make_clip_id, make_job_id, make_media_id
+from onevoicecut.shared.domain.ids import ClipId, JobId, make_clip_id, make_job_id, make_media_id
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from tests.contract.clip_export_storage import assert_keyed_by_clip_and_profile
 from onevoicecut.domain.rendering import (

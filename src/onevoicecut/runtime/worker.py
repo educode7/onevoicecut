@@ -26,8 +26,8 @@ from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
-from onevoicecut.domain.errors import DomainError
-from onevoicecut.domain.ids import InvalidIdError, JobId, make_job_id
+from onevoicecut.shared.domain.errors import DomainError
+from onevoicecut.shared.domain.ids import InvalidIdError, JobId, make_job_id
 from onevoicecut.domain.jobs import TERMINAL_STATES, JobRecord, JobState
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
 from onevoicecut.ports.text_generation import TextGenerationPort

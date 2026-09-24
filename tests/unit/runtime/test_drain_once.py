@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
+from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
 from onevoicecut.domain.jobs import (
     WORKER_BOUND_STATES,
     EngineChoice,

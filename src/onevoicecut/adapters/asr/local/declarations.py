@@ -32,7 +32,7 @@ import importlib.util
 from collections.abc import Callable
 from typing import Any
 
-from onevoicecut.ports.capabilities import (
+from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
     WordTimingSupport,

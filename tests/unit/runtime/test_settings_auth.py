@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.adapters.web.auth import InvalidTokenMap
-from onevoicecut.domain.ids import make_operator_id
+from onevoicecut.shared.domain.ids import make_operator_id
 from onevoicecut.runtime.app import build_dependencies
 from onevoicecut.runtime.settings import Settings
 

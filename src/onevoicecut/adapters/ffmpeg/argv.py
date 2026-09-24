@@ -19,9 +19,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from onevoicecut.domain.chunking import PlannedChunk
-from onevoicecut.domain.errors import ClipRangeInvalid, ExtractionFailed
+from onevoicecut.shared.domain.errors import ClipRangeInvalid, ExtractionFailed
 from onevoicecut.domain.framing import TimeSpan
-from onevoicecut.domain.ids import make_clip_id
+from onevoicecut.shared.domain.ids import make_clip_id
 from onevoicecut.domain.rendering import OutputSpec
 
 FFMPEG_BINARY = "ffmpeg"

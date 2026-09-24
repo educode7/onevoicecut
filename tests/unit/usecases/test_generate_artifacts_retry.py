@@ -25,7 +25,7 @@ import json
 
 import pytest
 
-from onevoicecut.domain.errors import ContextLengthExceeded
+from onevoicecut.shared.domain.errors import ContextLengthExceeded
 from onevoicecut.usecases.generate_artifacts import (
     SEGMENT_SEPARATOR,
     MapWindow,

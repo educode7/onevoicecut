@@ -53,9 +53,9 @@ from onevoicecut.adapters.ffmpeg.argv import (
 )
 from onevoicecut.adapters.ffmpeg.process import BinaryInvoker, real_process
 from onevoicecut.adapters.ffmpeg.sendcmd import build_sendcmd_script
-from onevoicecut.domain.errors import RenderFailed
+from onevoicecut.shared.domain.errors import RenderFailed
 from onevoicecut.domain.framing import CropTrajectory
-from onevoicecut.ports.capabilities import RenderCapabilities, RenderSupport
+from onevoicecut.shared.domain.capabilities import RenderCapabilities, RenderSupport
 from onevoicecut.ports.video_render import RenderedFile, RenderRequest
 
 RENDERER_ID = "ffmpeg"

@@ -11,7 +11,7 @@ three-hour sermon normalizes in minutes, against hours of ASR.
 """
 
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
-from onevoicecut.domain.ids import make_job_id
+from onevoicecut.shared.domain.ids import make_job_id
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
 from onevoicecut.usecases.resume_job import pending_chunks
 

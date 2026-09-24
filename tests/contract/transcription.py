@@ -25,10 +25,10 @@ correct when a future slice flips one of those declarations to AVAILABLE.
 import pytest
 
 from onevoicecut.domain.chunking import AudioChunk
-from onevoicecut.domain.errors import DiarizationUnsupported
+from onevoicecut.shared.domain.errors import DiarizationUnsupported
 from onevoicecut.domain.jobs import SpeakerMode
 from onevoicecut.domain.transcript import SegmentKind
-from onevoicecut.ports.capabilities import (
+from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
     WordTimingSupport,

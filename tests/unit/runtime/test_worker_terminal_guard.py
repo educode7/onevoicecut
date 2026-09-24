@@ -24,7 +24,7 @@ import pytest
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
-from onevoicecut.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
+from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
 from onevoicecut.domain.jobs import (
     TERMINAL_STATES,
     EngineChoice,

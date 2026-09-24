@@ -17,7 +17,7 @@ unmeasured profile is refused rather than given somebody else's margin.
 
 import pytest
 
-from onevoicecut.domain.errors import DomainError, RenderProfileInvalid
+from onevoicecut.shared.domain.errors import DomainError, RenderProfileInvalid
 from onevoicecut.domain.generation import ScriptVariant
 from onevoicecut.domain.rendering import OutputSpec, RenderProfile, SafeArea
 from onevoicecut.usecases.generate_artifacts import ScriptTarget
@@ -162,7 +162,7 @@ class TestTheErrorType:
         identically on every retry; a render may not. One type would make
         "retry or refuse" undecidable without reading a message — the same
         reasoning that separated `ClipRangeInvalid` from `RenderFailed`."""
-        from onevoicecut.domain.errors import RenderFailed
+        from onevoicecut.shared.domain.errors import RenderFailed
 
         assert not issubclass(RenderProfileInvalid, RenderFailed)
         assert not issubclass(RenderFailed, RenderProfileInvalid)

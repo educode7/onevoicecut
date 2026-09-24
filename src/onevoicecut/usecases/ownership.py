@@ -6,8 +6,8 @@ Identity resolution stays in the web adapter; use cases receive the resolved
 `OperatorId` as an argument and never see a token.
 """
 
-from onevoicecut.domain.errors import JobNotOwned
-from onevoicecut.domain.ids import OperatorId
+from onevoicecut.shared.domain.errors import JobNotOwned
+from onevoicecut.shared.domain.ids import OperatorId
 from onevoicecut.domain.jobs import JobRecord
 
 

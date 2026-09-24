@@ -19,9 +19,9 @@ package ever sees one.
 
 from collections.abc import Callable, Mapping
 
-from onevoicecut.domain.errors import EngineUnavailable
+from onevoicecut.shared.domain.errors import EngineUnavailable
 from onevoicecut.domain.jobs import EngineChoice
-from onevoicecut.ports.capabilities import (
+from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DeclaredSupport,
     DiarizationSupport,

@@ -12,8 +12,8 @@ import pytest
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
-from onevoicecut.domain.errors import DomainError, JobNotOwned
-from onevoicecut.domain.ids import (
+from onevoicecut.shared.domain.errors import DomainError, JobNotOwned
+from onevoicecut.shared.domain.ids import (
     OperatorId,
     make_job_id,
     make_media_id,

@@ -25,7 +25,7 @@ from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
 from onevoicecut.adapters.web.app import WebDependencies, create_app
-from onevoicecut.domain.ids import JobId, make_job_id
+from onevoicecut.shared.domain.ids import JobId, make_job_id
 from onevoicecut.domain.jobs import EngineChoice, JobState
 from onevoicecut.runtime.engine_resolver import EngineResolver
 from onevoicecut.runtime.worker import run_job

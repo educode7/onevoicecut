@@ -13,7 +13,7 @@ report success.
 
 import pytest
 
-from onevoicecut.domain.errors import EngineUnavailable
+from onevoicecut.shared.domain.errors import EngineUnavailable
 from onevoicecut.domain.jobs import EngineChoice
 from onevoicecut.runtime.engine_resolver import EngineResolver
 from tests.fakes.transcription import (

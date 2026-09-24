@@ -42,8 +42,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import replace
 
 from onevoicecut.domain.chunking import ChunkResult, ChunkState
-from onevoicecut.domain.errors import DomainError
-from onevoicecut.domain.ids import JobId
+from onevoicecut.shared.domain.errors import DomainError
+from onevoicecut.shared.domain.ids import JobId
 from onevoicecut.domain.jobs import (
     TERMINAL_STATES,
     WORKER_BOUND_STATES,

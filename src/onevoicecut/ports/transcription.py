@@ -6,7 +6,7 @@ from typing import Protocol
 from onevoicecut.domain.chunking import AudioChunk
 from onevoicecut.domain.jobs import SpeakerMode
 from onevoicecut.domain.transcript import TranscriptSegment
-from onevoicecut.ports.capabilities import TranscriptionCapabilities
+from onevoicecut.shared.domain.capabilities import TranscriptionCapabilities
 
 
 @dataclass(frozen=True, slots=True)

@@ -30,7 +30,7 @@ from onevoicecut.adapters.ffmpeg.argv import build_render_argv
 from onevoicecut.adapters.ffmpeg.sendcmd import build_sendcmd_script
 from onevoicecut.adapters.ffmpeg.subtitles import render_ass
 from onevoicecut.adapters.ffmpeg.video_render import FfmpegVideoRenderer
-from onevoicecut.domain.errors import (
+from onevoicecut.shared.domain.errors import (
     ClipRangeInvalid,
     DomainError,
     FfmpegUnavailable,
@@ -44,7 +44,7 @@ from onevoicecut.domain.framing import (
     TimeSpan,
     TrackingConfidence,
 )
-from onevoicecut.domain.ids import InvalidIdError, make_media_id
+from onevoicecut.shared.domain.ids import InvalidIdError, make_media_id
 from onevoicecut.domain.media import SourceMedia
 from onevoicecut.domain.rendering import (
     OutputSpec,
@@ -52,7 +52,7 @@ from onevoicecut.domain.rendering import (
     SafeArea,
     SubtitleCue,
 )
-from onevoicecut.ports.capabilities import RenderSupport
+from onevoicecut.shared.domain.capabilities import RenderSupport
 from onevoicecut.ports.video_render import RenderRequest
 
 CLIP_ID = "01HQ3M8XKJ7VNPQR2ZYWB4TCFD"

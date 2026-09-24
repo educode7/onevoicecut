@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.domain.chunking import AudioChunk
-from onevoicecut.domain.ids import make_job_id
+from onevoicecut.shared.domain.ids import make_job_id
 from onevoicecut.ports.transcription import TranscriptionPort
 from tests.contract.transcription import CHUNK_START_S, TranscriptionPortContract
 from tests.fakes.transcription import (

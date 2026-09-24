@@ -14,7 +14,7 @@ from pathlib import Path
 
 from onevoicecut.adapters.web.app import WebDependencies
 from onevoicecut.adapters.web.auth import build_authenticator
-from onevoicecut.domain.ids import JobId, make_operator_id
+from onevoicecut.shared.domain.ids import JobId, make_operator_id
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from tests.fakes.audio_extractor import FakeAudioExtractorPort

@@ -30,8 +30,8 @@ from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
 from onevoicecut.adapters.storage.serialization import decode_transcript, encode_transcript
-from onevoicecut.domain.errors import CorruptedRecord
-from onevoicecut.domain.ids import make_job_id, make_media_id, make_operator_id
+from onevoicecut.shared.domain.errors import CorruptedRecord
+from onevoicecut.shared.domain.ids import make_job_id, make_media_id, make_operator_id
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.domain.transcript import (
     SegmentKind,

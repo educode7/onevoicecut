@@ -28,7 +28,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from onevoicecut.domain.chunking import AudioChunk  # noqa: E402
-from onevoicecut.domain.ids import JobId  # noqa: E402
+from onevoicecut.shared.domain.ids import JobId  # noqa: E402
 from onevoicecut.domain.jobs import SpeakerMode  # noqa: E402
 from onevoicecut.domain.transcript import (  # noqa: E402
     SegmentKind,

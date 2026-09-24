@@ -34,7 +34,7 @@ ships and is the wrong answer for every profile after it — silently, because t
 file parses, renders, and looks correct at the one resolution it was written for.
 """
 
-from onevoicecut.domain.errors import RenderProfileInvalid
+from onevoicecut.shared.domain.errors import RenderProfileInvalid
 from onevoicecut.domain.rendering import RenderProfile, SubtitleCue
 
 # ASS's hard line break. The only one that reaches a rendered file, because

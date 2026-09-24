@@ -9,10 +9,10 @@ differently and none of it would be testable.
 import math
 
 from onevoicecut.domain.chunking import ChunkPlan, PlannedChunk
-from onevoicecut.domain.errors import ChunkTooLarge
-from onevoicecut.domain.ids import JobId
+from onevoicecut.shared.domain.errors import ChunkTooLarge
+from onevoicecut.shared.domain.ids import JobId
 from onevoicecut.domain.media import AudioTrack
-from onevoicecut.ports.capabilities import TranscriptionCapabilities
+from onevoicecut.shared.domain.capabilities import TranscriptionCapabilities
 
 DEFAULT_TARGET_CHUNK_S = 600.0
 DEFAULT_OVERLAP_S = 5.0

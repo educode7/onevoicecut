@@ -17,8 +17,8 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from onevoicecut.adapters.web.app import WebDependencies, create_app
-from onevoicecut.domain.errors import UnsupportedContainer
-from onevoicecut.domain.ids import JobId, make_job_id
+from onevoicecut.shared.domain.errors import UnsupportedContainer
+from onevoicecut.shared.domain.ids import JobId, make_job_id
 from onevoicecut.domain.media import MediaProbe
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort

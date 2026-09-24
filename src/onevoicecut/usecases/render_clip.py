@@ -29,7 +29,7 @@ enforce it.
 
 from pathlib import Path
 
-from onevoicecut.domain.errors import ClipRangeInvalid
+from onevoicecut.shared.domain.errors import ClipRangeInvalid
 from onevoicecut.domain.framing import TimeSpan
 from onevoicecut.domain.media import MediaProbe
 from onevoicecut.ports.video_render import (

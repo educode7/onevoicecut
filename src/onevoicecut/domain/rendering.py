@@ -34,7 +34,7 @@ from pathlib import Path
 
 from onevoicecut.domain.framing import CropRect, TimeSpan, TrackingConfidence
 from onevoicecut.domain.generation import ScriptVariant
-from onevoicecut.domain.ids import ClipId, JobId
+from onevoicecut.shared.domain.ids import ClipId, JobId
 
 
 class OutputQualityKind(StrEnum):

@@ -32,8 +32,8 @@ from onevoicecut.adapters.storage.serialization import (
     encode_job,
 )
 from onevoicecut.adapters.storage.serialization import _loads as loads
-from onevoicecut.domain.errors import CorruptedRecord
-from onevoicecut.domain.ids import make_job_id, make_media_id, make_operator_id
+from onevoicecut.shared.domain.errors import CorruptedRecord
+from onevoicecut.shared.domain.ids import make_job_id, make_media_id, make_operator_id
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")

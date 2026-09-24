@@ -2,7 +2,7 @@
 
 from typing import AsyncIterator, Protocol
 
-from onevoicecut.domain.ids import MediaId
+from onevoicecut.shared.domain.ids import MediaId
 from onevoicecut.domain.media import SourceMedia
 
 

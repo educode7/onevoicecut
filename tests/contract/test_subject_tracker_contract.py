@@ -28,7 +28,7 @@ from onevoicecut.adapters.vision.torchvision_tracker_adapter import (
     TorchvisionSubjectTracker,
 )
 from onevoicecut.domain.framing import TimeSpan
-from onevoicecut.domain.ids import make_media_id
+from onevoicecut.shared.domain.ids import make_media_id
 from onevoicecut.domain.media import SourceMedia
 from onevoicecut.ports.subject_tracker import SubjectTrackerPort
 from tests.contract.subject_tracking import SAMPLE_HZ, SubjectTrackerPortContract

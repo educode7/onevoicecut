@@ -12,7 +12,7 @@ in the suite until this body existed.
 
 from typing import Protocol
 
-from onevoicecut.domain.ids import ClipId, JobId
+from onevoicecut.shared.domain.ids import ClipId, JobId
 from onevoicecut.domain.rendering import ClipExport, ClipState
 
 

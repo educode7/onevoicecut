@@ -28,7 +28,7 @@ from onevoicecut.adapters.storage.filesystem_transcript_storage import (
 )
 from onevoicecut.adapters.web.app import WebDependencies, create_app
 from onevoicecut.adapters.web.auth import build_authenticator, parse_operator_tokens
-from onevoicecut.domain.ids import ClipId, JobId
+from onevoicecut.shared.domain.ids import ClipId, JobId
 from onevoicecut.domain.jobs import WORKER_BOUND_STATES, JobRecord, JobState
 from onevoicecut.domain.rendering import ClipExport, ClipState
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState
-from onevoicecut.domain.ids import JobId, MediaId, OperatorId
+from onevoicecut.shared.domain.ids import JobId, MediaId, OperatorId
 
 
 class SpeakerMode(StrEnum):

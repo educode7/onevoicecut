@@ -28,7 +28,7 @@ from onevoicecut.adapters.ffmpeg.subtitles import (
     escape_cue_text,
     render_ass,
 )
-from onevoicecut.domain.errors import RenderProfileInvalid
+from onevoicecut.shared.domain.errors import RenderProfileInvalid
 from onevoicecut.domain.rendering import (
     OutputSpec,
     RenderProfile,

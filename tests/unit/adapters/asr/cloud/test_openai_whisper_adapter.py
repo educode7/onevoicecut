@@ -32,17 +32,17 @@ from onevoicecut.adapters.asr.cloud.openai_whisper_adapter import (
     OpenAiWhisperTranscriber,
 )
 from onevoicecut.domain.chunking import AudioChunk
-from onevoicecut.domain.errors import (
+from onevoicecut.shared.domain.errors import (
     ChunkTimeout,
     ChunkTooLarge,
     DiarizationUnsupported,
     EngineUnavailable,
     TranscriptionFailed,
 )
-from onevoicecut.domain.ids import make_job_id
+from onevoicecut.shared.domain.ids import make_job_id
 from onevoicecut.domain.jobs import SpeakerMode
 from onevoicecut.domain.transcript import SegmentKind
-from onevoicecut.ports.capabilities import ClassificationSupport, DiarizationSupport
+from onevoicecut.shared.domain.capabilities import ClassificationSupport, DiarizationSupport
 from onevoicecut.ports.transcription import TranscriptionRequest
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")

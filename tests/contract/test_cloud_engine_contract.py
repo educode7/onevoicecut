@@ -27,9 +27,9 @@ from onevoicecut.adapters.asr.cloud.openai_whisper_adapter import (
     OpenAiWhisperTranscriber,
 )
 from onevoicecut.domain.chunking import AudioChunk
-from onevoicecut.domain.ids import make_job_id
+from onevoicecut.shared.domain.ids import make_job_id
 from onevoicecut.domain.transcript import SegmentKind
-from onevoicecut.ports.capabilities import ClassificationSupport
+from onevoicecut.shared.domain.capabilities import ClassificationSupport
 from onevoicecut.ports.transcription import TranscriptionPort
 from tests.contract.transcription import (
     CHUNK_START_S,

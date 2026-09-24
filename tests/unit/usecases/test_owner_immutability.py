@@ -18,7 +18,7 @@ import pytest
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
-from onevoicecut.domain.ids import make_operator_id
+from onevoicecut.shared.domain.ids import make_operator_id
 from onevoicecut.domain.jobs import EngineChoice, JobState, SpeakerMode
 from onevoicecut.domain.media import SourceMedia
 from onevoicecut.runtime.app import reconcile_interrupted_jobs

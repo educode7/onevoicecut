@@ -29,7 +29,7 @@ from collections.abc import Mapping
 import pytest
 
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
-from onevoicecut.domain.ids import make_job_id
+from onevoicecut.shared.domain.ids import make_job_id
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
 from onevoicecut.usecases.stitch_transcript import SpeakerResolver, stitch_transcript
 

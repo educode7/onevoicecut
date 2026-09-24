@@ -13,8 +13,8 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.domain.chunking import ChunkState
-from onevoicecut.domain.errors import DiarizationUnsupported
-from onevoicecut.domain.ids import JobId, make_job_id, make_media_id
+from onevoicecut.shared.domain.errors import DiarizationUnsupported
+from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.domain.media import SourceMedia
 from onevoicecut.usecases.transcribe_job import transcribe_job

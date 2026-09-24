@@ -14,8 +14,8 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from onevoicecut.domain.errors import DiarizationUnsupported
-from onevoicecut.domain.ids import (
+from onevoicecut.shared.domain.errors import DiarizationUnsupported
+from onevoicecut.shared.domain.ids import (
     JobId,
     MediaId,
     OperatorId,
@@ -23,8 +23,8 @@ from onevoicecut.domain.ids import (
     generate_media_id,
 )
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
-from onevoicecut.domain.errors import ClassificationUnsupported
-from onevoicecut.ports.capabilities import (
+from onevoicecut.shared.domain.errors import ClassificationUnsupported
+from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DeclaredSupport,
     DiarizationSupport,

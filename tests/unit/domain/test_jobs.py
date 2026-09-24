@@ -2,7 +2,7 @@ from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
-from onevoicecut.domain.ids import make_job_id, make_media_id, make_operator_id
+from onevoicecut.shared.domain.ids import make_job_id, make_media_id, make_operator_id
 from onevoicecut.domain.jobs import (
     TERMINAL_STATES,
     WORKER_BOUND_STATES,

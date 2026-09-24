@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.adapters.ffmpeg.video_render import FfmpegVideoRenderer
-from onevoicecut.domain.errors import ClipRangeInvalid
+from onevoicecut.shared.domain.errors import ClipRangeInvalid
 from onevoicecut.domain.framing import (
     CropKeyframe,
     CropRect,
@@ -30,10 +30,10 @@ from onevoicecut.domain.framing import (
     TimeSpan,
     TrackingConfidence,
 )
-from onevoicecut.domain.ids import make_media_id
+from onevoicecut.shared.domain.ids import make_media_id
 from onevoicecut.domain.media import MediaProbe, SourceMedia
 from onevoicecut.domain.rendering import OutputSpec, SubtitleCue
-from onevoicecut.ports.capabilities import RenderCapabilities, RenderSupport
+from onevoicecut.shared.domain.capabilities import RenderCapabilities, RenderSupport
 from onevoicecut.ports.video_render import RenderedFile, RenderRequest
 from onevoicecut.usecases.render_clip import DEFAULT_MAX_CLIP_SECONDS, render_clip
 

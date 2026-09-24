@@ -23,7 +23,7 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
-from onevoicecut.domain.errors import DomainError, FfmpegUnavailable
+from onevoicecut.shared.domain.errors import DomainError, FfmpegUnavailable
 
 
 def missing_binary_message(binary: str) -> str:

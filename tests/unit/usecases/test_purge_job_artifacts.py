@@ -9,8 +9,8 @@ a non-owner request dies before any effect an eventual policy could have.
 
 import pytest
 
-from onevoicecut.domain.errors import JobNotOwned
-from onevoicecut.domain.ids import (
+from onevoicecut.shared.domain.errors import JobNotOwned
+from onevoicecut.shared.domain.ids import (
     OperatorId,
     make_job_id,
     make_media_id,

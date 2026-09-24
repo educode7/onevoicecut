@@ -33,7 +33,7 @@ import pytest
 
 from onevoicecut.adapters.asr.local.declarations import HF_TOKEN_ENV
 from onevoicecut.domain.jobs import EngineChoice
-from onevoicecut.ports.capabilities import DiarizationSupport
+from onevoicecut.shared.domain.capabilities import DiarizationSupport
 from onevoicecut.runtime.app import build_dependencies
 from onevoicecut.runtime.engine_resolver import declared_diarization
 from onevoicecut.runtime.settings import Settings
@@ -132,8 +132,8 @@ class TestTheGuardActuallyRefuses:
         """End of the wire. Slice 6 proved the use case refuses; this proves the
         refusal is reachable from the composition root the server actually runs.
         """
-        from onevoicecut.domain.errors import DiarizationUnsupported
-        from onevoicecut.domain.ids import make_operator_id
+        from onevoicecut.shared.domain.errors import DiarizationUnsupported
+        from onevoicecut.shared.domain.ids import make_operator_id
         from onevoicecut.domain.jobs import SpeakerMode
         from onevoicecut.usecases.admit_job import admit_job
         from tests.fakes.transcript_storage import FakeTranscriptStoragePort

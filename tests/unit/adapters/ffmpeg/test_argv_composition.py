@@ -18,7 +18,7 @@ from onevoicecut.adapters.ffmpeg.argv import (
     build_probe_argv,
     resolve_inside,
 )
-from onevoicecut.domain.errors import ExtractionFailed
+from onevoicecut.shared.domain.errors import ExtractionFailed
 
 HOSTILE_NAMES = [
     "clip; rm -rf ~.mp4",

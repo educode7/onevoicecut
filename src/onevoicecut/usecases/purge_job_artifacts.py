@@ -25,7 +25,7 @@ Which leaves exactly the two large, regenerable intermediates.
 from dataclasses import dataclass
 from enum import StrEnum
 
-from onevoicecut.domain.ids import JobId, OperatorId
+from onevoicecut.shared.domain.ids import JobId, OperatorId
 
 
 class PurgeableArtifact(StrEnum):

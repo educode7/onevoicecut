@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.adapters.asr.local.declarations import HF_TOKEN_ENV
-from onevoicecut.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
+from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.runtime import worker
 from onevoicecut.runtime.app import get_app

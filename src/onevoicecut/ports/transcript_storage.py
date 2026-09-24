@@ -5,7 +5,7 @@ from typing import Protocol
 
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult
 from onevoicecut.domain.generation import GenerationResult
-from onevoicecut.domain.ids import ClipId, JobId
+from onevoicecut.shared.domain.ids import ClipId, JobId
 from onevoicecut.domain.jobs import JobRecord
 from onevoicecut.domain.media import SourceMedia
 from onevoicecut.domain.rendering import ClipExport

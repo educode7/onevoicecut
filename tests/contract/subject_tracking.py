@@ -23,10 +23,10 @@ strictly advancing, and a hit or an explicit miss with nothing in between.
 
 import pytest
 
-from onevoicecut.domain.errors import TrackingUnavailable
+from onevoicecut.shared.domain.errors import TrackingUnavailable
 from onevoicecut.domain.framing import TimeSpan
 from onevoicecut.domain.media import SourceMedia
-from onevoicecut.ports.capabilities import DetectionSupport
+from onevoicecut.shared.domain.capabilities import DetectionSupport
 from onevoicecut.ports.subject_tracker import SubjectDetection, SubjectTrackerPort
 
 # Slow enough that the real adapter's every-Nth-frame stride is visible in the

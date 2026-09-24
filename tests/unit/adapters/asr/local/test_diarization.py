@@ -28,7 +28,7 @@ from onevoicecut.adapters.asr.local.diarization import (
     speaker_indices,
     speaker_label,
 )
-from onevoicecut.domain.errors import EngineUnavailable
+from onevoicecut.shared.domain.errors import EngineUnavailable
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
 
 TOKEN = "hf_not-a-real-token"

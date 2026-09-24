@@ -25,7 +25,7 @@ from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     HEARTBEAT,
     FilesystemTranscriptStorage,
 )
-from onevoicecut.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
+from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.domain.media import SourceMedia
 from onevoicecut.ports.audio_extractor import AudioExtractorPort

@@ -41,7 +41,7 @@ from onevoicecut.adapters.asr.local.faster_whisper_adapter import (  # noqa: E40
     FasterWhisperTranscriber,
 )
 from onevoicecut.domain.chunking import AudioChunk  # noqa: E402
-from onevoicecut.domain.ids import JobId  # noqa: E402
+from onevoicecut.shared.domain.ids import JobId  # noqa: E402
 from onevoicecut.domain.jobs import SpeakerMode  # noqa: E402
 from onevoicecut.domain.transcript import SegmentKind  # noqa: E402
 from onevoicecut.ports.transcription import TranscriptionRequest  # noqa: E402

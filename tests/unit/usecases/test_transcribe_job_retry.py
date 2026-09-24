@@ -16,8 +16,8 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.domain.chunking import ChunkState
-from onevoicecut.domain.errors import ChunkTimeout
-from onevoicecut.domain.ids import make_job_id, make_media_id
+from onevoicecut.shared.domain.errors import ChunkTimeout
+from onevoicecut.shared.domain.ids import make_job_id, make_media_id
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.domain.media import SourceMedia
 from onevoicecut.usecases.transcribe_job import DEFAULT_MAX_ATTEMPTS, transcribe_job

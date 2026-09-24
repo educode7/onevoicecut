@@ -8,7 +8,7 @@ receives an already-stored `SourceMedia`, not the upload stream itself.
 from pathlib import Path
 
 from onevoicecut.domain.chunking import PlannedChunk
-from onevoicecut.domain.ids import JobId
+from onevoicecut.shared.domain.ids import JobId
 from onevoicecut.domain.jobs import EngineChoice, SpeakerMode
 from onevoicecut.domain.media import SourceMedia
 from onevoicecut.domain.transcript import Transcript, render_message_text

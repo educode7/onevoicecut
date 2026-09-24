@@ -20,12 +20,12 @@ system refuses everywhere else.
 
 from collections.abc import Callable, Mapping
 
-from onevoicecut.domain.errors import (
+from onevoicecut.shared.domain.errors import (
     ArtifactsNotAvailable,
     ClipCandidateNotFound,
     ClipTargetsInvalid,
 )
-from onevoicecut.domain.ids import ClipId, JobId
+from onevoicecut.shared.domain.ids import ClipId, JobId
 from onevoicecut.domain.rendering import ClipExport, ClipState, RenderProfile
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.usecases.generate_artifacts import SCRIPT_TARGETS, ScriptTarget

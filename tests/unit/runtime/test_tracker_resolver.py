@@ -15,7 +15,7 @@ start.
 import ast
 from pathlib import Path
 
-from onevoicecut.ports.capabilities import TrackerCapabilities
+from onevoicecut.shared.domain.capabilities import TrackerCapabilities
 from onevoicecut.ports.subject_tracker import SubjectTrackerPort
 from onevoicecut.runtime.tracker_resolver import resolve_tracker, vision_tracker
 

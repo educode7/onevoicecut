@@ -12,7 +12,7 @@ not persisted, and not carried in error messages.
 import hmac
 from collections.abc import Callable, Mapping
 
-from onevoicecut.domain.ids import InvalidIdError, OperatorId, make_operator_id
+from onevoicecut.shared.domain.ids import InvalidIdError, OperatorId, make_operator_id
 
 
 class InvalidCredential(Exception):

@@ -10,10 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.errors import ChunkTooLarge
-from onevoicecut.domain.ids import make_job_id, make_media_id
+from onevoicecut.shared.domain.errors import ChunkTooLarge
+from onevoicecut.shared.domain.ids import make_job_id, make_media_id
 from onevoicecut.domain.media import AudioTrack
-from onevoicecut.ports.capabilities import (
+from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
     TranscriptionCapabilities,

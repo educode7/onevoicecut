@@ -31,7 +31,7 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
-from onevoicecut.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
+from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.runtime.supervisor import watchdog_once
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort

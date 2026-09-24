@@ -23,7 +23,7 @@ import pytest
 
 from onevoicecut.domain.framing import TrackingConfidence
 from onevoicecut.domain.generation import ScriptVariant
-from onevoicecut.domain.ids import ClipId, JobId, make_clip_id, make_job_id
+from onevoicecut.shared.domain.ids import ClipId, JobId, make_clip_id, make_job_id
 from onevoicecut.domain.rendering import (
     CaptionCoverage,
     ClipExport,

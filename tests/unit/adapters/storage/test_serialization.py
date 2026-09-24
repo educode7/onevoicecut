@@ -28,9 +28,9 @@ from onevoicecut.adapters.storage.serialization import (
 )
 from onevoicecut.domain.media import SourceMedia
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
-from onevoicecut.domain.errors import CorruptedRecord
+from onevoicecut.shared.domain.errors import CorruptedRecord
 from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
-from onevoicecut.domain.ids import make_job_id, make_media_id, make_operator_id
+from onevoicecut.shared.domain.ids import make_job_id, make_media_id, make_operator_id
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.domain.transcript import SegmentKind, Transcript, TranscriptSegment
 

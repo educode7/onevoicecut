@@ -32,7 +32,7 @@ from onevoicecut.adapters.asr.local import faster_whisper_adapter as adapter  # 
 from onevoicecut.adapters.asr.local.faster_whisper_adapter import (  # noqa: E402
     FasterWhisperTranscriber,
 )
-from onevoicecut.domain.errors import EngineUnavailable  # noqa: E402
+from onevoicecut.shared.domain.errors import EngineUnavailable  # noqa: E402
 
 CUBLAS_FAILURE = "Library cublas64_12.dll is not found or cannot be loaded"
 

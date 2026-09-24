@@ -22,7 +22,7 @@ from onevoicecut.adapters.llm.ollama_generator import (
     DEFAULT_BASE_URL,
     OllamaTextGenerator,
 )
-from onevoicecut.domain.errors import GenerationFailed
+from onevoicecut.shared.domain.errors import GenerationFailed
 
 MODEL = "qwen2.5:7b-instruct"
 

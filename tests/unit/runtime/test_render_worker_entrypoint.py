@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.ids import ClipId, JobId, make_clip_id, make_job_id
+from onevoicecut.shared.domain.ids import ClipId, JobId, make_clip_id, make_job_id
 from onevoicecut.domain.rendering import ClipExport, ClipState
 from onevoicecut.runtime import render_worker
 from onevoicecut.runtime.render_worker import (
@@ -98,7 +98,7 @@ class TestTheExitCodeReflectsWhatWasRendered:
     def test_a_domain_error_from_run_render_is_reported_not_raised(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        from onevoicecut.domain.errors import JobNotFound
+        from onevoicecut.shared.domain.errors import JobNotFound
 
         def _raise(*a: object, **k: object) -> tuple[ClipExport, ...] | None:
             raise JobNotFound(f"no job stored under {JOB_ID!r}")

@@ -35,7 +35,7 @@ import json
 import math
 from dataclasses import dataclass, replace
 
-from onevoicecut.domain.errors import ContextLengthExceeded, GenerationFailed
+from onevoicecut.shared.domain.errors import ContextLengthExceeded, GenerationFailed
 from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
 from onevoicecut.domain.transcript import Transcript, TranscriptSegment, is_speech
 from onevoicecut.ports.text_generation import TextGenerationPort

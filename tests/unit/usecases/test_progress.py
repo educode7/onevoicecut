@@ -13,7 +13,7 @@ than no number, because the operator will plan their evening around it.
 import pytest
 
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
-from onevoicecut.domain.ids import make_job_id
+from onevoicecut.shared.domain.ids import make_job_id
 from onevoicecut.domain.jobs import JobProgress, derive_progress
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
 

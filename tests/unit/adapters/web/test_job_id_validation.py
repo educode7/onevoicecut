@@ -18,7 +18,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from onevoicecut.adapters.web.app import WebDependencies, create_app
-from onevoicecut.domain.ids import JobId, make_media_id
+from onevoicecut.shared.domain.ids import JobId, make_media_id
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.ports.media_source import MediaSourcePort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort

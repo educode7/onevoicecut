@@ -10,7 +10,7 @@ from onevoicecut.domain.chunking import (
     ChunkState,
     PlannedChunk,
 )
-from onevoicecut.domain.ids import make_job_id
+from onevoicecut.shared.domain.ids import make_job_id
 
 JOB_ID = make_job_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 

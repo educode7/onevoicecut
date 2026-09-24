@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from onevoicecut.domain.ids import JobId
+from onevoicecut.shared.domain.ids import JobId
 
 
 @dataclass(frozen=True, slots=True)

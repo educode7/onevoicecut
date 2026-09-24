@@ -15,7 +15,7 @@ from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from onevoicecut.adapters.web.app import DEFAULT_MAX_UPLOAD_BYTES
-from onevoicecut.domain.errors import RenderProfileInvalid
+from onevoicecut.shared.domain.errors import RenderProfileInvalid
 from onevoicecut.domain.rendering import RenderProfile
 from onevoicecut.usecases.generate_artifacts import (
     DEFAULT_SCRIPT_TARGETS,

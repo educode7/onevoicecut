@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import AsyncIterator
 
-from onevoicecut.domain.ids import MediaId
+from onevoicecut.shared.domain.ids import MediaId
 from onevoicecut.domain.media import SourceMedia
 
 

@@ -2,7 +2,7 @@ from collections.abc import Callable
 
 import pytest
 
-from onevoicecut.domain.ids import (
+from onevoicecut.shared.domain.ids import (
     ClipId,
     InvalidIdError,
     OperatorId,

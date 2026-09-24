@@ -42,11 +42,11 @@ from onevoicecut.adapters.vision.torchvision_tracker_adapter import (  # noqa: E
     TRACKER_ID,
     TorchvisionSubjectTracker,
 )
-from onevoicecut.domain.errors import DetectionFailed  # noqa: E402
+from onevoicecut.shared.domain.errors import DetectionFailed  # noqa: E402
 from onevoicecut.domain.framing import TimeSpan  # noqa: E402
-from onevoicecut.domain.ids import make_media_id  # noqa: E402
+from onevoicecut.shared.domain.ids import make_media_id  # noqa: E402
 from onevoicecut.domain.media import SourceMedia  # noqa: E402
-from onevoicecut.ports.capabilities import DetectionSupport  # noqa: E402
+from onevoicecut.shared.domain.capabilities import DetectionSupport  # noqa: E402
 
 # The install probe is `find_spec`-based, so this costs no torch import on a
 # checkout without the extras — it skips them instead, at collection. The

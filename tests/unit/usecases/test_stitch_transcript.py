@@ -9,7 +9,7 @@ like the speaker repeated themselves, and a lost one reads like they never said 
 import pytest
 
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
-from onevoicecut.domain.ids import make_job_id
+from onevoicecut.shared.domain.ids import make_job_id
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
 from onevoicecut.usecases.stitch_transcript import MIN_MATCH_TOKENS, stitch_transcript
 

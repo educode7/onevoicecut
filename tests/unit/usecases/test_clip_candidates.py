@@ -17,7 +17,7 @@ import json
 
 import pytest
 
-from onevoicecut.domain.errors import GenerationFailed
+from onevoicecut.shared.domain.errors import GenerationFailed
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
 from onevoicecut.usecases.generate_artifacts import (
     DEFAULT_MAX_CLIP_CANDIDATES,

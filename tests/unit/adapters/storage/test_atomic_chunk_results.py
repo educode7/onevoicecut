@@ -20,8 +20,8 @@ from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
 from onevoicecut.domain.chunking import ChunkResult, ChunkState
-from onevoicecut.domain.errors import JobNotFound
-from onevoicecut.domain.ids import JobId, make_job_id, make_media_id
+from onevoicecut.shared.domain.errors import JobNotFound
+from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id
 from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
 

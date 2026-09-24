@@ -28,8 +28,8 @@ from onevoicecut.domain.chunking import (
     ChunkState,
     PlannedChunk,
 )
-from onevoicecut.domain.errors import ChunkTimeout, ChunkTooLarge, TranscriptionFailed
-from onevoicecut.domain.ids import JobId
+from onevoicecut.shared.domain.errors import ChunkTimeout, ChunkTooLarge, TranscriptionFailed
+from onevoicecut.shared.domain.ids import JobId
 from onevoicecut.domain.jobs import JobRecord, JobState, SpeakerMode
 from onevoicecut.domain.media import AudioTrack, SourceMedia
 from onevoicecut.domain.transcript import Transcript, render_message_text
