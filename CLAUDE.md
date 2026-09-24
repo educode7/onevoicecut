@@ -230,8 +230,9 @@ This repo runs **Spec-Driven Development** (`openspec/`) with **strict TDD** (`s
   RED-before-GREEN checklist, and it names the spec scenario each task closes. Archived changes land
   under `openspec/changes/archive/<date>-<name>/`, and their delta specs are promoted to canonical
   `openspec/specs/<capability>/spec.md` — eight capabilities are canonical today.
-- Every task pair is RED first: write the failing test, then the implementation. **391 of the 396
-  checkboxes in `tasks.md` are checked**; the 5 open ones are named under Current state below.
+- Every task pair is RED first: write the failing test, then the implementation. **All 396
+  checkboxes in `tasks.md` are checked** — slice 13c-ii closed the last five; what the change still
+  owes is named under Current state below as gaps, not as tasks.
 - The original review budget was **400 lines** per slice. Slice 1 overran to 1,273 lines under
   an accepted one-time exception; the rest were re-estimated from that measured cost. The measured
   ratio is tests 56% / `src` 36% / config 8% — budget accordingly, tests dominate.
@@ -254,12 +255,13 @@ This repo runs **Spec-Driven Development** (`openspec/`) with **strict TDD** (`s
 
 ### Current state
 
-One change is in flight. `video-transcription-pipeline` is green through **slice 13c-i**, and the
-last unit landed was 13c-i (the real vision tracker adapter). `multi-operator-access` is
+One change is in flight. `video-transcription-pipeline` is green through **slice 13c-ii**, and the
+last unit landed was 13c-ii (the real adapter's contract test); `tasks.md` is fully checked, so what
+the change still owes is the four gaps named below, not a task. `multi-operator-access` is
 **archived** at
 `openspec/changes/archive/2026-09-17-multi-operator-access/`, its seven delta specs promoted to
-canonical `openspec/specs/`. Measured on this tree: **2056 tests — 2020 in the default run, 26
-`localmodel`, 10 `paid`, zero skips — mypy clean over 245 source files.**
+canonical `openspec/specs/`. Measured on this tree: **2072 tests — 2030 in the default run, 32
+`localmodel`, 10 `paid`, zero skips — mypy clean over 247 source files.**
 
 On disk today are `domain/` (nine modules: `chunking`, `errors`, `framing`, `generation`, `ids`,
 `jobs`, `media`, `rendering`, `transcript`), `ports/` (the seven plus `capabilities`), fifteen use
@@ -299,11 +301,14 @@ to ≤640px, every Nth frame, boxes rescaled to source-frame pixels, times clip-
 frame's own pts, and a miss always explicit (`box=None`, never a centred guess). A machine without
 them gets the honest `REQUIRES_SETUP` from the two-fact probe, which `render_worker` turns into the
 proven `TrackingUnavailable` refusal — `runtime/tracker_resolver.py` resolves the real adapter
-everywhere, and the `_UnconfiguredSubjectTracker` placeholder that used to stand in is gone. What
-remains open is the contract-test slice 13c-ii, and one honesty caveat: no deterministic person
-fixture exists on this machine, so the hit path is proven as arithmetic over injected predictions
-in the default suite, while the `localmodel` tests assert the contract — span-scoped coverage,
-clip-local times, explicit misses — on a genuinely person-free `testsrc2` fixture.
+everywhere, and the `_UnconfiguredSubjectTracker` placeholder that used to stand in is gone. Slice
+13c-ii closed the tracking work: the real adapter now passes the same shared contract body the fakes
+do (`tests/contract/subject_tracking.py`, the `transcription.py` pattern), marked per class so the
+fake half stays in the default suite and the real half runs only under `localmodel`. One honesty
+caveat stands: no deterministic person fixture exists on this machine, so the hit path is proven as
+arithmetic over injected predictions in the default suite, while the `localmodel` tests assert the
+contract — span-scoped coverage, clip-local times, explicit misses, and the never-synthesized-centre
+proof on a genuinely person-free `testsrc2` fixture — never a real person end to end.
 
 And a fourth gap that is measurement, not code: **the one shipped render profile is deliberately
 unmeasured.** `RENDER_PROFILES` holds a single `vertical` (1080×1920) with `safe_area=None`, because
@@ -434,7 +439,8 @@ something an operator can read. Sharing one loop would also mean sharing one `ex
 that raised would strand every queued job on the machine, which is exactly the coupling the watchdog's
 own paragraph refuses. Each loop logs its own bad sweep, sleeps, and goes round again.
 
-Five tasks are open, in one group, and **nothing is waiting on anyone but the author**.
+No task is open — `tasks.md` is fully checked. **Nothing is waiting on anyone but the author** for
+the gaps named below, which are known-and-deliberate rather than scheduled work.
 
 The 9.3/9.4 group closed: the gated acceptances were done by the operator on their own HuggingFace
 account (all four repos the 3.1 checkpoint pulls), `pyannote.audio==4.0.7` was pinned from that real
@@ -443,16 +449,13 @@ blind-write refusal in `tasks.md` stood exactly as long as the call could not be
 slice's own notes record what the installed 4.x API turned out to be, since it differs from the
 widely-documented 3.x in three load-bearing ways.
 
-- **13c.8 – 13c.12 (slice 13c-ii): the real adapter's contract test.** 13c-i landed the adapter
-  itself — in-process PyAV decode over the clip span, ≤640px downscale, every Nth frame, the
-  pre-decode span guard reading `max_clip_seconds`, the two-fact `capabilities()` probe, and
-  `runtime/tracker_resolver.py` — and deleted `_UnconfiguredSubjectTracker` on the day its own
-  docstring named. What remains is the `localmodel`-marked contract half: putting the real adapter
-  through the same shared body the fake passes, the never-synthesized-centre proof on a genuinely
-  subject-free fixture, and confirming no `localmodel` test executes outside `pytest -m localmodel`.
-
-Everything else through slice 13c-i is checked off, and the one `## Slice` heading left in
-`tasks.md` is exactly this one.
+The last group to close was 13c.8 – 13c.12 (slice 13c-ii): the real adapter's contract test. It put
+the real `TorchvisionSubjectTracker` through the same shared body the two fakes pass, added the
+never-synthesized-centre proof on a genuinely person-free `testsrc2` fixture, and confirmed by
+mutation — not just by reading — that a miss carries `box=None` and no fabricating path exists.
+13c.11 came back a confirmation, not a fix: the production code is byte-identical. Marker isolation
+was measured in counts, not asserted: the default selection collects 2030 tests carrying zero
+test-ids of the real-adapter class, while `-m localmodel` runs the 32 weight-loading tests alone.
 
 Two gaps are known and deliberately open:
 

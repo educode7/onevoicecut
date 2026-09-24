@@ -5125,13 +5125,66 @@ carrying one more injected boundary than it did.
 Closes: `subject-tracking` Real Detection Adapter Is Isolated Behind the `localmodel` Marker, A Miss Is
 Reported Never Guessed (real-adapter half). Depends on 13c-i.
 
-- [ ] 13c.8 RED: `tests/contract/test_subject_tracker_contract.py`, `localmodel`-marked — the real adapter
+- [x] 13c.8 RED: `tests/contract/test_subject_tracker_contract.py`, `localmodel`-marked — the real adapter
       satisfies the shared contract body (return shape, clip-local `at_s`, miss distinguishable from
       low-confidence hit) alongside the fake.
-- [ ] 13c.9 GREEN: register the real adapter in the contract-test parametrization.
-- [ ] 13c.10 RED: never-synthesized-centre test — on a fixture clip with a genuinely absent subject, the
+- [x] 13c.9 GREEN: register the real adapter in the contract-test parametrization.
+- [x] 13c.10 RED: never-synthesized-centre test — on a fixture clip with a genuinely absent subject, the
       real adapter's misses carry `box=None`, never a centered guess.
-- [ ] 13c.11 GREEN: confirm/fix if the adapter's own occlusion handling produces a low-confidence box
+- [x] 13c.11 GREEN: confirm/fix if the adapter's own occlusion handling produces a low-confidence box
       instead of an explicit miss.
-- [ ] 13c.12 REFACTOR: full default suite green; confirm zero `localmodel`-marked test executes outside
+- [x] 13c.12 REFACTOR: full default suite green; confirm zero `localmodel`-marked test executes outside
       `pytest -m localmodel`.
+
+### One file, two marks — why the fake half stayed in the default suite
+
+The plan named one file; the ASR precedent named a two-file split (shared body, a default-run fakes
+file, a `localmodel` real-engine file). That split exists on the ASR axis because the real engine's
+module needs a module-level `importorskip` — pytest imports every test module during collection,
+before it filters on markers. The vision adapter needs no such guard: 13c-i proved structurally that
+nothing heavy is imported at module scope, so `test_subject_tracker_contract.py` collects on a bare
+checkout, and the `localmodel` mark went on the real adapter's *class* while the two fake classes
+stayed unmarked. The fake half must run in the default suite: every trajectory test is written
+against `FakeSubjectTrackerPort`, and a fake that drifted from the port would turn each of them into
+a proof about a detector that does not exist. The shared body lives in
+`tests/contract/subject_tracking.py`, in `transcription.py`'s shape — a base class with per-subclass
+fixtures rather than a literal parametrization, because the mark has to travel with the subclass;
+"register in the parametrization" (13c.9) is that registration, a recorded reading of the words.
+
+### The body assumes no hits, because the honest fixture has no person
+
+The only real fixture on this machine is `testsrc2`, person-free by 13c-i's forced-move honesty
+split, so the shared body asserts the per-sample shape — clip-local, strictly advancing, inside the
+span, a boxed-and-scored hit or an explicit miss — and never "at least one hit in the series",
+which would bind the fake and pass the real adapter vacuously. The transcription body's rule,
+restated: never assert what the detector saw. The body also reads `capabilities()` and holds each
+adapter to its own declaration — a non-`AVAILABLE` adapter MUST refuse with `TrackingUnavailable`,
+because an empty series reads exactly like a subject who never moved — and registering
+`UnavailableSubjectTrackerPort` as a second fake subclass is what keeps that refusal branch
+reachable in the default run instead of only on machines lacking the vision extras.
+
+### 13c.11 confirmed, by mutation rather than by reading
+
+No path fabricates a box: `best_person` returns `None` when nothing qualifies, `_evaluate` maps
+that to `box=None, confidence=None`, and `_over_span` fills no holes (the ASR adapter's `_tile`,
+deliberately, has no analogue here) — a missed sample stays a miss. Reading alone cannot prove the
+test bites, so the defect was staged: mutating `_evaluate`'s miss branch to return a centred box
+(`(W−w)/2, (H−h)/2` at confidence 0.1) failed `test_a_person_free_span_comes_back_as_explicit_misses`
+with exactly that fabricated box, and reverting passed it. Confirmed, not fixed — production code is
+byte-identical after this slice, `git status` clean under `src/`.
+
+### Marker isolation measured, not asserted
+
+13c.12's evidence, in counts: 2072 tests in total; `--collect-only -m localmodel` collects 32 (the
+26 of the baseline plus this slice's 6); the default selection collects 2030, carries **zero** test
+ids of the real-adapter class and all 10 of the two fake classes; `-m localmodel` runs 32 passed,
+2040 deselected. The default suite measures 2030 passed, 42 deselected (32 `localmodel` + 10 `paid`),
+zero skips, and mypy is clean over 247 source files.
+
+### Measured cost
+
+**446 changed lines against the ~300 estimate (1.5x)** — tests 336 (shared body 159, contract file
+177), docs 110 (these notes plus CLAUDE.md's count and gap updates). Test share 75%, above the
+repo's measured 56/36/8, because the other 24% is all prose this file and CLAUDE.md owe: no
+production code changed at all — the confirmation the slice owed came back clean, proved by
+mutation rather than by reading.
