@@ -48,11 +48,12 @@ JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
 MEDIA_ID = make_media_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFE")
 CLIP_ID = make_clip_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFF")
 
-# Every shipped render profile is deliberately unmeasured (`safe_area=None`)
-# today -- see `usecases/render_profiles.py`'s module docstring -- so a real
-# clip request always 422s against production's own registry. This stands in
-# for a destination somebody has actually measured, the same role
-# `test_render_profiles.py`'s `MEASURED` plays.
+# The shipped `vertical` profile is measured now (see
+# `usecases/render_profiles.py`), but its fractions are a re-measurement-
+# sensitive value and the routes' behaviour never depends on them -- so this
+# fixture stands in for a measured destination, the same role
+# `test_render_profiles.py`'s `MEASURED` plays, and the route tests survive an
+# operator re-measuring the live interfaces untouched.
 MEASURED_VERTICAL = RenderProfile(
     name="vertical",
     output=OutputSpec(width=1080, height=1920),

@@ -76,11 +76,13 @@ def check_target_profiles(
     **This asserts membership, not renderability, and the distinction is the
     reason the function exists rather than a call to `resolve_render_profiles`.**
     That resolver also refuses a profile whose caption safe area nobody has
-    measured, and every profile shipped today is in exactly that state — on
-    purpose, because the fractions are a measurement against each destination's
-    live interface rather than a value this project may invent. Calling it here
-    would refuse to boot the server, and would refuse it for transcription,
-    which renders nothing.
+    measured — on purpose, because the fractions are a measurement against each
+    destination's live interface rather than a value this project may invent. The
+    shipped profile is now measured, but an unmeasured one remains a legal
+    registry state any future profile can be in, and it stays refused at
+    resolution rather than at boot. Calling the resolver here would refuse to
+    start the server over a destination gap that only rendering needs, and would
+    refuse it for transcription, which renders nothing.
 
     The two failures differ in both directions that matter. A dangling name is a
     typo: fixed by editing a row, identical on every retry, unrecoverable

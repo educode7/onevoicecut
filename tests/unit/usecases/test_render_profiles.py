@@ -22,6 +22,7 @@ from onevoicecut.domain.generation import ScriptVariant
 from onevoicecut.domain.rendering import OutputSpec, RenderProfile, SafeArea
 from onevoicecut.usecases.generate_artifacts import ScriptTarget
 from onevoicecut.usecases.render_profiles import (
+    RENDER_PROFILES,
     group_variants_by_profile,
     resolve_render_profiles,
 )
@@ -48,6 +49,35 @@ UNMEASURED = RenderProfile(
 )
 
 REGISTRY = {p.name: p for p in (MEASURED, SQUARE, UNMEASURED)}
+
+
+class TestTheShippedRegistryIsMeasured:
+    """The shipped `vertical` profile is the whole point of this change: it is
+    what every real clip request resolves against, and it used to declare no
+    safe area — so `resolve_render_profiles` refused it by name and the render
+    pipeline never ran end to end. These two pin the measured intersection and
+    the fact that resolution now succeeds against the *shipped* registry, not an
+    injected one. The refusal proofs above deliberately keep using injected
+    registries so a future unmeasured profile still has a pinned refusal path."""
+
+    def test_the_shipped_vertical_profile_carries_the_measured_intersection(
+        self,
+    ) -> None:
+        """Exact values, not approximations: these are a measurement against the
+        four destinations' 2026 interfaces (see odd/tasks/measure-safe-areas.md),
+        and a silent drift here would move every caption this system renders."""
+        assert RENDER_PROFILES["vertical"].safe_area == SafeArea(
+            top=0.115, bottom=0.252, left=0.080, right=0.130
+        )
+
+    def test_resolving_the_shipped_vertical_profile_succeeds(self) -> None:
+        """No `registry=` argument: this resolves against the shipped mapping the
+        way production does. Before the safe area was populated this raised
+        `RenderProfileInvalid`; the whole gap between a finished transcript and a
+        rendered file was exactly this call refusing."""
+        resolved = resolve_render_profiles("vertical")
+
+        assert resolved == (RENDER_PROFILES["vertical"],)
 
 
 class TestWhatResolvesCleanly:

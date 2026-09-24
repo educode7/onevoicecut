@@ -62,8 +62,9 @@ OUTPUT = OutputSpec(width=1080, height=1920)
 CROP = CropRect(x=40, y=0, width=606, height=1080)
 CUES = (SubtitleCue(start_s=0.0, end_s=2.0, text="hermanos, buenos dias"),)
 # Only ever used to produce the `.ass` this adapter treats as prepared input.
-# Measured here rather than taken from `RENDER_PROFILES`, whose every entry
-# declares no safe area on purpose and is refused by `render_ass` for it.
+# Declared here rather than taken from `RENDER_PROFILES`: the shipped registry's
+# safe area is a re-measurement-sensitive value, and `render_ass` only requires
+# that a profile be measured at all — an unmeasured one it refuses by name.
 CAPTION_PROFILE = RenderProfile(
     name="vertical",
     output=OUTPUT,
