@@ -17,7 +17,7 @@ import os
 import sys
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -30,9 +30,16 @@ from onevoicecut.domain.errors import DomainError
 from onevoicecut.domain.ids import InvalidIdError, JobId, make_job_id
 from onevoicecut.domain.jobs import TERMINAL_STATES, JobRecord, JobState
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
+from onevoicecut.ports.text_generation import TextGenerationPort
+from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.ports.transcription import TranscriptionPort
 from onevoicecut.runtime.engine_resolver import EngineResolver, production_factories
 from onevoicecut.runtime.settings import CHUNK_TIMEOUT_ENV_NAMES, load_env_file
+from onevoicecut.usecases.generate_artifacts import (
+    DEFAULT_SCRIPT_TARGETS,
+    resolve_script_targets,
+    run_generation,
+)
 from onevoicecut.usecases.transcribe_job import DEFAULT_CHUNK_TIMEOUT_S, transcribe_job
 
 ExtractorFactory = Callable[[Path, JobId], AudioExtractorPort]
@@ -56,6 +63,63 @@ DEFAULT_LOCAL_DEVICE = "auto"
 # the project's `ONEVOICECUT_` prefix; the adapter names it in its own refusal,
 # so the two must agree.
 CLOUD_API_KEY_ENV = "CLOUD_ASR_API_KEY"
+
+# The LLM that writes the script artifacts, and no default — the
+# LOCAL_MODEL_SIZE lesson restated on a second axis: which model writes the
+# scripts decides the quality of every artifact, and a default would hide that
+# choice at the one place it is made. Unset registers no generator at all;
+# jobs then stay COMPLETED with no artifacts, and clips keep answering the
+# proven `ArtifactsNotAvailable` 409.
+LLM_MODEL_ENV = "ONEVOICECUT_LLM_MODEL"
+
+# Ollama is a system service on this machine, like ffmpeg — installed by the
+# operator, never a pip dependency. The default is the address its installer
+# binds, which is why it is the one variable here that may safely have one.
+OLLAMA_HOST_ENV = "ONEVOICECUT_OLLAMA_HOST"
+DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434"
+
+# The web process reads the same variable into `Settings`; this is a separate
+# program and cannot be handed the parsed value — the `CHUNK_TIMEOUT_ENV_NAMES`
+# reasoning, on a third variable. Parsed here by the use case's own resolver,
+# so a spelling cannot drift into two meanings.
+SCRIPT_TARGETS_ENV = "ONEVOICECUT_SCRIPT_TARGETS"
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationSetup:
+    """The values generation needs, already read from the environment.
+
+    Data rather than a constructed generator so `configured_generation()`
+    stays as cheap as `configured_resolver()` — registration reads names,
+    construction happens at the seam where a test can watch it.
+    """
+
+    model: str
+    base_url: str
+    script_targets: str
+
+
+GeneratorFactory = Callable[[GenerationSetup], TextGenerationPort]
+ModelProbe = Callable[[GenerationSetup], bool]
+
+
+def _ollama_generator(generation: GenerationSetup) -> TextGenerationPort:
+    """Imports the adapter when called, the engine-factory discipline.
+
+    `httpx` is light, so the deferral is not about import weight the way
+    `local_transcriber`'s is — it is the same claim `cloud_transcriber` makes:
+    a composition root names the adapters this build has, it does not carry
+    them, so swapping providers cannot change what importing this module costs.
+    """
+    from onevoicecut.adapters.llm.ollama_generator import OllamaTextGenerator
+
+    return OllamaTextGenerator(generation.model, base_url=generation.base_url)
+
+
+def _ollama_probe(generation: GenerationSetup) -> bool:
+    from onevoicecut.adapters.llm.probe import model_is_pulled
+
+    return model_is_pulled(generation.model, base_url=generation.base_url)
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -81,11 +145,18 @@ def run_job(
     extractor_factory: ExtractorFactory = _ffmpeg_extractor,
     now: Callable[[], float] = time.time,
     chunk_timeout_s: float = DEFAULT_CHUNK_TIMEOUT_S,
+    generation: GenerationSetup | None = None,
+    generator_factory: GeneratorFactory = _ollama_generator,
+    model_probe: ModelProbe = _ollama_probe,
 ) -> JobRecord:
     """Wire the adapters for one job and run it.
 
     The engine is resolved *before* any work starts, so a missing API key fails
     here rather than three hours in, after the local work is done.
+
+    Generation, by contrast, runs *after* the transcription has succeeded, and
+    only then: it consumes the finished transcript, and its failure must never
+    become the job's — see `_generate_artifacts`.
     """
     storage = FilesystemTranscriptStorage(data_dir)
     job = storage.load_job(job_id)
@@ -119,7 +190,7 @@ def run_job(
     # a device proof or an API key check to find out about.
     transcriber = resolver.resolve(job.engine)
     try:
-        return transcribe_job(
+        record = transcribe_job(
             job_id,
             storage.load_media(job_id),
             extractor=extractor_factory(storage.job_dir(job_id), job_id),
@@ -130,6 +201,73 @@ def run_job(
         )
     finally:
         _release(transcriber)
+
+    if generation is not None and record.state is JobState.COMPLETED:
+        _generate_artifacts(
+            record.job_id,
+            storage,
+            generation,
+            generator_factory=generator_factory,
+            model_probe=model_probe,
+        )
+    return record
+
+
+def _generate_artifacts(
+    job_id: JobId,
+    storage: TranscriptStoragePort,
+    generation: GenerationSetup,
+    *,
+    generator_factory: GeneratorFactory,
+    model_probe: ModelProbe,
+) -> None:
+    """Best-effort artifacts for a transcription that already succeeded.
+
+    The record is COMPLETED before this function is reached and nothing here
+    may change that. The transcript is the primary deliverable; COMPLETED with
+    no artifacts is a state `ArtifactsNotAvailable` was written to describe,
+    and the clip routes already answer it with the proven 409. So every domain
+    failure — a dead server, a refused target list, a malformed answer in
+    window one — becomes a line on stderr instead of a job state: a dead
+    Ollama must never eat a finished three-hour transcription.
+
+    The probe runs first and its negative is a *skip*, not a failure. Spending
+    one cheap `GET /api/tags` to learn the model was never pulled beats a
+    `GenerationFailed` per window after the transcript exists, and the log
+    line carries the `ollama pull` remedy.
+    """
+    if not model_probe(generation):
+        print(
+            f"transcribe-worker: model {generation.model} is not pulled on the "
+            f"Ollama server at {generation.base_url}; skipping artifact "
+            f"generation (remedy: `ollama pull {generation.model}`)",
+            file=sys.stderr,
+        )
+        return
+
+    generator: TextGenerationPort | None = None
+    try:
+        generator = generator_factory(generation)
+        transcript = storage.load_transcript(job_id)
+        if transcript is None:
+            print(
+                f"transcribe-worker: job {job_id} completed with no readable "
+                f"transcript; skipping artifact generation",
+                file=sys.stderr,
+            )
+            return
+        targets = resolve_script_targets(generation.script_targets)
+        artifacts = run_generation(transcript, generate=generator, targets=targets)
+        storage.save_artifacts(job_id, artifacts)
+    except DomainError as error:
+        print(
+            f"transcribe-worker: artifact generation failed; the job stays "
+            f"COMPLETED with its transcript: {error}",
+            file=sys.stderr,
+        )
+    finally:
+        if isinstance(generator, _Closable):
+            generator.close()
 
 
 @runtime_checkable
@@ -153,6 +291,25 @@ def _release(transcriber: TranscriptionPort) -> None:
     """
     if isinstance(transcriber, _Closable):
         transcriber.close()
+
+
+def configured_generation() -> GenerationSetup | None:
+    """The LLM configuration this process has, or `None` for none.
+
+    The same composition-root act `configured_resolver` performs, under the
+    same no-default rule for the value that decides quality: an unset model
+    registers no generator, rather than a generator that discovers on its first
+    call that it was never configured. Blank reads as absent through
+    `_configured`, so a half-written `.env` cannot register a model named "".
+    """
+    model = _configured(LLM_MODEL_ENV)
+    if model is None:
+        return None
+    return GenerationSetup(
+        model=model,
+        base_url=_configured(OLLAMA_HOST_ENV) or DEFAULT_OLLAMA_HOST,
+        script_targets=_configured(SCRIPT_TARGETS_ENV) or DEFAULT_SCRIPT_TARGETS,
+    )
 
 
 def configured_resolver() -> EngineResolver | None:
@@ -244,6 +401,7 @@ def main(
     *,
     resolver: EngineResolver | None = None,
     extractor_factory: ExtractorFactory = _ffmpeg_extractor,
+    generation: GenerationSetup | None = None,
 ) -> int:
     """Exit code carries the outcome, because the supervisor reads it, not stdout.
 
@@ -267,9 +425,12 @@ def main(
     # `.env` load lives inside this branch too: it is part of consulting the
     # environment, and a spawned worker already inherits the web process's
     # loaded values, so override=False keeps the two sources in agreement.
+    # The generation config obeys the same rule for the same reason: it is read
+    # here, or handed in, and an injected engine implies an injected generator.
     if resolver is None:
         load_env_file()
         resolver = configured_resolver()
+        generation = configured_generation()
     if resolver is None:
         # Before the record is touched. A worker that claimed the job, wrote its
         # pid and then exited would leave the drain counting a slot as busy for a
@@ -303,6 +464,7 @@ def main(
             resolver=resolver,
             extractor_factory=extractor_factory,
             chunk_timeout_s=chunk_timeout_s,
+            generation=generation,
         )
     except DomainError as error:
         # Every failure crossing a port is already a domain error, so the worker

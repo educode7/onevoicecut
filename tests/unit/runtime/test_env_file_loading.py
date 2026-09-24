@@ -171,6 +171,9 @@ def _completed_job(
     # and a signature that refused the entrypoint's other arguments would break
     # every time one is added rather than when this test's subject changes.
     chunk_timeout_s: float = 0.0,
+    generation: object = None,
+    generator_factory: object = None,
+    model_probe: object = None,
 ) -> JobRecord:
     return JobRecord(
         job_id=make_job_id(JOB_ID),

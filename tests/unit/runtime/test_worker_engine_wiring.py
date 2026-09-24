@@ -189,6 +189,9 @@ def _spy(received: list[EngineResolver]) -> Callable[..., JobRecord]:
         # signature that refused the entrypoint's other arguments would break
         # every time one is added rather than when this test's subject changes.
         chunk_timeout_s: float = 0.0,
+        generation: object = None,
+        generator_factory: object = None,
+        model_probe: object = None,
     ) -> JobRecord:
         received.append(resolver)
         return _completed()
