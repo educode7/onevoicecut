@@ -64,7 +64,7 @@ paid test.
 | --- | --- | --- |
 | *(none)* | Domain/use-case tests against fakes | Yes |
 | `integration` | Real filesystem or ffmpeg subprocess — free and fast; skips when ffmpeg is absent | Yes |
-| `localmodel` | Loads real ASR/diarization weights | **No** |
+| `localmodel` | Loads real ASR/diarization/vision weights, or calls the real local LLM server | **No** |
 | `paid` | Invokes a billed cloud API | **No** |
 
 The default run must never invoke a paid API or load real model weights. This is a success criterion,
@@ -86,7 +86,9 @@ venv + pip, hand-pinned, deliberately split so a unit-test run never downloads P
   cache in the torch hub directory, which is why the capability probe checks that cache
 - `requirements.lock.txt` — `pip freeze` of a full install, for reproduction only
 
-ffmpeg is a **system binary**, never a pip dependency.
+ffmpeg is a **system binary**, never a pip dependency. Ollama is a **system service** on the same
+rule: installed by the operator, reached over localhost by the LLM adapter through `httpx` (already
+core), and no requirements file exists or may exist for it.
 
 ## Architecture
 
@@ -97,7 +99,7 @@ src/onevoicecut/
   domain/     # zero third-party imports; frozen slotted dataclasses only
   ports/      # typing.Protocol definitions; imports domain only
   usecases/   # imports domain + ports only — all orchestration lives here
-  adapters/   # web/ ffmpeg/ storage/ asr/local/ asr/cloud/ vision/   (llm/ not built yet)
+  adapters/   # web/ ffmpeg/ storage/ asr/local/ asr/cloud/ vision/ llm/
   runtime/    # composition root — the ONLY place adapters are constructed
 ```
 
@@ -260,8 +262,8 @@ last unit landed was 13c-ii (the real adapter's contract test); `tasks.md` is fu
 the change still owes is the four gaps named below, not a task. `multi-operator-access` is
 **archived** at
 `openspec/changes/archive/2026-09-17-multi-operator-access/`, its seven delta specs promoted to
-canonical `openspec/specs/`. Measured on this tree: **2072 tests — 2030 in the default run, 32
-`localmodel`, 10 `paid`, zero skips — mypy clean over 247 source files.**
+canonical `openspec/specs/`. Measured on this tree: **2120 tests — 2076 in the default run, 34
+`localmodel`, 10 `paid`, zero skips — mypy clean over 256 source files.**
 
 On disk today are `domain/` (nine modules: `chunking`, `errors`, `framing`, `generation`, `ids`,
 `jobs`, `media`, `rendering`, `transcript`), `ports/` (the seven plus `capabilities`), fifteen use
@@ -272,18 +274,27 @@ cases (`admit_job`, `build_subtitle_cues`, `cancel_job`, `generate_artifacts`, `
 `adapters/storage/`, `adapters/web/` (`app`, `auth`, `schemas`, `routers/jobs`), both ASR adapters
 (`asr/local/faster_whisper_adapter` + `declarations` + `diarization`,
 `asr/cloud/openai_whisper_adapter`), the vision adapter
-(`vision/torchvision_tracker_adapter` + `declarations`), `runtime/`
+(`vision/torchvision_tracker_adapter` + `declarations`), the LLM adapter
+(`llm/ollama_generator` + `probe`), `runtime/`
 (`app`, `engine_resolver`, `render_worker`, `settings`, `supervisor`, `tracker_resolver`,
 `worker`), `tests/{fakes,unit,integration,contract}/` and `scripts/`.
 
-Two things are still missing, and the first is the one that bites:
+One thing is still missing:
 
-- **No LLM adapter, so generation never runs in production.** `generate_artifacts` is built and
-  unit-tested above `TextGenerationPort`, but nothing constructs a `TextGenerationPort`, nothing calls
-  `run_map`/`write_script_variants`, and `save_artifacts` has no production caller. Consequence:
-  `load_artifacts` returns `None` for every real job, so `POST /api/jobs/{id}/clips` answers 409
-  `ArtifactsNotAvailable` and the whole render half downstream of it is unreachable from HTTP today.
 - **No browser UI.** The HTTP surface is complete and authenticated; nothing renders it.
+
+LLM generation is no longer on that list: the Ollama adapter and the worker wiring landed.
+`run_generation` in the use case chains the five built pieces — window, map, fold, rank, script —
+and the worker calls it after `transcribe_job` returns COMPLETED and only then, when
+`ONEVOICECUT_LLM_MODEL` is set and the preflight probe sees the model on the Ollama server. That
+machine writes `artifacts.json` beside the transcript, and `POST /api/jobs/{id}/clips` reaches the
+render half instead of answering 409 `ArtifactsNotAvailable`. A machine without either still gets a
+COMPLETED job with its transcript and no artifacts: a probe negative is a logged skip naming
+`ollama pull`, and any domain error from generation is one line on stderr — a dead Ollama must
+never eat a finished three-hour transcription, and COMPLETED-with-no-artifacts is the state
+`ArtifactsNotAvailable` was written to describe. Reaching the render half is as far as it goes:
+every clip request is still refused at the render-profile gap below, because the one shipped
+profile declares no measured safe area.
 
 Diarization is no longer on that list: slice 9a-ii landed the diarizing call (tasks 9.3/9.4). A
 speaker-mode job on a machine with `pyannote.audio` installed and `HUGGING_FACE_TOKEN` set now gets
@@ -310,11 +321,12 @@ arithmetic over injected predictions in the default suite, while the `localmodel
 contract — span-scoped coverage, clip-local times, explicit misses, and the never-synthesized-centre
 proof on a genuinely person-free `testsrc2` fixture — never a real person end to end.
 
-And a fourth gap that is measurement, not code: **the one shipped render profile is deliberately
+And a gap that is measurement, not code: **the one shipped render profile is deliberately
 unmeasured.** `RENDER_PROFILES` holds a single `vertical` (1080×1920) with `safe_area=None`, because
 nobody has measured where each destination's interface sits over the frame — and a profile declaring no
 safe area is *refused*, never defaulted, so `resolve_render_profiles` answers `RenderProfileInvalid` for
-every clip request even once generation and tracking exist. All four `SCRIPT_TARGETS` name that one
+every clip request — now that generation and tracking both exist, this gap is the only thing standing
+between a finished transcript and a rendered file. All four `SCRIPT_TARGETS` name that one
 profile, on purpose: one file shared by four networks is exactly what render dedup exists for.
 `check_target_profiles` cross-checks the two registries at boot for *membership* only and must not be
 tightened to renderability — doing so would refuse to start a server that transcribes and renders
@@ -328,13 +340,16 @@ $env:ONEVOICECUT_DATA_DIR = ".\data"
 $env:ONEVOICECUT_OPERATOR_TOKENS = "maria:some-token"
 $env:ONEVOICECUT_LOCAL_MODEL_SIZE = "small"   # no default: it decides quality and hours of runtime
 $env:ONEVOICECUT_LOCAL_DEVICE = "cpu"         # "auto" is the default; see the cuBLAS note below
+$env:ONEVOICECUT_LLM_MODEL = "qwen2.5:7b-instruct"  # no default: unset registers no generator at all
+$env:ONEVOICECUT_OLLAMA_HOST = "http://127.0.0.1:11434"  # the default; Ollama is a system service
 $env:PYTHONPATH = "src"
 .venv\Scripts\python.exe -m uvicorn onevoicecut.runtime.app:get_app --factory
 ```
 
 `POST /api/jobs` → `PUT /api/jobs/{id}/media` → the record goes **QUEUED** → the drain supervisor starts
 a worker within one five-second sweep → `GET /api/jobs/{id}` reports chunk progress → `transcript.txt`
-lands in the job directory.
+lands in the job directory, and with the two LLM variables set and Ollama serving that model,
+`artifacts.json` lands beside it once generation finishes.
 
 **On this machine `ONEVOICECUT_LOCAL_DEVICE=cpu` is required.** `get_cuda_device_count()` returns 1, so
 `auto` selects CUDA, but `cublas64_12.dll` is absent and inference cannot run. Since slice 7c the engine
@@ -355,7 +370,9 @@ factory and the worker entrypoint — first loads a gitignored `.env` beside the
 | `ONEVOICECUT_MAX_CONCURRENT_JOBS` | 1, `ge=1` | Local ASR saturates this machine by itself. `ge=1` because 0 is not "unlimited", it is a queue with no exit. |
 | `ONEVOICECUT_MAX_CONCURRENT_RENDERS` | 1, `ge=1` | **Independent of the job cap, deliberately** — a render is minutes of ffmpeg work and a job is hours of ASR, so the two caps have no reason to move together. |
 | `ONEVOICECUT_CHUNK_TIMEOUT_SECONDS` | 1800, `gt=0` | Also accepted as `..._CHUNK_TIMEOUT_S` (the name pydantic would derive) because design.md documents the long one, and an operator setting the documented variable and watching it do nothing is the worst of both. This value reaches the *watchdog*. |
-| `ONEVOICECUT_SCRIPT_TARGETS` | `tiktok,instagram,youtube,facebook` | Comma-separated, the same shape `OPERATOR_TOKENS` uses: an operator who has to write JSON into an environment variable gets it wrong once. The default is also the billed cost — four `complete()` calls per candidate, not one. |
+| `ONEVOICECUT_SCRIPT_TARGETS` | `tiktok,instagram,youtube,facebook` | Comma-separated, the same shape `OPERATOR_TOKENS` uses: an operator who has to write JSON into an environment variable gets it wrong once. The default is also the generation cost — four `complete()` calls per candidate, not one. |
+| `ONEVOICECUT_LLM_MODEL` | *(none)* | Read by the *worker*, not by `Settings`. No default on purpose, the `LOCAL_MODEL_SIZE` lesson on a second axis: which model writes the scripts decides the quality of every artifact. Unset registers no generator; jobs stay COMPLETED with transcript and no artifacts. |
+| `ONEVOICECUT_OLLAMA_HOST` | `http://127.0.0.1:11434` | The address Ollama's installer binds. It is the one variable here that may safely default, because Ollama is a system service on localhost like ffmpeg — never a pip dependency, never a billed provider. |
 
 **An empty assignment in `.env` quietly breaks the default test run.** `load_env_file()` copies every
 named variable into the process environment — an empty string included, because an empty string is a
@@ -366,12 +383,16 @@ that pass in isolation. This is why every assignment in `.env.example` is commen
 of the template exports nothing until the operator gives a variable a real value. Keep in `.env` only
 the variables actually set.
 
-Four more are read outside `Settings`, and two of them carry no `ONEVOICECUT_` prefix. The worker reads
+Seven more are read outside `Settings`, and two of them carry no `ONEVOICECUT_` prefix. The worker reads
 `ONEVOICECUT_LOCAL_MODEL_SIZE` (no default — an unset value registers *no* local engine rather than
-picking a size) and `ONEVOICECUT_LOCAL_DEVICE` (default `auto`) from its own inherited environment,
-because argv is visible to every user on a shared machine; `CLOUD_ASR_API_KEY` and
+picking a size), `ONEVOICECUT_LOCAL_DEVICE` (default `auto`), `ONEVOICECUT_LLM_MODEL` and
+`ONEVOICECUT_OLLAMA_HOST` (the generation pair, same no-default rule on the model for the same
+reason), plus its own spelling of `ONEVOICECUT_SCRIPT_TARGETS` — it is a separate program and cannot
+be handed the web process's parsed value, the `CHUNK_TIMEOUT_ENV_NAMES` reasoning again — from its
+own inherited environment, because argv is visible to every user on a shared machine;
+`CLOUD_ASR_API_KEY` and
 `HUGGING_FACE_TOKEN` are named without the prefix, the latter because `huggingface_hub` recognises
-several spellings and that is the one this project documents. All four are values *handed in* at
+several spellings and that is the one this project documents. All seven are values *handed in* at
 adapter construction — the modules that need them know only the variable's name, so a refusal can carry
 its own remedy. `CHUNK_TIMEOUT_ENV_NAMES` lives in `settings.py` rather than at either call site
 because two separate programs enforce the per-chunk timeout, and a spelling that drifted between them
