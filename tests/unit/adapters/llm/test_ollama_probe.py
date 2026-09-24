@@ -60,6 +60,17 @@ class TestTheHonestNegatives:
 
         assert model_is_pulled(MODEL, transport=httpx.MockTransport(handler)) is False
 
+    def test_a_raw_oserror_is_false_rather_than_a_crash(self) -> None:
+        """The promise is *answer, never crash*, and a raw socket error escaping
+        the transport is the same absence as a down server. The worker calls
+        this probe outside its DomainError guard: a crash here kills a job
+        whose transcript already succeeded."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise OSError("socket died")
+
+        assert model_is_pulled(MODEL, transport=httpx.MockTransport(handler)) is False
+
     def test_a_non_200_is_false(self) -> None:
         transport = httpx.MockTransport(
             lambda request: httpx.Response(500, text="boom")

@@ -137,6 +137,17 @@ class OllamaTextGenerator:
                 f"could not reach the {ENGINE_NAME} server at {self._base_url}: "
                 f"{error}. Is it running? Start it with `ollama serve`."
             ) from error
+        except Exception as error:
+            # The floor under the boundary: the clauses above name the httpx
+            # shapes, and this one keeps the adapter's promise total — a raw
+            # OSError escaping a transport must not reach a worker that
+            # catches DomainError and has already delivered its transcript.
+            # Nothing legitimate is swallowed: the try body is one HTTP call,
+            # so no DomainError can originate inside it.
+            raise GenerationFailed(
+                f"the {ENGINE_NAME} call for model {self._model} failed below "
+                f"the HTTP layer: {type(error).__name__}: {error}"
+            ) from error
 
         if response.status_code == httpx.codes.NOT_FOUND:
             detail = _error_field(response)

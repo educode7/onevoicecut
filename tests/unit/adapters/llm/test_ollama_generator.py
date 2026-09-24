@@ -138,6 +138,22 @@ class TestTheTranslations:
         assert "127.0.0.1:11434" in message
         assert "ollama serve" in message
 
+    def test_a_raw_oserror_from_the_transport_is_still_translated(self) -> None:
+        """httpx wraps socket failures in its own types *usually*. A transport
+        leaking a raw OSError must not ride through: the worker catches
+        DomainError around generation, and a raw exception past that guard
+        kills a worker whose transcript already succeeded."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise OSError("socket died")
+
+        with pytest.raises(GenerationFailed) as refusal:
+            _generator(httpx.MockTransport(handler)).complete(
+                "p", max_output_tokens=8
+            )
+
+        assert "socket died" in str(refusal.value)
+
     def test_a_timeout_is_a_failure_naming_the_budget(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             raise httpx.ReadTimeout("timed out")

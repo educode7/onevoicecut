@@ -41,7 +41,12 @@ def model_is_pulled(
     try:
         with httpx.Client(base_url=base_url, transport=transport) as client:
             response = client.get(TAGS_PATH, timeout=timeout_s)
-    except httpx.HTTPError:
+    except Exception:
+        # Any exception, not only httpx's own types: a raw OSError escaping a
+        # transport is the same absence as a down server, and this function's
+        # promise is to answer, never crash — the worker calls it outside its
+        # DomainError guard. A false negative costs one skipped generation; a
+        # crash costs the job that already finished transcribing.
         return False
 
     if response.status_code != httpx.codes.OK:
