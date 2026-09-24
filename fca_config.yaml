@@ -1,0 +1,37 @@
+project:
+  name: onevoicecut
+  python: "3.12"
+  dependency_manager: pip     # poetry | pip
+  database: filesystem        # postgresql | sqlite
+  api_prefix: /api/v1
+
+systems:
+  - name: pipeline
+    modules:
+      - name: jobs
+        api_versions:
+          - version: v1
+            status: active    # active | deprecated | retired
+            sunset: null      # ISO date when status is deprecated
+      - name: transcripts
+        api_versions:
+          - version: v1
+            status: active
+            sunset: null
+      - name: clips
+        api_versions:
+          - version: v1
+            status: active
+            sunset: null
+
+security:
+  auth: bearer                # bearer (operator token map; no JWT)
+  roles: []
+  rate_limiting: none         # local tool behind operator tokens; no gateway
+  docs_in_production: false
+
+tooling:
+  tests: pytest
+  type_checker: mypy          # mypy | pyright
+  linter: ruff
+  security: []                # bandit/pip-audit deferred (design Deviation 5)

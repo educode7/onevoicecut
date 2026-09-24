@@ -1,3 +1,9 @@
 pytest==9.1.1
 pytest-asyncio==1.4.0
 mypy==2.3.1
+# fca_config.yaml is parsed by tests/test_fca_config.py; PyYAML itself would
+# otherwise only arrive transitively through the localmodel extras, which the
+# default run must not require.
+PyYAML==6.0.3
+types-PyYAML==6.0.12.20260906
+
