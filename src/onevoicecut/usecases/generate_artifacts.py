@@ -36,8 +36,8 @@ import math
 from dataclasses import dataclass, replace
 
 from onevoicecut.domain.errors import ContextLengthExceeded, GenerationFailed
-from onevoicecut.domain.generation import ClipCandidate, ScriptVariant
-from onevoicecut.domain.transcript import TranscriptSegment, is_speech
+from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
+from onevoicecut.domain.transcript import Transcript, TranscriptSegment, is_speech
 from onevoicecut.ports.text_generation import TextGenerationPort
 
 # From design.md. A silent change to either is a change in what the model is
@@ -743,4 +743,86 @@ def _script_prompt(candidate: ClipCandidate, target: ScriptTarget) -> str:
         ("Gancho", candidate.hook),
         ("Cita", candidate.quote),
         ("Motivo", candidate.rationale),
+    )
+
+
+# Three output budgets, one per phase. Constants rather than settings because
+# what each phase must say is a property of the phase, not of the machine — and
+# each is priced against the measured local throughput (~5 tok/s on this CPU),
+# where every 100 tokens of budget is ~20 s of wall clock *per call*, and a
+# three-hour sermon multiplies the map budget by dozens of windows.
+
+# A map answer is a JSON summary of ~100-150 tokens plus a handful of moments
+# at ~50 each; 512 covers a rich answer, and more would be padding the model is
+# invited to fill.
+MAX_MAP_OUTPUT_TOKENS = 512
+
+# A fold's output becomes the next fold's input, so an unbounded summary grows
+# until it trips `reduce_summaries`' fold-budget refusal. 512 keeps a fold
+# answer roughly the size of the map summaries it consumes.
+MAX_REDUCE_OUTPUT_TOKENS = 512
+
+# A 45-second plain script is ~110-130 words, call it ~170 tokens; 384 is
+# double the headroom without being paid over the candidate x target grid —
+# eight candidates over four shipped targets is thirty-two calls.
+MAX_VARIANT_OUTPUT_TOKENS = 384
+
+
+def run_generation(
+    transcript: Transcript,
+    *,
+    generate: TextGenerationPort,
+    targets: tuple[ScriptTarget, ...],
+    max_candidates: int = DEFAULT_MAX_CLIP_CANDIDATES,
+    max_map_output_tokens: int = MAX_MAP_OUTPUT_TOKENS,
+    max_reduce_output_tokens: int = MAX_REDUCE_OUTPUT_TOKENS,
+    max_variant_output_tokens: int = MAX_VARIANT_OUTPUT_TOKENS,
+    window_tokens: int = DEFAULT_MAP_WINDOW_TOKENS,
+    overlap_tokens: int = DEFAULT_MAP_OVERLAP_TOKENS,
+) -> GenerationResult:
+    """The whole pipeline in one call: window, map, fold, rank, write scripts.
+
+    Exists so the worker's composition root calls one function instead of
+    re-deriving the order — an order that is not free to rearrange, because
+    every step consumes the previous one's checked output: ranking resolves
+    moment ids against the *whole* transcript while the ids were validated
+    against their windows, and variants are written from ranked candidates so
+    the grid cost is bounded by `max_candidates` before it is paid.
+
+    **Zero speech is an honest empty result, not a crash and not a refusal.**
+    A transcript with no confirmed `SPEECH` produces no windows, so the
+    generator is never called and the result carries an empty summary and no
+    candidates. The alternative — asking the model to summarise nothing — is
+    what `speech_windows` exists to prevent, because it answers anyway and
+    that answer would become the summary. Saving this result is still worth
+    more than skipping it: an artifact saying "generation ran and found no
+    speech" is a fact an operator can read, where absent artifacts leave them
+    guessing whether generation ran at all.
+
+    The windowing knobs are forwarded, not re-decided: `speech_windows` owns
+    their meaning, and a test that needs two windows out of a two-segment
+    fixture should shrink the window rather than fabricate a three-hour sermon.
+    """
+    windows = speech_windows(
+        transcript.segments,
+        window_tokens=window_tokens,
+        overlap_tokens=overlap_tokens,
+    )
+    partials = run_map(
+        windows, generate=generate, max_output_tokens=max_map_output_tokens
+    )
+    summary = reduce_summaries(
+        partials, generate=generate, max_output_tokens=max_reduce_output_tokens
+    )
+    candidates = rank_clip_candidates(
+        partials, transcript.segments, max_candidates=max_candidates
+    )
+    scripted = write_script_variants(
+        candidates,
+        generate=generate,
+        targets=targets,
+        max_output_tokens=max_variant_output_tokens,
+    )
+    return GenerationResult(
+        job_id=transcript.job_id, summary=summary, clip_candidates=scripted
     )
