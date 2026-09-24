@@ -126,5 +126,20 @@ Runner: `.venv\Scripts\python.exe -m pytest -m "not paid and not localmodel"`.
 
 ## Next step
 
-Parent: verify, then make the work-unit commit on `feat/measure-safe-areas`
-(T4); afterwards RDD review, then user decides push.
+User decides delivery: merge `feat/measure-safe-areas` to main and/or push. The
+native review lifecycle is closed for this candidate.
+
+## Review record
+
+- RDD assessment: `review_due=true`, tier **high** (process_boundary signal in
+  `tests/unit/adapters/ffmpeg/test_video_render.py`).
+- Lineage `review-523066c1ce53030c`: consent granted by the user for this
+  candidate; four frozen lenses (risk, resilience, readability, reliability)
+  captured in parallel; closure **APPROVED** with zero blockers.
+- Three informational SUGGESTIONs, explicitly non-blocking, none reopening the
+  candidate: (1) per-edge attribution duplicated between the registry comment and
+  the decision record — consolidate if re-measurement friction appears; (2) refusal
+  path preserved confirmation (no action); (3) axis-sum guard for future
+  re-measurements is pre-existing domain-layer validation, unchanged here.
+- Acknowledgement burned: `gentle-ai.review-acknowledged/v1`, consumed revision
+  `sha256:852b00e9...`. Delivery follows ordinary repository policy.
