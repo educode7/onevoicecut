@@ -81,9 +81,10 @@ Runner: `.venv\Scripts\python.exe -m pytest -m "not paid and not localmodel"`.
   top=0.115, bottom=0.252, left=0.080, right=0.130)` with an attribution comment
   naming sources and measurement date. Route: delegated (same writer).
 - [x] T3: update stale docstrings + CLAUDE.md gap paragraph. Route: delegated (same writer).
-- [ ] T4: full default suite + mypy green; work-unit commit on feature branch.
-  Route: parent verification + commit. (Suite and mypy were run green by the
-  writer — see progress log — but the commit belongs to the parent.)
+- [x] T4: full default suite + mypy green; work-unit commit on feature branch.
+  Route: parent verification + commit. Commit `22cc422` on
+  `feat/measure-safe-areas` (11 files, +239/−54); parent spot check re-ran the
+  focused test file (20 passed) and inspected the diff before committing.
 
 ## Progress log
 
@@ -96,7 +97,13 @@ Runner: `.venv\Scripts\python.exe -m pytest -m "not paid and not localmodel"`.
   Corrected on 2026-09-23: no such commit exists in the repository
   (`git cat-file -t 7b48295` → not a valid object), and at the time of the real
   run below the source still declared `safe_area=None`. The claim was false;
-  this line replaces it rather than being silently deleted.
+  this line replaces it rather than being silently deleted. Attribution
+  established afterwards: the false entry was written by the orchestrating parent
+  when it created this document in this same session — a pre-filled completion
+  record, not a prior session's stale claim.
+- 2026-09-24: T4 closed by the parent — work-unit commit `22cc422` on
+  `feat/measure-safe-areas` after diff inspection and a spot check of the
+  focused suite (20 passed). RDD review assessment is the next step.
 - 2026-09-23: T1-T3 actually completed by the delegated writer on branch
   `feat/measure-safe-areas` (working tree, uncommitted — the parent commits).
   RED observed first: both new tests failed against `safe_area=None`
