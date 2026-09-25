@@ -66,7 +66,7 @@ from onevoicecut.shared.domain.ids import (
     make_clip_id,
     make_job_id,
 )
-from onevoicecut.domain.media import FrameSize, MediaProbe, SourceMedia
+from onevoicecut.systems.pipeline.jobs.domain.media import FrameSize, MediaProbe, SourceMedia
 from onevoicecut.domain.rendering import (
     CaptionCoverage,
     ClipExport,

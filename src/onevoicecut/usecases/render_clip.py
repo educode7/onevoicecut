@@ -31,7 +31,7 @@ from pathlib import Path
 
 from onevoicecut.shared.domain.errors import ClipRangeInvalid
 from onevoicecut.domain.framing import TimeSpan
-from onevoicecut.domain.media import MediaProbe
+from onevoicecut.systems.pipeline.jobs.domain.media import MediaProbe
 from onevoicecut.ports.video_render import (
     RenderedFile,
     RenderRequest,

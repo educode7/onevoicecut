@@ -20,7 +20,7 @@ package ever sees one.
 from collections.abc import Callable, Mapping
 
 from onevoicecut.shared.domain.errors import EngineUnavailable
-from onevoicecut.domain.jobs import EngineChoice
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice
 from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DeclaredSupport,

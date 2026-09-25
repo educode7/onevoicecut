@@ -30,7 +30,7 @@ from typing import Protocol, runtime_checkable
 from onevoicecut.adapters.ffmpeg.extractor import require_binaries as require_binaries
 from onevoicecut.adapters.ffmpeg.video_render import render_timeout_for
 from onevoicecut.shared.domain.ids import ClipId, JobId
-from onevoicecut.domain.jobs import WORKER_BOUND_STATES, JobRecord, JobState
+from onevoicecut.systems.pipeline.jobs.domain.jobs import WORKER_BOUND_STATES, JobRecord, JobState
 from onevoicecut.domain.rendering import ClipExport, ClipState
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 

@@ -31,14 +31,14 @@ from collections.abc import Callable
 from dataclasses import replace
 
 from onevoicecut.shared.domain.ids import JobId, OperatorId
-from onevoicecut.domain.jobs import (
+from onevoicecut.systems.pipeline.jobs.domain.jobs import (
     TERMINAL_STATES,
     WORKER_BOUND_STATES,
     JobRecord,
     JobState,
 )
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
-from onevoicecut.usecases.ownership import require_owner
+from onevoicecut.systems.pipeline.jobs.domain.ownership import require_owner
 
 
 def cancel_job(

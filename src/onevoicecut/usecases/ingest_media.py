@@ -9,8 +9,8 @@ from pathlib import Path
 
 from onevoicecut.domain.chunking import PlannedChunk
 from onevoicecut.shared.domain.ids import JobId
-from onevoicecut.domain.jobs import EngineChoice, SpeakerMode
-from onevoicecut.domain.media import SourceMedia
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
 from onevoicecut.domain.transcript import Transcript, render_message_text
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort

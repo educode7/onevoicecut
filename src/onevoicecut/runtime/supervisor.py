@@ -45,7 +45,7 @@ from dataclasses import replace
 from onevoicecut.domain.chunking import ChunkResult, ChunkState
 from onevoicecut.shared.domain.errors import DomainError
 from onevoicecut.shared.domain.ids import JobId
-from onevoicecut.domain.jobs import (
+from onevoicecut.systems.pipeline.jobs.domain.jobs import (
     TERMINAL_STATES,
     WORKER_BOUND_STATES,
     JobRecord,
