@@ -25,7 +25,9 @@ from onevoicecut.shared.domain.capabilities import (
     WordTimingSupport,
 )
 from onevoicecut.ports.transcription import TranscriptionRequest
-from onevoicecut.usecases.admit_job import _validate_compatibility
+from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.admit_job import (
+    _validate_compatibility,
+)
 
 Script = tuple[tuple[str, SegmentKind], ...]
 

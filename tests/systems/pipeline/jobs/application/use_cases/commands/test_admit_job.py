@@ -1,18 +1,29 @@
-"""Tests for the admit_job use case — engine/speaker-mode compatibility validation.
+"""Tests for the admit-job command — engine/speaker-mode compatibility validation.
 
 These tests exercise the pure `_validate_compatibility` helper and, later,
-the `admit_job()` integration with a capabilities callable. The helper is
-module-level in `usecases/admit_job.py` and is the single definition of
+the `AdmitJobHandler.handle()` integration with a capabilities callable. The
+helper is module-level next to the handler and is the single definition of
 engine/speaker-mode compatibility shared by admission and port-level defense.
+
+The command carries identity; the handler carries dependencies. That split is
+why these call sites name a `Principal` where they used to name an operator id.
 """
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
 from onevoicecut.domain.chunking import AudioChunk
+from onevoicecut.shared.application.principal import Principal
 from onevoicecut.shared.domain.errors import DiarizationUnsupported
 from onevoicecut.shared.domain.ids import JobId, make_operator_id
+from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.admit_job import (
+    Admission,
+    AdmitJobCommand,
+    AdmitJobHandler,
+    _validate_compatibility,
+)
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobState, SpeakerMode
 from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
@@ -20,8 +31,8 @@ from onevoicecut.shared.domain.capabilities import (
     DiarizationSupport,
     WordTimingSupport,
 )
+from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.ports.transcription import TranscriptionRequest
-from onevoicecut.usecases.admit_job import _validate_compatibility, admit_job
 from tests.fakes.transcription import (
     FakeTranscriptionPort,
     NonClassifyingFakeTranscriptionPort,
@@ -29,6 +40,22 @@ from tests.fakes.transcription import (
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 
 OPERATOR = make_operator_id("test-operator")
+
+
+def _admit(
+    *,
+    speaker_mode: SpeakerMode,
+    storage: TranscriptStoragePort,
+    capabilities: Callable[[EngineChoice], DeclaredSupport] | None = None,
+) -> Admission:
+    """The handler shape: dependencies live on the handler, identity on the command."""
+    return AdmitJobHandler(storage=storage, capabilities=capabilities).handle(
+        AdmitJobCommand(
+            principal=Principal(identity=OPERATOR),
+            engine=EngineChoice.LOCAL,
+            speaker_mode=speaker_mode,
+        )
+    )
 
 
 # Slice 9b-iii narrowed the admission guard from whole capabilities to the one
@@ -66,7 +93,7 @@ class TestValidateCompatibility:
 
 
 class TestAdmitJobCapabilities:
-    """admit_job() validates engine/speaker-mode compatibility before storage."""
+    """The handler validates engine/speaker-mode compatibility before storage."""
 
     def test_incompatible_combination_rejects_before_storage(
         self, tmp_path: Path
@@ -75,10 +102,8 @@ class TestAdmitJobCapabilities:
         storage = FakeTranscriptStoragePort(tmp_path)
 
         with pytest.raises(DiarizationUnsupported, match="diarization"):
-            admit_job(
-                engine=EngineChoice.LOCAL,
+            _admit(
                 speaker_mode=SpeakerMode.MULTI,
-                operator=OPERATOR,
                 storage=storage,
                 capabilities=lambda _e: _declares(DiarizationSupport.UNSUPPORTED),
             )
@@ -92,10 +117,8 @@ class TestAdmitJobCapabilities:
         storage = FakeTranscriptStoragePort(tmp_path)
 
         with pytest.raises(DiarizationUnsupported, match="diarization"):
-            admit_job(
-                engine=EngineChoice.LOCAL,
+            _admit(
                 speaker_mode=SpeakerMode.MULTI,
-                operator=OPERATOR,
                 storage=storage,
                 capabilities=lambda _e: _declares(DiarizationSupport.REQUIRES_SETUP),
             )
@@ -106,10 +129,8 @@ class TestAdmitJobCapabilities:
         """6.5: MULTI + AVAILABLE succeeds, job stored."""
         storage = FakeTranscriptStoragePort(tmp_path)
 
-        job = admit_job(
-            engine=EngineChoice.LOCAL,
+        job = _admit(
             speaker_mode=SpeakerMode.MULTI,
-            operator=OPERATOR,
             storage=storage,
             capabilities=lambda _e: _declares(DiarizationSupport.AVAILABLE),
         ).job
@@ -122,10 +143,8 @@ class TestAdmitJobCapabilities:
         """6.4 backward compat: capabilities=None skips the check entirely."""
         storage = FakeTranscriptStoragePort(tmp_path)
 
-        job = admit_job(
-            engine=EngineChoice.LOCAL,
+        job = _admit(
             speaker_mode=SpeakerMode.MULTI,
-            operator=OPERATOR,
             storage=storage,
         ).job
 
@@ -143,10 +162,8 @@ class TestAdmitJobCapabilities:
         """6.7: SINGLE mode always passes regardless of diarization."""
         storage = FakeTranscriptStoragePort(tmp_path)
 
-        job = admit_job(
-            engine=EngineChoice.LOCAL,
+        job = _admit(
             speaker_mode=SpeakerMode.SINGLE,
-            operator=OPERATOR,
             storage=storage,
             capabilities=lambda _e: _declares(diarization),
         ).job

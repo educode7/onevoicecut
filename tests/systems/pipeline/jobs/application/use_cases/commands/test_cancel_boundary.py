@@ -17,12 +17,16 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.domain.chunking import AudioChunk
+from onevoicecut.shared.application.principal import Principal
 from onevoicecut.shared.domain.ids import make_job_id, make_media_id, make_operator_id
+from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.cancel_job import (
+    CancelJobCommand,
+    CancelJobHandler,
+)
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
 from onevoicecut.domain.transcript import TranscriptSegment
 from onevoicecut.ports.transcription import TranscriptionRequest
-from onevoicecut.usecases.cancel_job import cancel_job
 from onevoicecut.usecases.transcribe_job import transcribe_job
 from tests.fakes.audio_extractor import FAKE_DURATION_S, FakeAudioExtractorPort
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
@@ -32,6 +36,16 @@ JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
 MEDIA_ID = make_media_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFE")
 OWNER = make_operator_id("maria")
 FIXED_NOW = 1723501234.5
+
+
+def _cancel(storage: FakeTranscriptStoragePort) -> JobRecord:
+    """Cancel through the handler: the identity arrives on the command."""
+    return CancelJobHandler(storage=storage, now=lambda: FIXED_NOW).handle(
+        CancelJobCommand(
+            job_id=JOB_ID,
+            principal=Principal(identity=OWNER),
+        )
+    )
 
 # Four chunks out of the fake track, so "stops at the next boundary" has
 # boundaries left to stop at and the assertion is not vacuous.
@@ -115,7 +129,7 @@ def cancel_after_chunk(storage: FakeTranscriptStoragePort, index: int) -> None:
 
     def hook(saved_index: int) -> None:
         if saved_index == index:
-            cancel_job(JOB_ID, operator=OWNER, storage=storage, now=lambda: FIXED_NOW)
+            _cancel(storage)
 
     storage.on_chunk_saved = hook
 
@@ -211,7 +225,7 @@ class TestCancellationBeforeTheFirstChunk:
         gate never has to win that race.
         """
         transcriber = CountingTranscriber()
-        cancel_job(JOB_ID, operator=OWNER, storage=storage, now=lambda: FIXED_NOW)
+        _cancel(storage)
 
         run(storage, transcriber)
 
@@ -222,7 +236,7 @@ class TestCancellationBeforeTheFirstChunk:
         self, storage: FakeTranscriptStoragePort
     ) -> None:
         transcriber = CountingTranscriber()
-        cancel_job(JOB_ID, operator=OWNER, storage=storage, now=lambda: FIXED_NOW)
+        _cancel(storage)
 
         job = run(storage, transcriber)
 

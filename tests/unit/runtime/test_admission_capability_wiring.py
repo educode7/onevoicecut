@@ -134,20 +134,25 @@ class TestTheGuardActuallyRefuses:
         """
         from onevoicecut.shared.domain.errors import DiarizationUnsupported
         from onevoicecut.shared.domain.ids import make_operator_id
+        from onevoicecut.shared.application.principal import Principal
+        from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.admit_job import (
+            AdmitJobCommand,
+            AdmitJobHandler,
+        )
         from onevoicecut.systems.pipeline.jobs.domain.jobs import SpeakerMode
-        from onevoicecut.usecases.admit_job import admit_job
         from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 
         storage = FakeTranscriptStoragePort(tmp_path)
         deps = build_dependencies(_settings())
+        handler = AdmitJobHandler(storage=storage, capabilities=deps.capabilities)
 
         with pytest.raises(DiarizationUnsupported):
-            admit_job(
-                engine=EngineChoice.LOCAL,
-                speaker_mode=SpeakerMode.MULTI,
-                operator=make_operator_id("maria"),
-                storage=storage,
-                capabilities=deps.capabilities,
+            handler.handle(
+                AdmitJobCommand(
+                    principal=Principal(identity=make_operator_id("maria")),
+                    engine=EngineChoice.LOCAL,
+                    speaker_mode=SpeakerMode.MULTI,
+                )
             )
 
         assert storage.calls == []

@@ -12,6 +12,8 @@ import pytest
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
+from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.shared.application.principal import Principal
 from onevoicecut.shared.domain.errors import DomainError, JobNotOwned
 from onevoicecut.shared.domain.ids import (
     OperatorId,
@@ -19,13 +21,27 @@ from onevoicecut.shared.domain.ids import (
     make_media_id,
     make_operator_id,
 )
+from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.admit_job import (
+    AdmitJobCommand,
+    AdmitJobHandler,
+)
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
-from onevoicecut.usecases.admit_job import admit_job
 from onevoicecut.systems.pipeline.jobs.domain.ownership import require_owner
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 
 OPERATOR_A = make_operator_id("a")
 OPERATOR_B = make_operator_id("b")
+
+
+def _admit(storage: TranscriptStoragePort, owner: OperatorId) -> JobRecord:
+    """Admission through the handler: the caller's identity rides the command."""
+    return AdmitJobHandler(storage=storage).handle(
+        AdmitJobCommand(
+            principal=Principal(identity=owner),
+            engine=EngineChoice.LOCAL,
+            speaker_mode=SpeakerMode.SINGLE,
+        )
+    ).job
 
 
 def an_owned_job(owner: OperatorId | None = OPERATOR_A) -> JobRecord:
@@ -71,12 +87,7 @@ def test_admission_records_the_authenticated_caller_as_owner(
     """OWN-01: the persisted record carries exactly the caller's identity."""
     storage = FakeTranscriptStoragePort(tmp_path)
 
-    job = admit_job(
-        engine=EngineChoice.LOCAL,
-        speaker_mode=SpeakerMode.SINGLE,
-        operator=OPERATOR_A,
-        storage=storage,
-    ).job
+    job = _admit(storage, OPERATOR_A)
 
     assert job.owner == OPERATOR_A
     assert storage.load_job(job.job_id).owner == OPERATOR_A
@@ -90,12 +101,7 @@ def test_the_persisted_record_carries_the_name_never_the_token(
     storage = FilesystemTranscriptStorage(tmp_path)
     token = "t-a-sekrit-value"
 
-    job = admit_job(
-        engine=EngineChoice.LOCAL,
-        speaker_mode=SpeakerMode.SINGLE,
-        operator=OPERATOR_A,
-        storage=storage,
-    ).job
+    job = _admit(storage, OPERATOR_A)
 
     record_bytes = (storage.job_dir(job.job_id) / "job.json").read_bytes()
     assert b'"owner": "a"' in record_bytes

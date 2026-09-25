@@ -31,7 +31,11 @@ from onevoicecut.systems.pipeline.jobs.domain.jobs import (
     JobState,
     SpeakerMode,
 )
-from onevoicecut.usecases.cancel_job import cancel_job
+from onevoicecut.shared.application.principal import Principal
+from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.cancel_job import (
+    CancelJobCommand,
+    CancelJobHandler,
+)
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 
 JOB_ID = make_job_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")
@@ -82,7 +86,13 @@ def _cancel(
     operator: OperatorId = OWNER,
     now: Callable[[], float] = frozen_clock,
 ) -> JobRecord:
-    return cancel_job(JOB_ID, operator=operator, storage=storage, now=now)
+    """The handler shape: dependencies live on the handler, identity on the command."""
+    return CancelJobHandler(storage=storage, now=now).handle(
+        CancelJobCommand(
+            job_id=JOB_ID,
+            principal=Principal(identity=operator),
+        )
+    )
 
 
 class TestWorkerBoundCancellation:

@@ -1,17 +1,19 @@
 """Job routes.
 
-Handlers stay thin on purpose: translate HTTP into a use-case call, translate the
-result back. Every decision worth arguing about — what an admitted job looks like,
-which ids it gets — lives in the use case, where it is testable without a client.
+Routes stay thin on purpose: translate HTTP into a command, dispatch it, translate
+the result back. Every decision worth arguing about — what an admitted job looks
+like, which ids it gets, whether an upload is welcome — lives on the command
+handlers, where it is testable without a client. The three write handlers are
+built by the composition root (`main.py`) and handed in, so this module
+constructs nothing.
 
-A `DomainError` leaving storage or a use case is not caught here: the composition
+A `DomainError` leaving storage or a handler is not caught here: the composition
 root maps it once (`main.py`), so every route answers one table alike. What still
-raises `HTTPException` is presentation — a malformed id, a state this route itself
-decides, a probe result it must report — where the HTTP answer is the whole point
-rather than a translation of a domain refusal.
+raises `HTTPException` is presentation — a malformed id, a clip state this route
+itself decides — where the HTTP answer is the whole point rather than a
+translation of a domain refusal.
 """
 
-from dataclasses import replace
 from typing import Annotated
 from urllib.parse import unquote
 
@@ -32,17 +34,23 @@ from onevoicecut.adapters.web.schemas import (
     ProgressResponse,
 )
 from onevoicecut.shared.application.principal import Principal
-from onevoicecut.shared.domain.errors import UnsupportedContainer
 from onevoicecut.shared.domain.ids import ClipId, InvalidIdError, JobId, OperatorId, make_clip_id, make_job_id
 from onevoicecut.shared.presentation.security import make_current_principal
+from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.admit_job import (
+    AdmitJobCommand,
+    AdmitJobHandler,
+)
+from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.cancel_job import (
+    CancelJobCommand,
+    CancelJobHandler,
+)
+from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.ingest_media import (
+    IngestMediaCommand,
+    IngestMediaHandler,
+)
 from onevoicecut.systems.pipeline.jobs.domain.jobs import JobRecord, JobState, derive_progress
-from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
-from onevoicecut.ports.audio_extractor import AudioExtractorPort
-from onevoicecut.systems.pipeline.jobs.domain.interfaces.media_source import MediaSourcePort
-from onevoicecut.usecases.admit_job import admit_job
-from onevoicecut.usecases.cancel_job import cancel_job
-from onevoicecut.systems.pipeline.jobs.domain.ownership import require_owner
 from onevoicecut.usecases.request_clip_export import request_clip_export
+from onevoicecut.systems.pipeline.jobs.domain.ownership import require_owner
 
 # The client's filename travels as metadata, never in the URL — a path parameter
 # would invite treating it as one.
@@ -106,93 +114,6 @@ def _validated_clip_id(raw: str) -> ClipId:
         raise HTTPException(status_code=404, detail="no such clip") from error
 
 
-def _accepting_media(job: JobRecord) -> None:
-    """Media is only legal while the job is still PENDING.
-
-    Before the cancel route existed this could not go wrong: nothing moved a job
-    out of PENDING until its upload had finished. Now the operator can cancel
-    mid-transfer, and an upload that committed afterwards would resurrect the
-    job — bytes on disk, a media record, and a worker spawned for work that was
-    explicitly called off.
-
-    It also closes an older hazard nobody had a reason to hit: a second upload
-    into a job already extracting used to be accepted, replacing the file a
-    worker was reading at that moment.
-    """
-    if job.state is not JobState.PENDING:
-        raise HTTPException(
-            status_code=409,
-            detail=f"job is {job.state}, which does not accept media",
-        )
-
-
-def _refuse_if_declared_too_large(request: Request, max_bytes: int) -> None:
-    """The cheap half of the size limit, and the only half that costs nothing.
-
-    `Content-Length` is a claim, so this cannot be the whole defence — the writer
-    keeps counting in case the claim was false. But when a client honestly
-    declares sixteen gigabytes, refusing here is the difference between an instant
-    answer and an hour of transfer nobody wanted.
-
-    An absent header means chunked transfer encoding, which is what a browser
-    sends for a large file: there is simply nothing to check. An unparseable one
-    is treated the same way — it tells us nothing, and it is not evidence of being
-    small.
-    """
-    declared = request.headers.get("content-length")
-    if declared is None:
-        return
-    try:
-        length = int(declared)
-    except ValueError:
-        return
-    if length > max_bytes:
-        raise HTTPException(
-            status_code=413,
-            detail=f"declared {length} bytes, limit is {max_bytes}",
-        )
-
-
-def _verified_media(
-    media: SourceMedia,
-    *,
-    extractor: AudioExtractorPort,
-    writer: MediaSourcePort,
-) -> SourceMedia:
-    """Decide what the file is by looking inside it, and record the answer.
-
-    An extension is a claim by whoever named the file, and it is wrong in both
-    directions: it does not stop a text file called `sermon.mp4`, and it would
-    reject a real recording someone named `sermon`. So the bytes are probed and
-    the probe is believed.
-
-    The rejection worth naming is the second one. A container with no audio
-    stream looks entirely fine — it extracts cleanly to a silent track and
-    transcribes to an empty sermon, and nothing in the output says why. Catching
-    it here means the operator hears about it while they are still standing at
-    the upload form.
-
-    A refused file is discarded rather than kept. The retention rule protects the
-    operator's uploaded video; this was never accepted as one. The discard is
-    this route's job; the 415 it answers with belongs to the central table, so
-    the error rises untranslated.
-    """
-    try:
-        probe = extractor.probe(media)
-    except UnsupportedContainer:
-        writer.discard(media)
-        raise
-
-    if not probe.has_audio:
-        writer.discard(media)
-        raise HTTPException(
-            status_code=415,
-            detail=f"{probe.container} has no audio stream to transcribe",
-        )
-
-    return replace(media, container=probe.container)
-
-
 def _client_filename(raw: str) -> str:
     """Percent-decoded, because HTTP header values are ASCII and the source
     language is not.
@@ -204,12 +125,21 @@ def _client_filename(raw: str) -> str:
     return unquote(raw)
 
 
-def build_jobs_router(deps: WebDependencies) -> APIRouter:
+def build_jobs_router(
+    deps: WebDependencies,
+    *,
+    admit_handler: AdmitJobHandler,
+    ingest_handler: IngestMediaHandler,
+    cancel_handler: CancelJobHandler,
+) -> APIRouter:
     """A closure over the dependencies, with authentication as the one exception.
 
     The wiring is decided once by the composition root and never varies per
-    request, so a closure says exactly that — and keeps the handlers free of
+    request, so a closure says exactly that — and keeps the routes free of
     framework-specific injection that would have to be unpicked to test them.
+    The three write handlers are passed in rather than built here: presentation
+    constructs nothing, so the root decides what admission, ingest and
+    cancellation are wired with and this module only dispatches to them.
     The principal is deliberately NOT in the closure: it is a `Depends`
     dependency declared on every route, because a gate in the route table is
     what the generated 401 check derives from — a route written without
@@ -232,16 +162,12 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         transcription after it are separate, precisely so neither sits inside an
         HTTP request.
         """
-        operator = principal.identity
-        admission = admit_job(
-            engine=body.engine,
-            speaker_mode=body.speaker_mode,
-            operator=operator,
-            storage=deps.storage,
-            now=deps.now,
-            new_job_id=deps.new_job_id,
-            new_media_id=deps.new_media_id,
-            capabilities=deps.capabilities,
+        admission = admit_handler.handle(
+            AdmitJobCommand(
+                principal=principal,
+                engine=body.engine,
+                speaker_mode=body.speaker_mode,
+            )
         )
         return AdmitJobResponse(
             job_id=admission.job.job_id,
@@ -328,17 +254,17 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         free. The state coming back is therefore the record's current one, which
         for a running job is still the running state.
 
-        Ownership is checked here as well as inside the use case. The use case
-        must refuse a stranger on its own — it is callable without a route — and
-        the handler must produce the 403 before the branch is taken, so the
-        duplication is two different jobs, not one done twice.
+        Ownership is checked inside the handler rather than here: the domain rule
+        runs before the state branch is taken, so a stranger learns nothing about
+        which branch their job would have fallen into — and the refusal exists for
+        a caller with no route at all, which is the same reason the rule itself
+        lives in `domain/ownership.py`.
         """
-        operator = principal.identity
-        job = _load(job_id, deps)
-        _owned(job, operator)
-
-        cancelled = cancel_job(
-            job.job_id, operator=operator, storage=deps.storage, now=deps.now
+        cancelled = cancel_handler.handle(
+            CancelJobCommand(
+                job_id=_validated_job_id(job_id),
+                principal=principal,
+            )
         )
         return CancelJobResponse(job_id=cancelled.job_id, state=cancelled.state)
 
@@ -348,63 +274,23 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
     ) -> Response:
         """Raw body straight to disk. No multipart, no `UploadFile`.
 
-        `request.stream()` hands over chunks as they arrive off the socket, so the
-        writer never holds the file — which is the only way a multi-hour upload
-        works at all. FastAPI's `UploadFile` would spool the whole body first, and
-        a test asserts that neither it nor `File`/`Form` appears anywhere in this
-        adapter.
+        The route owns the two things that are genuinely HTTP: the path id and
+        the percent-encoded filename header. Everything that decides whether
+        those bytes are welcome lives on the ingest handler, so this dispatches
+        and hands back the status code.
 
         The filename arrives percent-encoded in a header and is recorded as
         metadata. It is never consulted when deciding where anything goes: storage
-        decided that before this handler ran.
+        decided that before this command was built.
         """
-        operator = principal.identity
-        job = _load(job_id, deps)
-        # Ownership is decided before the writer exists: a non-owner's request
-        # never opens a partial file, never accepts a byte. The state check
-        # follows rather than precedes it, so a stranger learns nothing about
-        # what happened to somebody else's job.
-        _owned(job, operator)
-        _accepting_media(job)
-
-        _refuse_if_declared_too_large(request, deps.max_upload_bytes)
-
-        writer = deps.media_source_for(deps.storage, job.job_id)
-        # `UploadTooLarge` from a dishonest Content-Length claim rises to the
-        # central table (413), same as the honest-declaration pre-check above.
-        media = await writer.store(
-            job.media_id,
-            _client_filename(request.headers.get(FILENAME_HEADER, "")),
-            request.stream(),
-            deps.max_upload_bytes,
-        )
-
-        # Read again, now that the bytes are in. The record consulted before the
-        # transfer is hours stale by the time a multi-hour upload finishes, and
-        # the cancel it missed is exactly the one worth catching. Checked before
-        # the probe because probing a job nobody wants is wasted work.
-        current = deps.storage.load_job(job.job_id)
-        if current.state is not JobState.PENDING:
-            writer.discard(media)
-            raise HTTPException(
-                status_code=409,
-                detail="job stopped accepting media while it was being uploaded",
+        await ingest_handler.handle(
+            IngestMediaCommand(
+                principal=principal,
+                job_id=_validated_job_id(job_id),
+                filename=_client_filename(request.headers.get(FILENAME_HEADER, "")),
+                content_length=request.headers.get("content-length"),
+                stream=request.stream(),
             )
-
-        verified = _verified_media(
-            media, extractor=deps.extractor_for(deps.storage, job.job_id), writer=writer
-        )
-        # Described before it is queued, never after: QUEUED is what makes the
-        # supervisor spawn a worker, and that worker's first act is to read this
-        # record. The other order is a race against ourselves.
-        deps.storage.save_media(job.job_id, verified)
-        # Queued, not started. This handler does not spawn — the drain
-        # supervisor is the only code that calls a launcher, which is what makes
-        # "never exceed the cap" true by construction rather than by two code
-        # paths agreeing. Written from the re-read record, not the one loaded
-        # before the transfer, so nothing decided hours ago is written back.
-        deps.storage.update_job(
-            replace(current, state=JobState.QUEUED, updated_at=deps.now())
         )
         return Response(status_code=204)
 

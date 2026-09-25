@@ -28,7 +28,11 @@ from onevoicecut.shared.domain.capabilities import (
     DiarizationSupport,
     WordTimingSupport,
 )
-from onevoicecut.usecases.admit_job import admit_job
+from onevoicecut.shared.application.principal import Principal
+from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.admit_job import (
+    AdmitJobCommand,
+    AdmitJobHandler,
+)
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.unit.adapters.web.conftest import (
     OPERATOR_A,
@@ -100,10 +104,10 @@ async def test_a_satisfiable_admission_still_records_the_owner(
 
 
 def test_the_guard_still_runs_before_any_id_is_minted(tmp_path: Path) -> None:
-    """OWN-11's ordering at the use case: the refusal precedes even id
-    minting, which is the earliest storage-facing act `admit_job` performs —
-    the `operator` argument sits after the guard, where the fused slice put
-    it, not before it."""
+    """OWN-11's ordering at the handler: the refusal precedes even id
+    minting, which is the earliest storage-facing act admission performs — the
+    caller's identity rides the command, so it cannot be what a guard reads
+    first."""
     storage = FakeTranscriptStoragePort(tmp_path)
     minted_job_ids: list[JobId] = []
     minted_media_ids: list[MediaId] = []
@@ -118,15 +122,19 @@ def test_the_guard_still_runs_before_any_id_is_minted(tmp_path: Path) -> None:
         minted_media_ids.append(media_id)
         return media_id
 
+    handler = AdmitJobHandler(
+        storage=storage,
+        capabilities=lambda _e: _declares(DiarizationSupport.REQUIRES_SETUP),
+        new_job_id=recording_job_id,
+        new_media_id=recording_media_id,
+    )
     with pytest.raises(DiarizationUnsupported):
-        admit_job(
-            engine=EngineChoice.LOCAL,
-            speaker_mode=SpeakerMode.MULTI,
-            operator=OPERATOR_A,
-            storage=storage,
-            capabilities=lambda _e: _declares(DiarizationSupport.REQUIRES_SETUP),
-            new_job_id=recording_job_id,
-            new_media_id=recording_media_id,
+        handler.handle(
+            AdmitJobCommand(
+                principal=Principal(identity=OPERATOR_A),
+                engine=EngineChoice.LOCAL,
+                speaker_mode=SpeakerMode.MULTI,
+            )
         )
 
     assert minted_job_ids == []

@@ -1,10 +1,10 @@
 """AUTH-10: a valid bearer token resolves `CurrentPrincipal`, and only the
-identity reaches the use case.
+identity crosses into the application.
 
 Both halves of the scenario are asserted where they can actually break: the
 route's own dependency — not a fresh factory call — turns `Bearer t-a` into
-operator "a", and the use case's `operator` parameter receives that identity
-with no token anywhere in the crossing. `dataclasses.fields` keeps the
+operator "a", and the `AdmitJobCommand` handed to the handler carries that
+identity with no token anywhere in the crossing. `dataclasses.fields` keeps the
 principal honest: two fields, neither of which can hold a credential.
 
 Importing `shared/application/principal.py` and `shared/presentation/security.py`
@@ -23,10 +23,12 @@ from httpx import ASGITransport, AsyncClient
 
 from onevoicecut.adapters.web.app import WebDependencies
 from onevoicecut.main import create_app
-from onevoicecut.adapters.web.routers import jobs as jobs_routes
 from onevoicecut.shared.application.principal import Principal, build_authenticator
 from onevoicecut.shared.domain.ids import make_operator_id
-from onevoicecut.usecases.admit_job import admit_job as real_admit
+from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.admit_job import (
+    AdmitJobCommand,
+    AdmitJobHandler,
+)
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.shared.presentation.conftest import request_with_headers
 from tests.unit.adapters.web.conftest import accepting_extractor
@@ -125,19 +127,22 @@ def test_a_missing_or_wrong_token_is_refused_by_the_route_dependency(
         assert refused.value.headers == {"WWW-Authenticate": "Bearer"}
 
 
-async def test_the_use_case_receives_the_identity_and_never_the_token(
+async def test_the_application_receives_the_identity_and_never_the_token(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """AUTH-10 second half: what crosses presentation → application is the
-    identity, in the use case's own `operator` parameter — the token that
-    produced it stops at the dependency."""
+    identity, on the command's own `principal` — the token that produced it
+    stops at the dependency."""
     captured: dict[str, Any] = {}
+    real_handle = AdmitJobHandler.handle
 
-    def spy(**kwargs: Any) -> Any:
-        captured.update(kwargs)
-        return real_admit(**kwargs)
+    def spy(self: AdmitJobHandler, command: AdmitJobCommand) -> Any:
+        captured["principal"] = command.principal
+        captured["engine"] = command.engine
+        captured["speaker_mode"] = command.speaker_mode
+        return real_handle(self, command)
 
-    monkeypatch.setattr(jobs_routes, "admit_job", spy)
+    monkeypatch.setattr(AdmitJobHandler, "handle", spy)
 
     app = _a_server(tmp_path)
     async with AsyncClient(
@@ -150,5 +155,5 @@ async def test_the_use_case_receives_the_identity_and_never_the_token(
         )
 
     assert response.status_code == 201
-    assert captured["operator"] == OPERATOR_A
+    assert captured["principal"].identity == OPERATOR_A
     assert TOKEN_A not in repr(captured)

@@ -57,6 +57,15 @@ from onevoicecut.shared.domain.errors import (
 )
 from onevoicecut.shared.domain.ids import ClipId, JobId
 from onevoicecut.shared.infrastructure.settings import Settings, load_env_file
+from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.admit_job import (
+    AdmitJobHandler,
+)
+from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.cancel_job import (
+    CancelJobHandler,
+)
+from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.ingest_media import (
+    IngestMediaHandler,
+)
 from onevoicecut.usecases.generate_artifacts import SCRIPT_TARGETS, ScriptTarget
 from onevoicecut.usecases.render_profiles import RENDER_PROFILES
 
@@ -158,13 +167,36 @@ def create_app(deps: WebDependencies, *, lifespan: Lifespan = None) -> FastAPI:
     the mapping is a property of the application, not of whichever factory
     built it, which is what lets routes drop their local translations and
     the existing status-code tests still pass unchanged.
+
+    The three write handlers are built here rather than in the router:
+    presentation constructs nothing, and this is the root that already decides
+    what the store, the clock and the capability guard are wired with.
     """
     from onevoicecut.adapters.web.routers.jobs import build_jobs_router
 
     app = FastAPI(
         title="transcribe", docs_url=None, redoc_url=None, lifespan=lifespan
     )
-    app.include_router(build_jobs_router(deps))
+    app.include_router(
+        build_jobs_router(
+            deps,
+            admit_handler=AdmitJobHandler(
+                storage=deps.storage,
+                capabilities=deps.capabilities,
+                now=deps.now,
+                new_job_id=deps.new_job_id,
+                new_media_id=deps.new_media_id,
+            ),
+            ingest_handler=IngestMediaHandler(
+                storage=deps.storage,
+                max_upload_bytes=deps.max_upload_bytes,
+                media_source_for=deps.media_source_for,
+                extractor_for=deps.extractor_for,
+                now=deps.now,
+            ),
+            cancel_handler=CancelJobHandler(storage=deps.storage, now=deps.now),
+        )
+    )
     app.add_exception_handler(DomainError, handle_domain_error)
     app.add_exception_handler(Exception, handle_unexpected_error)
     return app

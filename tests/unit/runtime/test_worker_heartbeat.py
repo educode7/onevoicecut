@@ -32,7 +32,11 @@ from onevoicecut.ports.audio_extractor import AudioExtractorPort
 from onevoicecut.runtime.app import drain_once, reconcile_interrupted_jobs
 from onevoicecut.runtime.engine_resolver import EngineResolver
 from onevoicecut.runtime.worker import run_job
-from onevoicecut.usecases.cancel_job import cancel_job
+from onevoicecut.shared.application.principal import Principal
+from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.cancel_job import (
+    CancelJobCommand,
+    CancelJobHandler,
+)
 from tests.fakes.audio_extractor import FakeAudioExtractorPort
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.fakes.transcription import FakeTranscriptionPort
@@ -139,7 +143,9 @@ class TestOnlyTheWorkerWritesOne:
     def test_cancelling_writes_no_heartbeat(
         self, storage: FakeTranscriptStoragePort
     ) -> None:
-        cancel_job(JOB_ID, operator=OWNER, storage=storage, now=lambda: CLAIMED_AT)
+        CancelJobHandler(storage=storage, now=lambda: CLAIMED_AT).handle(
+            CancelJobCommand(job_id=JOB_ID, principal=Principal(identity=OWNER))
+        )
 
         assert "write_heartbeat" not in storage.calls
 

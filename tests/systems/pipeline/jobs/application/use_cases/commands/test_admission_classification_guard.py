@@ -34,7 +34,11 @@ from onevoicecut.shared.domain.capabilities import (
     DiarizationSupport,
     WordTimingSupport,
 )
-from onevoicecut.usecases.admit_job import admit_job
+from onevoicecut.shared.application.principal import Principal
+from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.admit_job import (
+    AdmitJobCommand,
+    AdmitJobHandler,
+)
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 
 OWNER = make_operator_id("maria")
@@ -60,12 +64,15 @@ def _admit(
     *,
     speaker_mode: SpeakerMode = SpeakerMode.SINGLE,
 ) -> object:
-    return admit_job(
-        engine=EngineChoice.CLOUD,
-        speaker_mode=speaker_mode,
-        operator=OWNER,
+    return AdmitJobHandler(
         storage=storage,
         capabilities=lambda _engine: declared,
+    ).handle(
+        AdmitJobCommand(
+            principal=Principal(identity=OWNER),
+            engine=EngineChoice.CLOUD,
+            speaker_mode=speaker_mode,
+        )
     )
 
 
@@ -155,11 +162,15 @@ class TestBothAxesTogether:
     def test_no_guard_supplied_still_admits_anything(self, tmp_path: Path) -> None:
         """`None` remains legal for tests and for the E2E harness. Production
         supplies it — a separate test asserts the composition root does."""
-        job = admit_job(
-            engine=EngineChoice.CLOUD,
-            speaker_mode=SpeakerMode.MULTI,
-            operator=OWNER,
+        job = AdmitJobHandler(
             storage=FakeTranscriptStoragePort(tmp_path),
+            capabilities=None,
+        ).handle(
+            AdmitJobCommand(
+                principal=Principal(identity=OWNER),
+                engine=EngineChoice.CLOUD,
+                speaker_mode=SpeakerMode.MULTI,
+            )
         ).job
 
         assert job is not None

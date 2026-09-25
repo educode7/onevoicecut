@@ -37,7 +37,12 @@ from onevoicecut.shared.domain.capabilities import (
     DiarizationSupport,
     WordTimingSupport,
 )
-from onevoicecut.usecases.admit_job import Admission, admit_job
+from onevoicecut.shared.application.principal import Principal
+from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.admit_job import (
+    Admission,
+    AdmitJobCommand,
+    AdmitJobHandler,
+)
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 
 OWNER = make_operator_id("maria")
@@ -57,16 +62,20 @@ def _declares(
 
 def _admit(
     storage: FakeTranscriptStoragePort,
-    declared: DeclaredSupport,
+    declared: DeclaredSupport | None,
     *,
     speaker_mode: SpeakerMode = SpeakerMode.SINGLE,
 ) -> Admission:
-    return admit_job(
-        engine=EngineChoice.LOCAL,
-        speaker_mode=speaker_mode,
-        operator=OWNER,
-        storage=storage,
-        capabilities=lambda _engine: declared,
+    """Dependencies on the handler; the caller's identity on the command."""
+    capabilities = (
+        None if declared is None else (lambda _engine: declared)
+    )
+    return AdmitJobHandler(storage=storage, capabilities=capabilities).handle(
+        AdmitJobCommand(
+            principal=Principal(identity=OWNER),
+            engine=EngineChoice.LOCAL,
+            speaker_mode=speaker_mode,
+        )
     )
 
 
@@ -159,11 +168,6 @@ class TestWarningsDoNotReplaceRefusals:
 def test_no_capability_guard_means_no_warnings(tmp_path: Path) -> None:
     """`None` stays legal for the E2E harness. Nothing was declared, so nothing
     can be said about it — silence here is honest rather than reassuring."""
-    admission = admit_job(
-        engine=EngineChoice.LOCAL,
-        speaker_mode=SpeakerMode.SINGLE,
-        operator=OWNER,
-        storage=FakeTranscriptStoragePort(tmp_path),
-    )
+    admission = _admit(FakeTranscriptStoragePort(tmp_path), None)
 
     assert admission.warnings == ()

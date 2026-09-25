@@ -18,16 +18,37 @@ import pytest
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
+from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.shared.application.principal import Principal
 from onevoicecut.shared.domain.ids import make_operator_id
-from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobState, SpeakerMode
+from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.admit_job import (
+    AdmitJobCommand,
+    AdmitJobHandler,
+)
+from onevoicecut.systems.pipeline.jobs.domain.jobs import (
+    EngineChoice,
+    JobRecord,
+    JobState,
+    SpeakerMode,
+)
 from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
 from onevoicecut.runtime.app import reconcile_interrupted_jobs
-from onevoicecut.usecases.admit_job import admit_job
 
 OPERATOR_A = make_operator_id("a")
 OPERATOR_B = make_operator_id("b")
 WORKER_PID = 4812
 SRC_ROOT = Path(__file__).resolve().parents[3] / "src" / "onevoicecut"
+
+
+def _admit(storage: TranscriptStoragePort) -> JobRecord:
+    """Admission through the handler: the caller's identity rides the command."""
+    return AdmitJobHandler(storage=storage).handle(
+        AdmitJobCommand(
+            principal=Principal(identity=OPERATOR_A),
+            engine=EngineChoice.LOCAL,
+            speaker_mode=SpeakerMode.SINGLE,
+        )
+    ).job
 
 
 def test_owner_survives_every_transition_that_exists(
@@ -37,12 +58,7 @@ def test_owner_survives_every_transition_that_exists(
     rewrite: the record re-loaded from disk carries owner "a" at every point."""
     storage = FilesystemTranscriptStorage(tmp_path)
 
-    job = admit_job(
-        engine=EngineChoice.LOCAL,
-        speaker_mode=SpeakerMode.SINGLE,
-        operator=OPERATOR_A,
-        storage=storage,
-    ).job
+    job = _admit(storage)
     assert storage.load_job(job.job_id).owner == OPERATOR_A
 
     storage.save_media(
@@ -84,12 +100,7 @@ def test_the_record_is_frozen_so_ownership_cannot_be_reassigned(
     """The immutability is structural, not conventional: assigning to `owner`
     on a live record refuses."""
     storage = FilesystemTranscriptStorage(tmp_path)
-    job = admit_job(
-        engine=EngineChoice.LOCAL,
-        speaker_mode=SpeakerMode.SINGLE,
-        operator=OPERATOR_A,
-        storage=storage,
-    ).job
+    job = _admit(storage)
 
     with pytest.raises(FrozenInstanceError):
         job.owner = OPERATOR_B  # type: ignore[misc]

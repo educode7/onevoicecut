@@ -297,24 +297,24 @@ AUTH-15 ownership stays out of presentation (handlers call the domain ownership 
 admission/ingest behavior preservation (existing use-case tests move). Design decision: skill
 `Command`/`Query` dataclasses + `Handler` classes, verbatim function bodies.
 
-- [ ] 2c.1 RED: handler-shape tests (moved from the current use-case tests, same assertions)
+- [x] 2c.1 RED: handler-shape tests (moved from the current use-case tests, same assertions)
       — `AdmitJobHandler`, `IngestMediaHandler`, `CancelJobHandler` exist under
       `systems/pipeline/jobs/application/use_cases/commands/`, each with a frozen `{Name}Command`
       carrying `principal: Principal` where identity matters and a `handle()` method; fail on
       import until handlers land. `[unit 2c]`
-- [ ] 2c.2 GREEN: convert `usecases/{admit_job,ingest_media,cancel_job}.py` into the three
+- [x] 2c.2 GREEN: convert `usecases/{admit_job,ingest_media,cancel_job}.py` into the three
       handler files — wrap-and-rename only; bodies verbatim (ingest keeps statement order:
       ownership, state check, size pre-check, store, re-read, probe, `save_media`,
       `update_job(QUEUED)`; command carries `AsyncIterator[bytes]` + percent-decoded filename);
       `cancel_job` writes `control.json` through the injected store seam unchanged (CXL-01
       recording semantics). `[unit 2c]`
-- [ ] 2c.3 GREEN: rewire callers — `runtime/` composition and the still-present
+- [x] 2c.3 GREEN: rewire callers — `runtime/` composition and the still-present
       `adapters/web` routes obtain handlers from temporary wiring in the composition root
       (construction stays out of routes; `WebDependencies` pattern preserved until 2e
       introduces `jobs_module_api`). `resume_job` is **not** converted here — its
       `pending_chunks` derivation is pure over `ChunkResult` (transcripts-owned); it lands in
       slice 3c to satisfy AB-06/07 (destination unchanged: jobs command). `[unit 2c]`
-- [ ] 2c.4 Verify: every existing admit/ingest/cancel test green against handlers without
+- [x] 2c.4 Verify: every existing admit/ingest/cancel test green against handlers without
       semantic edits; suite + mypy. Commit
       `refactor(fca): convert jobs write use cases to Command/Handler files`. `[unit 2c]`
 
