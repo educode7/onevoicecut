@@ -13,7 +13,7 @@ import pytest
 from onevoicecut.domain.chunking import AudioChunk
 from onevoicecut.shared.domain.errors import DiarizationUnsupported
 from onevoicecut.shared.domain.ids import JobId, make_operator_id
-from onevoicecut.domain.jobs import EngineChoice, JobState, SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobState, SpeakerMode
 from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DeclaredSupport,

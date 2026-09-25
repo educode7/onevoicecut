@@ -11,7 +11,7 @@ from pathlib import Path
 from onevoicecut.domain.framing import TrackingConfidence
 from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
 from onevoicecut.shared.domain.ids import make_clip_id, make_job_id, make_media_id
-from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.domain.rendering import (
     CaptionCoverage,
     ClipExport,

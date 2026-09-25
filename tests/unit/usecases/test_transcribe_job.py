@@ -15,8 +15,8 @@ import pytest
 
 from onevoicecut.domain.chunking import ChunkState
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id
-from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
-from onevoicecut.domain.media import SourceMedia
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
 from onevoicecut.domain.transcript import SegmentKind
 from onevoicecut.usecases.transcribe_job import transcribe_job
 from tests.fakes.audio_extractor import FAKE_DURATION_S, FakeAudioExtractorPort

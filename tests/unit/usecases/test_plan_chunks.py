@@ -12,7 +12,7 @@ import pytest
 
 from onevoicecut.shared.domain.errors import ChunkTooLarge
 from onevoicecut.shared.domain.ids import make_job_id, make_media_id
-from onevoicecut.domain.media import AudioTrack
+from onevoicecut.systems.pipeline.jobs.domain.media import AudioTrack
 from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DiarizationSupport,

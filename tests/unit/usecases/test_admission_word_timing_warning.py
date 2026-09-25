@@ -30,7 +30,7 @@ import pytest
 
 from onevoicecut.shared.domain.errors import DiarizationUnsupported
 from onevoicecut.shared.domain.ids import make_operator_id
-from onevoicecut.domain.jobs import EngineChoice, JobState, SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobState, SpeakerMode
 from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DeclaredSupport,

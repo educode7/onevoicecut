@@ -11,7 +11,7 @@ from tests.fakes.transcription import (
     FakeTranscriptionPort,
     NonClassifyingFakeTranscriptionPort,
 )
-from onevoicecut.domain.jobs import EngineChoice, SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, SpeakerMode
 from onevoicecut.domain.transcript import SegmentKind
 from onevoicecut.usecases.ingest_media import IngestMedia
 

@@ -31,7 +31,7 @@ from onevoicecut.domain.framing import (
     TrackingConfidence,
 )
 from onevoicecut.shared.domain.ids import make_media_id
-from onevoicecut.domain.media import MediaProbe, SourceMedia
+from onevoicecut.systems.pipeline.jobs.domain.media import MediaProbe, SourceMedia
 from onevoicecut.domain.rendering import OutputSpec, SubtitleCue
 from onevoicecut.shared.domain.capabilities import RenderCapabilities, RenderSupport
 from onevoicecut.ports.video_render import RenderedFile, RenderRequest
