@@ -328,19 +328,19 @@ writes from either query). New behavior — strict RED-first per design testing 
 Pagination slicing is **deferred to slice 5b** (design rollout: queries land Phase 2,
 pagination tests land Phase 5).
 
-- [ ] 2d.1 RED: `GetJobQuery` — returns the record plus `derive_progress` output; unknown or
+- [x] 2d.1 RED: `GetJobQuery` — returns the record plus `derive_progress` output; unknown or
       malformed id raises `JobNotFound`; the fake store records zero mutations across the call
       (read-only). Fails: query does not exist. `[unit 2d]`
-- [ ] 2d.2 GREEN: create `systems/pipeline/jobs/application/use_cases/queries/get_job.py`
+- [x] 2d.2 GREEN: create `systems/pipeline/jobs/application/use_cases/queries/get_job.py`
       (`GetJobQuery`/`GetJobHandler`) wrapping load + `derive_progress` verbatim. `[unit 2d]`
-- [ ] 2d.3 RED: `ListJobsQuery` — unscoped `list_jobs()` source (the same listing reconcile
+- [x] 2d.3 RED: `ListJobsQuery` — unscoped `list_jobs()` source (the same listing reconcile
       uses), every job returned with owner attribution (VIS-03), legacy `owner=None` surfaces
       as null attribution (VIS-04), server-side `mine` filter narrows the tuple before any
       presentation concern. Fails: query does not exist. `[unit 2d]`
-- [ ] 2d.4 GREEN: create `queries/list_jobs.py` (`ListJobsQuery`/`ListJobsHandler`) —
+- [x] 2d.4 GREEN: create `queries/list_jobs.py` (`ListJobsQuery`/`ListJobsHandler`) —
       attribution and `mine` filtering verbatim from the current route logic it will replace
       in 2e. `[unit 2d]`
-- [ ] 2d.5 Verify: suite + mypy; commit
+- [x] 2d.5 Verify: suite + mypy; commit
       `feat(jobs): add GetJob and ListJobs CQRS queries`. `[unit 2d]`
 
 ---
