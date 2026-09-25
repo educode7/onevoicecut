@@ -65,7 +65,14 @@ def build_router(
     `principal: CurrentPrincipal` fails that check the day it appears, where a
     forgotten `_authorized(...)` first statement only failed review.
     """
-    router = APIRouter(tags=["jobs"])
+    # The prefix lives here rather than being passed to `include_router` by the
+    # caller. FastAPI 0.141.1 routes included with an outer prefix are wrapped in
+    # an `_IncludedRouter` whose nested `APIRoute.path` keeps only the prefix this
+    # router declared — so the generated gates (AUTH-06's 401, OWN-05's 403), which
+    # read `route.path` to build their request URLs, would call `/{job_id}/cancel`
+    # and get a 404 from a route that is actually served at `/api/jobs/{job_id}/cancel`.
+    # Declaring it here is what makes the route table describe the paths the server serves.
+    router = APIRouter(prefix="/api/jobs", tags=["jobs"])
     # Written here rather than returned by the factory: only a literal
     # Annotated expression binds as a type annotation, so the factory builds
     # the resolver and this line binds it to this router's dependencies.

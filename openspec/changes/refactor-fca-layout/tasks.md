@@ -356,14 +356,20 @@ test preserved. Relocation + decomposition: routes move under module presentatio
       `tests/systems/pipeline/jobs/presentation/` — they fail on import until wiring lands
       (honest for decomposition; **bodies unchanged**: same status codes, same 401 to 404 to
       403 precedence, same effects). `[unit 2e]`
-- [ ] 2e.2 GREEN: create `systems/pipeline/jobs/presentation/{schemas,routes,controllers}/v1/`
+- [x] 2e.2 GREEN: create `systems/pipeline/jobs/presentation/{schemas,routes,controllers}/v1/`
       from `adapters/web/schemas.py` (jobs schemas) and `adapters/web/routers/jobs.py` — thin
       controllers (schema to DTO, validate ids 404, translate `JobNotOwned` to 403 and nothing
       else), routes declaring `principal: CurrentPrincipal` with **relative** paths; create
       `systems/pipeline/jobs/jobs_module_api.py` wiring handlers + storage facade (skill
       pattern); `main.py` registers the jobs router at prefix `/api/jobs` (still unversioned).
       `[unit 2e]`
-- [ ] 2e.3 GREEN: drain the five jobs operations and their schemas out of `adapters/web/`
+      **Execution note (measured against FastAPI 0.141.1):** the prefix is carried by each
+      router, not supplied by `include_router`. An outer prefix wraps the routes in an
+      `_IncludedRouter` whose nested `APIRoute.path` omits it, and the generated AUTH-06/OWN-05
+      gates build their request URLs from `route.path` — they would call `/{job_id}/cancel`
+      and 404. Router-carried prefix keeps the route table true to the served paths;
+      `main.py` registers both routers prefix-less. Everything else matches the task.
+- [x] 2e.3 GREEN: drain the five jobs operations and their schemas out of `adapters/web/`
       (clips operations and any shared schema remainder stay until 4e); relocate the async
       upload adapter `adapters/storage/media_source.py` to
       `systems/pipeline/jobs/infrastructure/` (the one async port stays web-only);
@@ -371,10 +377,16 @@ test preserved. Relocation + decomposition: routes move under module presentatio
       structurally and is bound at composition roots (main may import any module — wiring
       roots are excepted from cross-module rules). Construction of handlers/adapters moves
       into `jobs_module_api`/`main.py` — presentation constructs nothing (AB-09). `[unit 2e]`
-- [ ] 2e.4 Verify: route-table-generated 401 (AUTH-06) and owner-only 403 checks derive from
+- [x] 2e.4 Verify: route-table-generated 401 (AUTH-06) and owner-only 403 checks derive from
       `app.routes` and pass with no hand-maintained list; CXL-01/CXL-02 and AUTH-13/14/15
       integration tests green with unchanged bodies; suite + mypy. Commit
       `refactor(fca): move jobs HTTP surface into module presentation`. `[unit 2e]`
+      Verified on this tree: **2161 passed, 44 deselected, 0 skipped** (default run);
+      `mypy src tests` clean over 323 files; `tests/test_architecture.py` 15 passed.
+      RED-by-move proof: before wiring, the relocated suite raised
+      `ModuleNotFoundError: No module named 'onevoicecut.systems.pipeline.jobs.presentation'`
+      (2 collection errors) plus `FileNotFoundError` on the not-yet-created
+      `presentation/routes/v1/job_routes.py` — tally `1 failed, 139 passed, 2 errors`.
 
 ---
 

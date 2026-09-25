@@ -365,11 +365,21 @@ JOBS_PLANT_CASES: tuple[tuple[str, str, str, str], ...] = (
         "onevoicecut.systems.pipeline.jobs.domain.jobs",
     ),
     (
+        # Both halves of AB-09 get a live positive control: presentation must
+        # reach neither the composition object the module API hands a route
+        # factory, nor the concrete storage adapters its own infrastructure
+        # holds — the second is the import slice 2e moved into this module.
         "ab-09-presentation-imports-concrete-adapter",
         "systems/pipeline/jobs/presentation/v1/controllers/upload.py",
-        "from onevoicecut.adapters.storage.media_source import"
+        "from onevoicecut.adapters.web.app import WebDependencies\n",
+        "onevoicecut.adapters.web.app",
+    ),
+    (
+        "ab-09b-presentation-imports-own-infrastructure",
+        "systems/pipeline/jobs/presentation/v1/controllers/upload.py",
+        "from onevoicecut.systems.pipeline.jobs.infrastructure.media_source import"
         " FilesystemMediaSource\n",
-        "onevoicecut.adapters.storage.media_source",
+        "onevoicecut.systems.pipeline.jobs.infrastructure.media_source",
     ),
     (
         "ab-10-application-imports-runtime",

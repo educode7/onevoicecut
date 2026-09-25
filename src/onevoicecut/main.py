@@ -4,9 +4,12 @@
 
 Configuration is read here, the token map is parsed here — the one
 `get_secret_value()` call in the system (AUTH-17) — and one `DomainError`
-handler maps every domain failure at the edge, so routes raise domain errors
-and never translate them themselves. `runtime.app.get_app` re-exports this
-factory until the entrypoint flips in Phase 5.
+handler maps every domain failure at the edge, so handlers raise domain errors
+and the table does the rest. The single error that does not reach the table is
+`JobNotOwned`: the jobs controller translates it first, using this module's own
+constant, so the generic wording has exactly one home wherever the translation
+happens. `runtime.app.get_app` re-exports this factory until the entrypoint
+flips in Phase 5.
 
 Every name taken from `runtime.app` is imported *inside* the function that
 uses it. `runtime.app` re-exports this module's factory and its drain
@@ -57,14 +60,8 @@ from onevoicecut.shared.domain.errors import (
 )
 from onevoicecut.shared.domain.ids import ClipId, JobId
 from onevoicecut.shared.infrastructure.settings import Settings, load_env_file
-from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.admit_job import (
-    AdmitJobHandler,
-)
-from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.cancel_job import (
-    CancelJobHandler,
-)
-from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.ingest_media import (
-    IngestMediaHandler,
+from onevoicecut.systems.pipeline.jobs.presentation.controllers.v1.job_controller import (
+    OWNER_REFUSAL_DETAIL,
 )
 from onevoicecut.usecases.generate_artifacts import SCRIPT_TARGETS, ScriptTarget
 from onevoicecut.usecases.render_profiles import RENDER_PROFILES
@@ -102,13 +99,6 @@ _DOMAIN_ERROR_STATUSES: dict[type[DomainError], int] = {
 }
 _DEFAULT_DOMAIN_ERROR_STATUS = 422
 
-# `JobNotOwned`'s own message names the job and the operator — it is raised
-# once, in `require_owner`, where non-HTTP callers want exactly that. The
-# HTTP refusal must not: under the shared board a 403 on a foreign id is
-# already public knowledge of the id, and the owner is not part of the
-# answer. Only this edge answers generically.
-_OWNER_REFUSAL_DETAIL = "not the owner of this job"
-
 logger = logging.getLogger(__name__)
 
 
@@ -132,7 +122,7 @@ def handle_domain_error(request: Request, error: Exception) -> JSONResponse:
     comes from the error alone, which is what keeps one table true for every
     route at once.
     """
-    detail = _OWNER_REFUSAL_DETAIL if isinstance(error, JobNotOwned) else str(error)
+    detail = OWNER_REFUSAL_DETAIL if isinstance(error, JobNotOwned) else str(error)
     return JSONResponse(
         status_code=_domain_error_status(error), content={"detail": detail}
     )
@@ -168,35 +158,21 @@ def create_app(deps: WebDependencies, *, lifespan: Lifespan = None) -> FastAPI:
     built it, which is what lets routes drop their local translations and
     the existing status-code tests still pass unchanged.
 
-    The three write handlers are built here rather than in the router:
-    presentation constructs nothing, and this is the root that already decides
-    what the store, the clock and the capability guard are wired with.
+    Neither half of `/api/jobs` is decided here. The five jobs operations arrive
+    wired from `jobs_module_api` — the module decides which handlers its
+    controller runs against — and the three clip operations that still live in
+    the web adapter arrive as their own router; each carries its own `/api/jobs`
+    prefix, so the split is invisible on the wire and the route table every
+    generated gate reads stays honest about the paths actually served.
     """
-    from onevoicecut.adapters.web.routers.jobs import build_jobs_router
+    from onevoicecut.adapters.web.routers.jobs import build_clip_router
+    from onevoicecut.systems.pipeline.jobs.jobs_module_api import build_jobs_router
 
     app = FastAPI(
         title="transcribe", docs_url=None, redoc_url=None, lifespan=lifespan
     )
-    app.include_router(
-        build_jobs_router(
-            deps,
-            admit_handler=AdmitJobHandler(
-                storage=deps.storage,
-                capabilities=deps.capabilities,
-                now=deps.now,
-                new_job_id=deps.new_job_id,
-                new_media_id=deps.new_media_id,
-            ),
-            ingest_handler=IngestMediaHandler(
-                storage=deps.storage,
-                max_upload_bytes=deps.max_upload_bytes,
-                media_source_for=deps.media_source_for,
-                extractor_for=deps.extractor_for,
-                now=deps.now,
-            ),
-            cancel_handler=CancelJobHandler(storage=deps.storage, now=deps.now),
-        )
-    )
+    app.include_router(build_jobs_router(deps))
+    app.include_router(build_clip_router(deps))
     app.add_exception_handler(DomainError, handle_domain_error)
     app.add_exception_handler(Exception, handle_unexpected_error)
     return app

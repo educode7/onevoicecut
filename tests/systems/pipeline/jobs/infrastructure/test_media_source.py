@@ -15,9 +15,11 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.storage.media_source import FilesystemMediaSource
 from onevoicecut.shared.domain.errors import UploadTooLarge
 from onevoicecut.shared.domain.ids import make_media_id
+from onevoicecut.systems.pipeline.jobs.infrastructure.media_source import (
+    FilesystemMediaSource,
+)
 
 MEDIA_ID = make_media_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFE")
 GENEROUS = 1024**3

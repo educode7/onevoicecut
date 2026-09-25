@@ -12,7 +12,9 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor
-from onevoicecut.adapters.storage.media_source import FilesystemMediaSource
+from onevoicecut.systems.pipeline.jobs.infrastructure.media_source import (
+    FilesystemMediaSource,
+)
 from onevoicecut.shared.domain.ids import (
     ClipId,
     JobId,
