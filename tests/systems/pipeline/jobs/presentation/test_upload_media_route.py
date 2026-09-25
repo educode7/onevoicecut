@@ -18,6 +18,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 import onevoicecut.adapters.web as web_package
+import onevoicecut.systems.pipeline.jobs as jobs_package
 from onevoicecut.adapters.web.app import WebDependencies
 from onevoicecut.main import create_app
 from onevoicecut.shared.domain.ids import JobId, make_job_id
@@ -205,17 +206,26 @@ def test_no_multipart_path_exists_anywhere_in_the_web_adapter() -> None:
     """`UploadFile` spools the whole body before a handler sees it, which on a
     multi-hour sermon means writing the file twice or running out of disk. The
     only defence that holds is that the machinery is not imported at all — a
-    request-level test cannot prove an absence."""
-    package_root = Path(web_package.__file__).parent
+    request-level test cannot prove an absence.
+
+    Both homes of the HTTP surface are walked: the adapter that composes it and
+    the module that now owns it. Scanning only one would leave the moment the
+    upload route moves — which is exactly when this test would start passing
+    without looking at the code it is about."""
+    roots = [
+        Path(web_package.__file__).parent,
+        Path(jobs_package.__file__).parent / "presentation",
+    ]
 
     imported: set[str] = set()
-    for module in package_root.rglob("*.py"):
-        tree = ast.parse(module.read_text(encoding="utf-8"), filename=str(module))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom):
-                imported.update(alias.name for alias in node.names)
-            elif isinstance(node, ast.Import):
-                imported.update(alias.name for alias in node.names)
+    for root in roots:
+        for module in root.rglob("*.py"):
+            tree = ast.parse(module.read_text(encoding="utf-8"), filename=str(module))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom):
+                    imported.update(alias.name for alias in node.names)
+                elif isinstance(node, ast.Import):
+                    imported.update(alias.name for alias in node.names)
 
     assert FORBIDDEN_HELPERS.isdisjoint(imported)
 
@@ -223,6 +233,6 @@ def test_no_multipart_path_exists_anywhere_in_the_web_adapter() -> None:
 def test_the_upload_route_reads_the_request_as_a_stream() -> None:
     """Pins the mechanism, not just its absence: `request.stream()` is what makes
     the body arrive in pieces instead of as one object."""
-    module = Path(web_package.__file__).parent / "routers" / "jobs.py"
+    module = Path(jobs_package.__file__).parent / "presentation" / "routes" / "v1" / "job_routes.py"
 
     assert "request.stream()" in module.read_text(encoding="utf-8")
