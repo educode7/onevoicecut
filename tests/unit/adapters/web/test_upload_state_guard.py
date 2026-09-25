@@ -26,7 +26,7 @@ from onevoicecut.adapters.web.app import WebDependencies
 from onevoicecut.main import create_app
 from onevoicecut.shared.domain.errors import JobNotFound
 from onevoicecut.shared.domain.ids import JobId, make_job_id
-from onevoicecut.domain.jobs import JobState
+from onevoicecut.systems.pipeline.jobs.domain.jobs import JobState
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.unit.adapters.web.conftest import (
     TOKEN_A,

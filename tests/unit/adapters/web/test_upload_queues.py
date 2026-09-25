@@ -27,8 +27,8 @@ from onevoicecut.adapters.web.app import WebDependencies
 from onevoicecut.main import create_app
 from onevoicecut.shared.domain.errors import UnsupportedContainer
 from onevoicecut.shared.domain.ids import JobId, make_job_id
-from onevoicecut.domain.jobs import JobState
-from onevoicecut.domain.media import MediaProbe
+from onevoicecut.systems.pipeline.jobs.domain.jobs import JobState
+from onevoicecut.systems.pipeline.jobs.domain.media import MediaProbe
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from tests.fakes.audio_extractor import FakeAudioExtractorPort

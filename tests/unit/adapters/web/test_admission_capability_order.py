@@ -21,7 +21,7 @@ from onevoicecut.shared.domain.ids import (
     generate_job_id,
     generate_media_id,
 )
-from onevoicecut.domain.jobs import EngineChoice, SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, SpeakerMode
 from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DeclaredSupport,

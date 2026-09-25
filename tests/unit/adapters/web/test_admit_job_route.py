@@ -19,7 +19,7 @@ from httpx import ASGITransport, AsyncClient
 from onevoicecut.adapters.web.app import WebDependencies
 from onevoicecut.main import create_app
 from onevoicecut.shared.domain.ids import _ULID_PATTERN
-from onevoicecut.domain.jobs import EngineChoice, JobState, SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobState, SpeakerMode
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.unit.adapters.web.conftest import auth_headers, fake_authenticate
 
