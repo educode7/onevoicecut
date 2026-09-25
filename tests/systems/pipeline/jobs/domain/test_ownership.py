@@ -19,9 +19,9 @@ from onevoicecut.shared.domain.ids import (
     make_media_id,
     make_operator_id,
 )
-from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.usecases.admit_job import admit_job
-from onevoicecut.usecases.ownership import require_owner
+from onevoicecut.systems.pipeline.jobs.domain.ownership import require_owner
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 
 OPERATOR_A = make_operator_id("a")

@@ -23,8 +23,8 @@ from onevoicecut.adapters.web.app import WebDependencies
 from onevoicecut.main import create_app
 from onevoicecut.shared.domain.errors import JobNotOwned
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_operator_id
-from onevoicecut.domain.jobs import JobState
-from onevoicecut.usecases.ownership import require_owner
+from onevoicecut.systems.pipeline.jobs.domain.jobs import JobState
+from onevoicecut.systems.pipeline.jobs.domain.ownership import require_owner
 from onevoicecut.usecases.purge_job_artifacts import PurgeJobArtifacts
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.unit.adapters.web.conftest import (
@@ -35,7 +35,7 @@ from tests.unit.adapters.web.conftest import (
     fake_authenticate,
     route_request_body,
 )
-from tests.unit.usecases.test_ownership import an_owned_job
+from tests.systems.pipeline.jobs.domain.test_ownership import an_owned_job
 
 OWNERSHIP_BODY = b'{"detail":"not the owner of this job"}'
 MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
