@@ -18,7 +18,7 @@ from onevoicecut.adapters.storage.filesystem_transcript_storage import (
 )
 from onevoicecut.shared.domain.errors import CorruptedRecord, JobNotFound
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id
-from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")

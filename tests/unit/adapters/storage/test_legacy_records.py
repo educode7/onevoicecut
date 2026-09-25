@@ -19,7 +19,7 @@ from onevoicecut.adapters.storage.filesystem_transcript_storage import (
 )
 from onevoicecut.adapters.storage.serialization import encode_job
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
-from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.runtime.app import reconcile_interrupted_jobs
 
 # Ids chosen to sort F0 < F1 < F2 < F3, so listing assertions are pinned to

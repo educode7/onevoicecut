@@ -40,7 +40,7 @@ from onevoicecut.shared.domain.errors import (
     TranscriptionFailed,
 )
 from onevoicecut.shared.domain.ids import make_job_id
-from onevoicecut.domain.jobs import SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import SpeakerMode
 from onevoicecut.domain.transcript import SegmentKind
 from onevoicecut.shared.domain.capabilities import ClassificationSupport, DiarizationSupport
 from onevoicecut.ports.transcription import TranscriptionRequest

@@ -22,7 +22,7 @@ from onevoicecut.adapters.storage.filesystem_transcript_storage import (
 from onevoicecut.domain.chunking import ChunkResult, ChunkState
 from onevoicecut.shared.domain.errors import JobNotFound
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id
-from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")

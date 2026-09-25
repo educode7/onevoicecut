@@ -26,12 +26,12 @@ from onevoicecut.adapters.storage.serialization import (
     encode_media,
     encode_transcript,
 )
-from onevoicecut.domain.media import SourceMedia
+from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
 from onevoicecut.shared.domain.errors import CorruptedRecord
 from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
 from onevoicecut.shared.domain.ids import make_job_id, make_media_id, make_operator_id
-from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.domain.transcript import SegmentKind, Transcript, TranscriptSegment
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")

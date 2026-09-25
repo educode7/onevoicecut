@@ -22,7 +22,7 @@ from onevoicecut.shared.domain.errors import (
 from onevoicecut.domain.framing import TrackingConfidence
 from onevoicecut.domain.generation import ScriptVariant
 from onevoicecut.shared.domain.ids import ClipId, JobId, make_clip_id, make_job_id, make_media_id
-from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from tests.contract.clip_export_storage import assert_keyed_by_clip_and_profile
 from onevoicecut.domain.rendering import (
     CaptionCoverage,
