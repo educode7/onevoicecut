@@ -30,7 +30,7 @@ from onevoicecut.adapters.asr.cloud.openai_whisper_adapter import (
 )
 from onevoicecut.shared.domain.errors import ChunkTooLarge
 from onevoicecut.shared.domain.ids import make_job_id, make_media_id
-from onevoicecut.systems.pipeline.jobs.domain.media import AudioTrack
+from onevoicecut.shared.domain.media import AudioTrack
 from onevoicecut.shared.domain.capabilities import TranscriptionCapabilities
 from onevoicecut.usecases.plan_chunks import (
     DEFAULT_MIN_CHUNK_S,

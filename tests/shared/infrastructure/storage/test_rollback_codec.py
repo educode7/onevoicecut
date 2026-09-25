@@ -34,7 +34,8 @@ from onevoicecut.shared.infrastructure.storage.core import (
     _optional_whole,
 )
 from onevoicecut.shared.infrastructure.storage.core import _loads as loads
-from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.shared.domain.speaker import SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
 MEDIA_ID = make_media_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFE")

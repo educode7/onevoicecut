@@ -11,7 +11,8 @@ from onevoicecut.systems.pipeline.jobs.presentation.schemas.v1.job_schemas impor
     JobListResponse,
     JobStatusResponse,
 )
-from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobState, SpeakerMode
+from onevoicecut.shared.domain.speaker import SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobState
 
 JOB_ID = "01HQ3M8XKJ7VNPQR2ZYWB4TCFD"
 

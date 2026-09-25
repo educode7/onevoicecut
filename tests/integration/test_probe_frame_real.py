@@ -21,7 +21,7 @@ import pytest
 
 from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor
 from onevoicecut.shared.domain.ids import make_job_id, make_media_id
-from onevoicecut.systems.pipeline.jobs.domain.media import FrameSize, MediaProbe, SourceMedia
+from onevoicecut.shared.domain.media import FrameSize, MediaProbe, SourceMedia
 
 pytestmark = pytest.mark.integration
 

@@ -39,11 +39,11 @@ from onevoicecut.systems.pipeline.jobs.application.use_cases.queries.get_job imp
     GetJobQuery,
     JobSnapshot,
 )
+from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import (
     EngineChoice,
     JobRecord,
     JobState,
-    SpeakerMode,
     derive_progress,
 )
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort

@@ -139,7 +139,7 @@ class TestTheGuardActuallyRefuses:
             AdmitJobCommand,
             AdmitJobHandler,
         )
-        from onevoicecut.systems.pipeline.jobs.domain.jobs import SpeakerMode
+        from onevoicecut.shared.domain.speaker import SpeakerMode
         from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 
         storage = FakeTranscriptStoragePort(tmp_path)

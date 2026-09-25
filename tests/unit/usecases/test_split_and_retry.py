@@ -32,8 +32,9 @@ import pytest
 from onevoicecut.domain.chunking import AudioChunk, ChunkState, PlannedChunk
 from onevoicecut.shared.domain.errors import ChunkTooLarge
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
-from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
-from onevoicecut.systems.pipeline.jobs.domain.media import AudioTrack, MediaProbe, SourceMedia
+from onevoicecut.shared.domain.speaker import SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState
+from onevoicecut.shared.domain.media import AudioTrack, MediaProbe, SourceMedia
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
 from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,

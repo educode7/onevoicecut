@@ -41,7 +41,7 @@ from onevoicecut.domain.framing import (
     crop_size_for,
     even,
 )
-from onevoicecut.systems.pipeline.jobs.domain.media import FrameSize
+from onevoicecut.shared.domain.media import FrameSize
 
 POLICY = TrajectoryPolicy()
 

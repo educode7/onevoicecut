@@ -25,13 +25,13 @@ from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.admit_job 
     AdmitJobCommand,
     AdmitJobHandler,
 )
+from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import (
     EngineChoice,
     JobRecord,
     JobState,
-    SpeakerMode,
 )
-from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
+from onevoicecut.shared.domain.media import SourceMedia
 from onevoicecut.runtime.app import reconcile_interrupted_jobs
 
 OPERATOR_A = make_operator_id("a")

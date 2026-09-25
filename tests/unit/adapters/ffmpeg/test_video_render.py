@@ -45,7 +45,7 @@ from onevoicecut.domain.framing import (
     TrackingConfidence,
 )
 from onevoicecut.shared.domain.ids import InvalidIdError, make_media_id
-from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
+from onevoicecut.shared.domain.media import SourceMedia
 from onevoicecut.domain.rendering import (
     OutputSpec,
     RenderProfile,

@@ -586,7 +586,7 @@ class TestTheAspectDerivation:
         directly, and `crop_size_for` then yields a crop of that shape. This is
         what makes a second aspect a value rather than a code path."""
         from onevoicecut.domain.framing import TrajectoryPolicy, crop_size_for
-        from onevoicecut.systems.pipeline.jobs.domain.media import FrameSize
+        from onevoicecut.shared.domain.media import FrameSize
 
         four_by_five = dataclasses.replace(
             PROFILE, output=OutputSpec(width=1080, height=1350)
@@ -608,7 +608,7 @@ def test_the_authoritative_crops_come_from_the_real_derivation() -> None:
     `crop_size_for` would pin the arithmetic to a value the pipeline never
     produces."""
     from onevoicecut.domain.framing import TrajectoryPolicy, crop_size_for
-    from onevoicecut.systems.pipeline.jobs.domain.media import FrameSize
+    from onevoicecut.shared.domain.media import FrameSize
 
     policy = TrajectoryPolicy()
 

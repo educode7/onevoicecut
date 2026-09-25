@@ -30,7 +30,7 @@ from onevoicecut.domain.framing import (
     TrackingConfidence,
 )
 from onevoicecut.shared.domain.ids import make_media_id
-from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
+from onevoicecut.shared.domain.media import SourceMedia
 from onevoicecut.domain.rendering import OutputSpec, SubtitleCue
 from onevoicecut.ports import video_render
 from onevoicecut.shared.domain.capabilities import (

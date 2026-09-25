@@ -23,13 +23,13 @@ from onevoicecut.shared.domain.ids import (
     make_media_id,
     make_operator_id,
 )
+from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import (
     TERMINAL_STATES,
     WORKER_BOUND_STATES,
     EngineChoice,
     JobRecord,
     JobState,
-    SpeakerMode,
 )
 from onevoicecut.shared.application.principal import Principal
 from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.cancel_job import (

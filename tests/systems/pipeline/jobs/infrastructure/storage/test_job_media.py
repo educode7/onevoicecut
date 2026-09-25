@@ -12,13 +12,13 @@ import pytest
 from onevoicecut.shared.domain.errors import JobNotFound
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id
 from onevoicecut.shared.infrastructure.storage.core import StorageCore
+from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import (
     EngineChoice,
     JobRecord,
     JobState,
-    SpeakerMode,
 )
-from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
+from onevoicecut.shared.domain.media import SourceMedia
 from onevoicecut.systems.pipeline.jobs.infrastructure.storage.job_store import (
     FilesystemJobStore,
 )

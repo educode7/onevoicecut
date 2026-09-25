@@ -3,13 +3,13 @@ from dataclasses import FrozenInstanceError, replace
 import pytest
 
 from onevoicecut.shared.domain.ids import make_job_id, make_media_id, make_operator_id
+from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import (
     TERMINAL_STATES,
     WORKER_BOUND_STATES,
     EngineChoice,
     JobRecord,
     JobState,
-    SpeakerMode,
 )
 
 JOB_ID = make_job_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")

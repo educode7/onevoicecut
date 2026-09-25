@@ -16,7 +16,7 @@ from dataclasses import replace
 
 from onevoicecut.domain.chunking import AudioChunk
 from onevoicecut.shared.domain.errors import DiarizationUnsupported, TranscriptionFailed
-from onevoicecut.systems.pipeline.jobs.domain.jobs import SpeakerMode
+from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment, WordTiming
 from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,

@@ -24,7 +24,8 @@ from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.admit_job 
     AdmitJobHandler,
     _validate_compatibility,
 )
-from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobState, SpeakerMode
+from onevoicecut.shared.domain.speaker import SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobState
 from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DeclaredSupport,

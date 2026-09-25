@@ -14,7 +14,7 @@ from onevoicecut.shared.domain.errors import JobNotFound
 from onevoicecut.domain.generation import GenerationResult
 from onevoicecut.shared.domain.ids import ClipId, JobId
 from onevoicecut.systems.pipeline.jobs.domain.jobs import JobRecord, JobState
-from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
+from onevoicecut.shared.domain.media import SourceMedia
 from onevoicecut.domain.rendering import ClipExport
 from onevoicecut.domain.transcript import Transcript
 

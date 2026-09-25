@@ -16,7 +16,8 @@ from onevoicecut.shared.domain.ids import (
     make_media_id,
     make_operator_id,
 )
-from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.shared.domain.speaker import SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState
 from onevoicecut.systems.pipeline.jobs.domain.ownership import require_owner
 from onevoicecut.usecases.purge_job_artifacts import (
     PurgeableArtifact,

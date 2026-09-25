@@ -17,7 +17,7 @@ from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor
 from onevoicecut.domain.chunking import PlannedChunk
 from onevoicecut.shared.domain.errors import ExtractionFailed
 from onevoicecut.shared.domain.ids import make_job_id, make_media_id
-from onevoicecut.systems.pipeline.jobs.domain.media import AudioTrack
+from onevoicecut.shared.domain.media import AudioTrack
 
 JOB_ID = make_job_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 MEDIA_ID = make_media_id("01BX5ZZKBKACTAV9WEVGEMMVRZ")

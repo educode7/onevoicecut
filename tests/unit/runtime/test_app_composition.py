@@ -17,7 +17,8 @@ from onevoicecut.adapters.storage.filesystem_transcript_storage import (
 )
 from onevoicecut.domain.chunking import ChunkPlan, PlannedChunk
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id
-from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.shared.domain.speaker import SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState
 from onevoicecut.runtime.app import (
     WORKER_MODULE,
     build_dependencies,

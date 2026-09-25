@@ -52,7 +52,7 @@ from onevoicecut.domain.framing import (
     TrackingConfidence,
 )
 from onevoicecut.shared.domain.ids import make_clip_id, make_media_id
-from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
+from onevoicecut.shared.domain.media import SourceMedia
 from onevoicecut.domain.rendering import (
     OutputSpec,
     RenderProfile,

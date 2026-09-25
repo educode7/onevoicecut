@@ -19,11 +19,11 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
+from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import (
     EngineChoice,
     JobRecord,
     JobState,
-    SpeakerMode,
 )
 from onevoicecut.runtime.app import DRAIN_SWEEP_INTERVAL_S, drain_supervisor
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort

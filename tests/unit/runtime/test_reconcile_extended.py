@@ -18,13 +18,13 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
+from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import (
     TERMINAL_STATES,
     WORKER_BOUND_STATES,
     EngineChoice,
     JobRecord,
     JobState,
-    SpeakerMode,
 )
 from onevoicecut.runtime.app import HEARTBEAT_STALE_AFTER_S, reconcile_interrupted_jobs
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort

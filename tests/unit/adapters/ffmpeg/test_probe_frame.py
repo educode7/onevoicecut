@@ -29,7 +29,7 @@ import pytest
 
 from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor, ProcessRunner
 from onevoicecut.shared.domain.ids import make_job_id, make_media_id
-from onevoicecut.systems.pipeline.jobs.domain.media import FrameSize, SourceMedia
+from onevoicecut.shared.domain.media import FrameSize, SourceMedia
 
 JOB_ID = make_job_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 MEDIA_ID = make_media_id("01BX5ZZKBKACTAV9WEVGEMMVRZ")
