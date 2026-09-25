@@ -29,7 +29,7 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
-from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.runtime import app as app_module
 from onevoicecut.runtime.app import DrainConfig, drain_supervisor, spawn_worker
 from onevoicecut.runtime.supervisor import reap_exited_workers

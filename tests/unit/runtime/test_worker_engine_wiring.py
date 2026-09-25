@@ -24,7 +24,7 @@ import pytest
 
 from onevoicecut.shared.domain.errors import EngineUnavailable
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
-from onevoicecut.domain.jobs import (
+from onevoicecut.systems.pipeline.jobs.domain.jobs import (
     EngineChoice,
     JobRecord,
     JobState,

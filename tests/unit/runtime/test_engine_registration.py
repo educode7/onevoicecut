@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.shared.domain.errors import EngineUnavailable
-from onevoicecut.domain.jobs import EngineChoice
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice
 from onevoicecut.runtime.engine_resolver import EngineResolver, production_factories
 
 RESOLVER_SOURCE = (

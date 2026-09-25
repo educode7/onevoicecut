@@ -32,7 +32,7 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.adapters.asr.local.declarations import HF_TOKEN_ENV
-from onevoicecut.domain.jobs import EngineChoice
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice
 from onevoicecut.shared.domain.capabilities import DiarizationSupport
 from onevoicecut.runtime.app import build_dependencies
 from onevoicecut.runtime.engine_resolver import declared_diarization
@@ -134,7 +134,7 @@ class TestTheGuardActuallyRefuses:
         """
         from onevoicecut.shared.domain.errors import DiarizationUnsupported
         from onevoicecut.shared.domain.ids import make_operator_id
-        from onevoicecut.domain.jobs import SpeakerMode
+        from onevoicecut.systems.pipeline.jobs.domain.jobs import SpeakerMode
         from onevoicecut.usecases.admit_job import admit_job
         from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 
