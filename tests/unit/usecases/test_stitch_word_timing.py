@@ -20,9 +20,9 @@ byte-identically to what shipped before this retrofit, because every adapter in
 production today produces exactly that.
 """
 
-from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
 from onevoicecut.shared.domain.ids import make_job_id
-from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment, WordTiming
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind, TranscriptSegment, WordTiming
 from onevoicecut.usecases.stitch_transcript import stitch_transcript
 
 JOB_ID = make_job_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")

@@ -22,7 +22,7 @@ speech and **nothing must be substituted to fill it out**. A short honest summar
 beats a full invented one.
 """
 
-from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind, TranscriptSegment
 from onevoicecut.usecases.generate_artifacts import (
     map_windows,
     speech_windows,

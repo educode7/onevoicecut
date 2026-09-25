@@ -13,7 +13,7 @@ from tests.fakes.transcription import (
 )
 from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice
-from onevoicecut.domain.transcript import SegmentKind
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind
 from onevoicecut.usecases.ingest_media import IngestMedia
 
 

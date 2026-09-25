@@ -25,7 +25,7 @@ as that platform's flavour rather than as text.
 from dataclasses import asdict
 from pathlib import Path
 
-from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
 from onevoicecut.shared.domain.errors import CorruptedRecord
 from onevoicecut.domain.framing import TrackingConfidence
 from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
@@ -74,7 +74,7 @@ from onevoicecut.domain.rendering import (
     RenderedClip,
     SubtitleTimingSource,
 )
-from onevoicecut.domain.transcript import (
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import (
     SegmentKind,
     Transcript,
     TranscriptSegment,

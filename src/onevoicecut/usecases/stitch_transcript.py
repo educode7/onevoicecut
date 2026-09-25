@@ -16,8 +16,8 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import Protocol
 
-from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, PlannedChunk
-from onevoicecut.domain.transcript import TranscriptSegment
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import ChunkPlan, ChunkResult, PlannedChunk
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import TranscriptSegment
 
 # Below this, a shared run of tokens is coincidence rather than the same utterance.
 MIN_MATCH_TOKENS = 4

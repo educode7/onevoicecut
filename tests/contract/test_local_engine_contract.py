@@ -27,9 +27,9 @@ import subprocess  # noqa: E402 - must follow the guard above
 from onevoicecut.adapters.asr.local.faster_whisper_adapter import (  # noqa: E402
     FasterWhisperTranscriber,
 )
-from onevoicecut.domain.chunking import AudioChunk  # noqa: E402
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import AudioChunk  # noqa: E402
 from onevoicecut.shared.domain.ids import make_job_id  # noqa: E402
-from onevoicecut.ports.transcription import TranscriptionPort  # noqa: E402
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionPort  # noqa: E402
 from tests.contract.transcription import (  # noqa: E402
     CHUNK_START_S,
     TranscriptionPortContract,

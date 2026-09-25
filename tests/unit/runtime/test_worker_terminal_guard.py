@@ -33,7 +33,7 @@ from onevoicecut.systems.pipeline.jobs.domain.jobs import (
     JobState,
 )
 from onevoicecut.shared.domain.media import SourceMedia
-from onevoicecut.ports.audio_extractor import AudioExtractorPort
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import AudioExtractorPort
 from onevoicecut.runtime.engine_resolver import EngineResolver
 from onevoicecut.runtime.worker import run_job
 from tests.fakes.audio_extractor import FakeAudioExtractorPort

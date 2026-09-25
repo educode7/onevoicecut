@@ -21,7 +21,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
-from onevoicecut.domain.chunking import (
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import (
     AudioChunk,
     ChunkPlan,
     ChunkResult,
@@ -33,10 +33,10 @@ from onevoicecut.shared.domain.ids import JobId
 from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import JobRecord, JobState
 from onevoicecut.shared.domain.media import AudioTrack, SourceMedia
-from onevoicecut.domain.transcript import Transcript, render_message_text
-from onevoicecut.ports.audio_extractor import AudioExtractorPort
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import Transcript, render_message_text
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import AudioExtractorPort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
-from onevoicecut.ports.transcription import TranscriptionPort, TranscriptionRequest
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionPort, TranscriptionRequest
 from onevoicecut.usecases.plan_chunks import DEFAULT_TARGET_CHUNK_S, plan_chunks
 from onevoicecut.usecases.resume_job import pending_chunks
 from onevoicecut.usecases.stitch_transcript import stitch_transcript

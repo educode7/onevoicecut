@@ -14,7 +14,7 @@ import pytest
 
 from onevoicecut.adapters.ffmpeg.argv import build_slice_argv
 from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor
-from onevoicecut.domain.chunking import PlannedChunk
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import PlannedChunk
 from onevoicecut.shared.domain.errors import ExtractionFailed
 from onevoicecut.shared.domain.ids import make_job_id, make_media_id
 from onevoicecut.shared.domain.media import AudioTrack

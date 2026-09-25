@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Protocol
 
-from onevoicecut.domain.chunking import AudioChunk, PlannedChunk
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import AudioChunk, PlannedChunk
 from onevoicecut.shared.domain.media import AudioTrack, MediaProbe, SourceMedia
 
 

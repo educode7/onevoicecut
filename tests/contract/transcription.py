@@ -24,16 +24,16 @@ correct when a future slice flips one of those declarations to AVAILABLE.
 
 import pytest
 
-from onevoicecut.domain.chunking import AudioChunk
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import AudioChunk
 from onevoicecut.shared.domain.errors import DiarizationUnsupported
 from onevoicecut.shared.domain.speaker import SpeakerMode
-from onevoicecut.domain.transcript import SegmentKind
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind
 from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
     WordTimingSupport,
 )
-from onevoicecut.ports.transcription import TranscriptionPort, TranscriptionRequest
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionPort, TranscriptionRequest
 
 # Deliberately not zero. A chunk carved out of hour two of a sermon starts at
 # 7200 s absolute, and an adapter that returned absolute times would still look

@@ -17,12 +17,12 @@ import pytest
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
-from onevoicecut.domain.chunking import ChunkResult, ChunkState
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import ChunkResult, ChunkState
 from onevoicecut.shared.domain.errors import JobNotFound
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id
 from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState
-from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind, TranscriptSegment
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
 OTHER_JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFF")

@@ -27,7 +27,7 @@ from onevoicecut.shared.domain.capabilities import (
     DiarizationSupport,
     WordTimingSupport,
 )
-from onevoicecut.ports.transcription import TranscriptionPort
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionPort
 
 TranscriberFactory = Callable[[], TranscriptionPort]
 

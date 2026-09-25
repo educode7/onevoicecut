@@ -29,20 +29,20 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.chunking import AudioChunk, ChunkState, PlannedChunk
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import AudioChunk, ChunkState, PlannedChunk
 from onevoicecut.shared.domain.errors import ChunkTooLarge
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
 from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState
 from onevoicecut.shared.domain.media import AudioTrack, MediaProbe, SourceMedia
-from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind, TranscriptSegment
 from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
     TranscriptionCapabilities,
     WordTimingSupport,
 )
-from onevoicecut.ports.transcription import TranscriptionRequest
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionRequest
 from onevoicecut.usecases.transcribe_job import transcribe_job
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 

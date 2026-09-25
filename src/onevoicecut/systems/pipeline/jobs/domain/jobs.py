@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from enum import StrEnum
 
-from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import ChunkPlan, ChunkResult, ChunkState
 from onevoicecut.shared.domain.ids import JobId, MediaId, OperatorId
 from onevoicecut.shared.domain.speaker import SpeakerMode
 

@@ -400,16 +400,37 @@ with legacy packages. Behavior-frozen relocation.
       method as 2a.1, now under `systems/.../transcripts/` trees, plus a plant of
       `transcripts/application` importing `jobs.infrastructure` for AB-06); each fails naming
       its file; legacy plants still fail (AB-11). `[unit 3a]`
-- [ ] 3a.2 GREEN: relocate `domain/chunking.py` and `domain/transcript.py` to
+- [x] 3a.2 GREEN: relocate `domain/chunking.py` and `domain/transcript.py` to
       `systems/pipeline/transcripts/domain/`; relocate `ports/audio_extractor.py` and
       `ports/transcription.py` to `systems/pipeline/transcripts/domain/interfaces/`
       (`AudioExtractorPort`, `TranscriptionPort`); declare `TranscriptStore` per the OQ3
       method table (`save_chunk_result` MUST stay atomic — docstring moves with the method);
       update importers; move tests to `tests/systems/pipeline/transcripts/`. **No new
       behavior test** — behavior-frozen relocation. `[unit 3a]`
-- [ ] 3a.3 Verify: suite + mypy; runtime bodies untouched (import lines only). Commit
+- [x] 3a.3 Verify: suite + mypy; runtime bodies untouched (import lines only). Commit
       `refactor(fca): migrate transcripts domain and interfaces into systems/pipeline`.
       `[unit 3a]`
+      Verified on this tree: **2172 passed, 44 deselected, 0 skipped** (default run;
+      2161 baseline + the 11 plant tests 3a.1 added, none lost); `mypy src tests` clean
+      over 331 files; `tests/test_architecture.py` 26 passed. RED-by-move proof: with the
+      four modules relocated and importers unwired — `257 passed, 33 errors` over
+      `tests/unit/{domain,ports,usecases}` plus `4 errors` for the four relocated test
+      files, every error a `ModuleNotFoundError` naming `onevoicecut.domain.chunking` /
+      `onevoicecut.domain.transcript`, and direct import probes failing for all four
+      legacy paths (`domain.chunking`, `domain.transcript`, `ports.audio_extractor`,
+      `ports.transcription`). **Option A (recorded decision)**: the
+      `JOBS_DOMAIN_ISOLATION` conflict this task's port relocation would otherwise hit —
+      probe-proven, engram observation `#223` — was resolved by moving
+      `{SourceMedia, AudioTrack, MediaProbe, FrameSize}` + `SpeakerMode` to
+      `shared/domain/` first (kernel-vocabulary precedent, design 1a), as a four-commit
+      shim → flip → unshim chain `9a98cf4` → `4261432` → `2618708` → `f9b1e02`, each
+      green alone (141 / 59 / 269 / 14 lines); it also absorbs 4a's `FrameSize`
+      landmine. The migration commit itself: 95 files, +192/−151 = **343 git lines**.
+      Two specials: `jobs/.../commands/ingest_media.py` retyped `AudioExtractorPort` →
+      jobs-owned `MediaProbePort` (JOBS_APPLICATION may not import `transcripts`; the
+      handler only ever calls `probe`), and `.gitignore`'s bare `transcripts/`
+      generated-artifacts pattern was anchored to `/transcripts/` — the unanchored form
+      silently ignored every new file under the relocated source package.
 
 ---
 

@@ -31,7 +31,7 @@ from onevoicecut.adapters.asr.cloud.openai_whisper_adapter import (
     MAX_REQUEST_BYTES,
     OpenAiWhisperTranscriber,
 )
-from onevoicecut.domain.chunking import AudioChunk
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import AudioChunk
 from onevoicecut.shared.domain.errors import (
     ChunkTimeout,
     ChunkTooLarge,
@@ -41,9 +41,9 @@ from onevoicecut.shared.domain.errors import (
 )
 from onevoicecut.shared.domain.ids import make_job_id
 from onevoicecut.shared.domain.speaker import SpeakerMode
-from onevoicecut.domain.transcript import SegmentKind
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind
 from onevoicecut.shared.domain.capabilities import ClassificationSupport, DiarizationSupport
-from onevoicecut.ports.transcription import TranscriptionRequest
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionRequest
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
 API_KEY = "sk-test-not-a-real-key"

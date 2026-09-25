@@ -12,7 +12,7 @@ visible gap: once stitched, the words either side of it run together and the
 transcript reads continuous.
 """
 
-from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
 
 
 def pending_chunks(

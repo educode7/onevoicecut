@@ -8,7 +8,7 @@ instance to one job.
 
 from pathlib import Path
 
-from onevoicecut.domain.chunking import AudioChunk, PlannedChunk
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import AudioChunk, PlannedChunk
 from onevoicecut.shared.domain.ids import JobId
 from onevoicecut.shared.domain.media import AudioTrack, MediaProbe, SourceMedia
 

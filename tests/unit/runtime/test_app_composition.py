@@ -15,7 +15,7 @@ import pytest
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
-from onevoicecut.domain.chunking import ChunkPlan, PlannedChunk
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import ChunkPlan, PlannedChunk
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id
 from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState

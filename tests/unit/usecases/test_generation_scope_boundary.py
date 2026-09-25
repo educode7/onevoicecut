@@ -43,7 +43,7 @@ FORBIDDEN_IMPORTS = (
     "subprocess",
     "onevoicecut.adapters",
     "onevoicecut.runtime",
-    "onevoicecut.ports.audio_extractor",
+    "onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor",
 )
 
 

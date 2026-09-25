@@ -49,7 +49,7 @@ from onevoicecut.domain.rendering import (
     SafeArea,
     SubtitleTimingSource,
 )
-from onevoicecut.domain.transcript import SegmentKind, Transcript, TranscriptSegment
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind, Transcript, TranscriptSegment
 from onevoicecut.shared.domain.capabilities import RenderCapabilities, RenderSupport
 from onevoicecut.ports.subject_tracker import SubjectDetection
 from onevoicecut.ports.video_render import RenderedFile, RenderRequest

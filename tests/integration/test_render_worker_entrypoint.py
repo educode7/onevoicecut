@@ -26,7 +26,7 @@ from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState
 from onevoicecut.shared.domain.media import SourceMedia
 from onevoicecut.domain.rendering import ClipState
-from onevoicecut.ports.audio_extractor import AudioExtractorPort
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import AudioExtractorPort
 from onevoicecut.runtime.render_worker import EXIT_FAILED, EXIT_OK, EXIT_UNUSABLE, main
 from tests.unit.runtime.test_render_worker import (
     RENDER_PROFILES_TWO,

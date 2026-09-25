@@ -26,11 +26,11 @@ from dataclasses import dataclass, replace
 
 from fastapi import HTTPException
 
-from onevoicecut.ports.audio_extractor import AudioExtractorPort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.shared.application.principal import Principal
 from onevoicecut.shared.domain.errors import UnsupportedContainer
 from onevoicecut.shared.domain.ids import JobId
+from onevoicecut.systems.pipeline.jobs.domain.interfaces.media_probe import MediaProbePort
 from onevoicecut.systems.pipeline.jobs.domain.interfaces.media_source import (
     MediaSourcePort,
 )
@@ -88,7 +88,7 @@ def _refuse_if_declared_too_large(declared: str | None, max_bytes: int) -> None:
 def _verified_media(
     media: SourceMedia,
     *,
-    extractor: AudioExtractorPort,
+    extractor: MediaProbePort,
     writer: MediaSourcePort,
 ) -> SourceMedia:
     """Decide what the file is by looking inside it, and record the answer.
@@ -155,7 +155,7 @@ class IngestMediaHandler:
         storage: TranscriptStoragePort,
         max_upload_bytes: int,
         media_source_for: Callable[[TranscriptStoragePort, JobId], MediaSourcePort],
-        extractor_for: Callable[[TranscriptStoragePort, JobId], AudioExtractorPort],
+        extractor_for: Callable[[TranscriptStoragePort, JobId], MediaProbePort],
         now: Callable[[], float],
     ) -> None:
         self._storage = storage

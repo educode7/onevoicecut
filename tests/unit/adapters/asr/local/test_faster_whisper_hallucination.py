@@ -40,11 +40,11 @@ import subprocess  # noqa: E402 - must follow the guard above
 from onevoicecut.adapters.asr.local.faster_whisper_adapter import (  # noqa: E402
     FasterWhisperTranscriber,
 )
-from onevoicecut.domain.chunking import AudioChunk  # noqa: E402
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import AudioChunk  # noqa: E402
 from onevoicecut.shared.domain.ids import JobId  # noqa: E402
 from onevoicecut.shared.domain.speaker import SpeakerMode  # noqa: E402
-from onevoicecut.domain.transcript import SegmentKind  # noqa: E402
-from onevoicecut.ports.transcription import TranscriptionRequest  # noqa: E402
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind  # noqa: E402
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionRequest  # noqa: E402
 
 pytestmark = pytest.mark.localmodel
 

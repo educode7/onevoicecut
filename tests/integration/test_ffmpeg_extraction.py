@@ -157,7 +157,7 @@ def test_hostile_filenames_survive_a_real_invocation(
 def test_slicing_produces_one_file_per_planned_chunk(
     ffmpeg_available: None, job_dir: Path
 ) -> None:
-    from onevoicecut.domain.chunking import PlannedChunk
+    from onevoicecut.systems.pipeline.transcripts.domain.chunking import PlannedChunk
 
     source = job_dir / "source.mp4"
     _synthesize(source)
@@ -188,7 +188,7 @@ def test_a_slice_really_holds_the_requested_duration(
     The unit tests assert `-ss` precedes `-i` and `-t` carries a length; only this
     one shows ffmpeg agrees.
     """
-    from onevoicecut.domain.chunking import PlannedChunk
+    from onevoicecut.systems.pipeline.transcripts.domain.chunking import PlannedChunk
 
     source = job_dir / "source.mp4"
     _synthesize(source)
@@ -217,7 +217,7 @@ def test_a_slice_keeps_the_normalized_format(
 ) -> None:
     """A chunk in a different format from its track would break the byte-cap
     arithmetic the planner already applied."""
-    from onevoicecut.domain.chunking import PlannedChunk
+    from onevoicecut.systems.pipeline.transcripts.domain.chunking import PlannedChunk
 
     source = job_dir / "source.mp4"
     _synthesize(source)

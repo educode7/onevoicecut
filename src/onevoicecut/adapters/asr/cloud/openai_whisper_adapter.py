@@ -39,21 +39,21 @@ from typing import Any
 
 import httpx
 
-from onevoicecut.domain.chunking import AudioChunk
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import AudioChunk
 from onevoicecut.shared.domain.errors import (
     ChunkTimeout,
     ChunkTooLarge,
     EngineUnavailable,
     TranscriptionFailed,
 )
-from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind, TranscriptSegment
 from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
     DiarizationSupport,
     TranscriptionCapabilities,
     WordTimingSupport,
 )
-from onevoicecut.ports.transcription import TranscriptionRequest
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionRequest
 from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.admit_job import (
     _validate_compatibility,
 )

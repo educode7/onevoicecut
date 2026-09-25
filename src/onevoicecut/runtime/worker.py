@@ -29,10 +29,10 @@ from onevoicecut.adapters.storage.filesystem_transcript_storage import (
 from onevoicecut.shared.domain.errors import DomainError
 from onevoicecut.shared.domain.ids import InvalidIdError, JobId, make_job_id
 from onevoicecut.systems.pipeline.jobs.domain.jobs import TERMINAL_STATES, JobRecord, JobState
-from onevoicecut.ports.audio_extractor import AudioExtractorPort
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import AudioExtractorPort
 from onevoicecut.ports.text_generation import TextGenerationPort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
-from onevoicecut.ports.transcription import TranscriptionPort
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionPort
 from onevoicecut.runtime.engine_resolver import EngineResolver, production_factories
 from onevoicecut.shared.infrastructure.settings import CHUNK_TIMEOUT_ENV_NAMES, load_env_file
 from onevoicecut.usecases.generate_artifacts import (

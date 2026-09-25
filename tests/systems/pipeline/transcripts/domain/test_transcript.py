@@ -3,7 +3,7 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from onevoicecut.shared.domain.ids import make_job_id
-from onevoicecut.domain.transcript import (
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import (
     SegmentKind,
     Transcript,
     TranscriptSegment,

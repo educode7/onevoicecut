@@ -3,9 +3,9 @@
 from dataclasses import dataclass
 from typing import Protocol
 
-from onevoicecut.domain.chunking import AudioChunk
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import AudioChunk
 from onevoicecut.shared.domain.speaker import SpeakerMode
-from onevoicecut.domain.transcript import TranscriptSegment
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import TranscriptSegment
 from onevoicecut.shared.domain.capabilities import TranscriptionCapabilities
 
 

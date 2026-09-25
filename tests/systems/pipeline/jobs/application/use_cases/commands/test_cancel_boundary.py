@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.chunking import AudioChunk
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import AudioChunk
 from onevoicecut.shared.application.principal import Principal
 from onevoicecut.shared.domain.ids import make_job_id, make_media_id, make_operator_id
 from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.cancel_job import (
@@ -26,8 +26,8 @@ from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.cancel_job
 from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState
 from onevoicecut.shared.domain.media import SourceMedia
-from onevoicecut.domain.transcript import TranscriptSegment
-from onevoicecut.ports.transcription import TranscriptionRequest
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import TranscriptSegment
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionRequest
 from onevoicecut.usecases.transcribe_job import transcribe_job
 from tests.fakes.audio_extractor import FAKE_DURATION_S, FakeAudioExtractorPort
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort

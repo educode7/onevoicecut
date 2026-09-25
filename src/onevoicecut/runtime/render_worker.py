@@ -79,7 +79,7 @@ from onevoicecut.domain.rendering import (
     duration_compliance_of,
     quality_of,
 )
-from onevoicecut.ports.audio_extractor import AudioExtractorPort
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import AudioExtractorPort
 from onevoicecut.shared.domain.capabilities import DetectionSupport
 from onevoicecut.ports.subject_tracker import SubjectTrackerPort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort

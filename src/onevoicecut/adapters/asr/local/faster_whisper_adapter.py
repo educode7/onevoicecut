@@ -48,15 +48,15 @@ from onevoicecut.adapters.asr.local.declarations import (
     is_installed,
 )
 from onevoicecut.adapters.asr.local.diarization import LocalDiarizer, assign_speakers
-from onevoicecut.domain.chunking import AudioChunk
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import AudioChunk
 from onevoicecut.shared.domain.errors import DomainError, EngineUnavailable, TranscriptionFailed
 from onevoicecut.shared.domain.speaker import SpeakerMode
-from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind, TranscriptSegment
 from onevoicecut.shared.domain.capabilities import (
     TranscriptionCapabilities,
     WordTimingSupport,
 )
-from onevoicecut.ports.transcription import TranscriptionRequest
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionRequest
 from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.admit_job import (
     _validate_compatibility,
 )

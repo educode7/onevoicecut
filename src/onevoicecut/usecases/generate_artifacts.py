@@ -37,7 +37,7 @@ from dataclasses import dataclass, replace
 
 from onevoicecut.shared.domain.errors import ContextLengthExceeded, GenerationFailed
 from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
-from onevoicecut.domain.transcript import Transcript, TranscriptSegment, is_speech
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import Transcript, TranscriptSegment, is_speech
 from onevoicecut.ports.text_generation import TextGenerationPort
 
 # From design.md. A silent change to either is a change in what the model is

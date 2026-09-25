@@ -14,7 +14,7 @@ import pytest
 
 from onevoicecut.shared.domain.errors import GenerationFailed
 from onevoicecut.shared.domain.ids import make_job_id
-from onevoicecut.domain.transcript import SegmentKind, Transcript, TranscriptSegment
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind, Transcript, TranscriptSegment
 from onevoicecut.usecases.generate_artifacts import (
     MAX_MAP_OUTPUT_TOKENS,
     MAX_REDUCE_OUTPUT_TOKENS,

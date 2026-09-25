@@ -7,15 +7,15 @@ receives an already-stored `SourceMedia`, not the upload stream itself.
 
 from pathlib import Path
 
-from onevoicecut.domain.chunking import PlannedChunk
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import PlannedChunk
 from onevoicecut.shared.domain.ids import JobId
 from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice
 from onevoicecut.shared.domain.media import SourceMedia
-from onevoicecut.domain.transcript import Transcript, render_message_text
-from onevoicecut.ports.audio_extractor import AudioExtractorPort
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import Transcript, render_message_text
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import AudioExtractorPort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
-from onevoicecut.ports.transcription import TranscriptionPort, TranscriptionRequest
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionPort, TranscriptionRequest
 
 
 class IngestMedia:

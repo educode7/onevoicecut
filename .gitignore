@@ -26,7 +26,10 @@ htmlcov/
 uploads/
 media/
 output/
-transcripts/
+# Anchored: this names the generated-artifacts dir at the repo root. The bare
+# form matched every directory called transcripts/ anywhere, which would
+# silently ignore the source package at src/onevoicecut/systems/pipeline/transcripts/.
+/transcripts/
 # data/ is the shared-server data directory: job.json carries operator names,
 # and the job directories carry sermons and transcripts (R6).
 data/

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.chunking import ChunkState
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import ChunkState
 from onevoicecut.shared.domain.errors import DiarizationUnsupported
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id
 from onevoicecut.shared.domain.speaker import SpeakerMode

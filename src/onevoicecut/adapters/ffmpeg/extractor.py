@@ -32,7 +32,7 @@ from onevoicecut.adapters.ffmpeg.process import (
     missing_binary_message,
     real_process,
 )
-from onevoicecut.domain.chunking import AudioChunk, PlannedChunk
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import AudioChunk, PlannedChunk
 from onevoicecut.shared.domain.errors import (
     DomainError,
     ExtractionFailed,

@@ -34,7 +34,7 @@ from onevoicecut.shared.domain.errors import CorruptedRecord
 from onevoicecut.shared.domain.ids import make_job_id, make_media_id, make_operator_id
 from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState
-from onevoicecut.domain.transcript import (
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import (
     SegmentKind,
     Transcript,
     TranscriptSegment,

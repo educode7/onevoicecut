@@ -42,7 +42,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 
-from onevoicecut.domain.chunking import ChunkResult, ChunkState
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import ChunkResult, ChunkState
 from onevoicecut.shared.domain.errors import DomainError
 from onevoicecut.shared.domain.ids import JobId
 from onevoicecut.systems.pipeline.jobs.domain.jobs import (

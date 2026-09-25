@@ -20,13 +20,13 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.chunking import (
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import (
     ChunkPlan,
     ChunkResult,
     ChunkState,
     PlannedChunk,
 )
-from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind, TranscriptSegment
 from onevoicecut.shared.domain.errors import JobNotFound
 from onevoicecut.shared.domain.ids import (
     JobId,

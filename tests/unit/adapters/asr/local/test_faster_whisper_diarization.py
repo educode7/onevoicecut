@@ -45,11 +45,11 @@ from onevoicecut.adapters.asr.local.declarations import (  # noqa: E402
 from onevoicecut.adapters.asr.local.faster_whisper_adapter import (  # noqa: E402
     FasterWhisperTranscriber,
 )
-from onevoicecut.domain.chunking import AudioChunk  # noqa: E402
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import AudioChunk  # noqa: E402
 from onevoicecut.shared.domain.ids import JobId  # noqa: E402
 from onevoicecut.shared.domain.speaker import SpeakerMode  # noqa: E402
 from onevoicecut.shared.domain.capabilities import DiarizationSupport  # noqa: E402
-from onevoicecut.ports.transcription import TranscriptionRequest  # noqa: E402
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionRequest  # noqa: E402
 
 # The install probe is `find_spec`-based, so this costs no torch import on a
 # checkout without the extras — it skips them instead, at collection.

@@ -5,7 +5,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from onevoicecut.shared.domain.ids import JobId
-from onevoicecut.domain.transcript import TranscriptSegment
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import TranscriptSegment
 
 
 @dataclass(frozen=True, slots=True)

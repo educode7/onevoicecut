@@ -29,7 +29,7 @@ from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, mak
 from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState
 from onevoicecut.shared.domain.media import SourceMedia
-from onevoicecut.ports.audio_extractor import AudioExtractorPort
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import AudioExtractorPort
 from onevoicecut.runtime.app import drain_once, reconcile_interrupted_jobs
 from onevoicecut.runtime.engine_resolver import EngineResolver
 from onevoicecut.runtime.worker import run_job

@@ -8,7 +8,7 @@ differently and none of it would be testable.
 
 import math
 
-from onevoicecut.domain.chunking import ChunkPlan, PlannedChunk
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import ChunkPlan, PlannedChunk
 from onevoicecut.shared.domain.errors import ChunkTooLarge
 from onevoicecut.shared.domain.ids import JobId
 from onevoicecut.shared.domain.media import AudioTrack

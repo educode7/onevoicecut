@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.chunking import AudioChunk
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import AudioChunk
 from onevoicecut.shared.application.principal import Principal
 from onevoicecut.shared.domain.errors import DiarizationUnsupported
 from onevoicecut.shared.domain.ids import JobId, make_operator_id
@@ -33,7 +33,7 @@ from onevoicecut.shared.domain.capabilities import (
     WordTimingSupport,
 )
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
-from onevoicecut.ports.transcription import TranscriptionRequest
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionRequest
 from tests.fakes.transcription import (
     FakeTranscriptionPort,
     NonClassifyingFakeTranscriptionPort,

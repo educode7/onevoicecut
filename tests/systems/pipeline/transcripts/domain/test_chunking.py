@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.chunking import (
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import (
     AudioChunk,
     ChunkPlan,
     ChunkResult,

@@ -59,7 +59,7 @@ from onevoicecut.shared.infrastructure.storage.core import (
     TRANSCRIPT_TEXT as TRANSCRIPT_TEXT,
 )
 from onevoicecut.shared.domain.media import SourceMedia
-from onevoicecut.domain.chunking import ChunkPlan, ChunkResult
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import ChunkPlan, ChunkResult
 from onevoicecut.shared.domain.errors import (
     JobAlreadyExists,
     JobNotFound,
@@ -69,7 +69,7 @@ from onevoicecut.domain.generation import GenerationResult
 from onevoicecut.shared.domain.ids import ClipId, JobId
 from onevoicecut.systems.pipeline.jobs.domain.jobs import JobRecord
 from onevoicecut.domain.rendering import ClipExport
-from onevoicecut.domain.transcript import Transcript
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import Transcript
 
 
 class FilesystemTranscriptStorage:

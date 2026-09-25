@@ -19,7 +19,7 @@ and would quietly delete the material this project went out of its way to keep.
 
 import json
 
-from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind, TranscriptSegment
 from onevoicecut.usecases.generate_artifacts import (
     MapPartial,
     MapWindow,

@@ -37,7 +37,7 @@ from typing import Any
 
 from onevoicecut.adapters.asr.local.declarations import HF_TOKEN_ENV
 from onevoicecut.shared.domain.errors import EngineUnavailable
-from onevoicecut.domain.transcript import TranscriptSegment
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import TranscriptSegment
 
 # (start_s, end_s, raw_label), chunk-local: the pipeline is handed one chunk's
 # samples and never sees the track, so its times are already in the frame the

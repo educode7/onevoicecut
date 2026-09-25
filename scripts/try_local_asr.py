@@ -27,16 +27,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from onevoicecut.domain.chunking import AudioChunk  # noqa: E402
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import AudioChunk  # noqa: E402
 from onevoicecut.shared.domain.ids import JobId  # noqa: E402
 from onevoicecut.shared.domain.speaker import SpeakerMode  # noqa: E402
-from onevoicecut.domain.transcript import (  # noqa: E402
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import (  # noqa: E402
     SegmentKind,
     Transcript,
     TranscriptSegment,
     render_message_text,
 )
-from onevoicecut.ports.transcription import TranscriptionRequest  # noqa: E402
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionRequest  # noqa: E402
 from onevoicecut.runtime.engine_resolver import local_transcriber  # noqa: E402
 
 SAMPLE_RATE = 16000

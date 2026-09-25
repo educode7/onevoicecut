@@ -38,7 +38,7 @@ from onevoicecut.domain.rendering import (
     SubtitleCue,
     SubtitleTimingSource,
 )
-from onevoicecut.domain.transcript import SegmentKind, TranscriptSegment, WordTiming
+from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind, TranscriptSegment, WordTiming
 
 # Two readable lines on a nine-by-sixteen frame. Long enough that a normal phrase
 # survives intact, short enough that a cue does not cover the speaker's face.
