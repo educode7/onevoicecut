@@ -230,7 +230,7 @@ Behavior-frozen relocation.
       `systems/` path (AB-07), presentation importing a concrete adapter (AB-09), application
       importing `onevoicecut.runtime` (AB-10); each plant fails naming its file; legacy plants
       still fail in the same run (AB-11). `[unit 2a]`
-- [ ] 2a.2 GREEN: create `systems/pipeline/jobs/domain/` — relocate `domain/jobs.py`,
+- [x] 2a.2 GREEN: create `systems/pipeline/jobs/domain/` — relocate `domain/jobs.py`,
       `domain/media.py`, and `usecases/ownership.py` (as `jobs/domain/ownership.py`, a pure
       domain rule per design); create `systems/pipeline/jobs/domain/interfaces/` — relocate
       `ports/media_source.py` as `MediaSourcePort` and declare the new narrow `MediaProbePort`
