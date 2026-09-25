@@ -22,7 +22,7 @@ from pathlib import Path
 
 from onevoicecut.shared.domain.errors import UploadTooLarge
 from onevoicecut.shared.domain.ids import MediaId
-from onevoicecut.domain.media import SourceMedia
+from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
 
 # What a container is before anything has looked inside it. A literal rather than
 # an empty string, so nothing downstream can read it as a missing value and fill

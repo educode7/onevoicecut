@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 from onevoicecut.domain.framing import TrackingConfidence
 from onevoicecut.domain.generation import ScriptVariant
-from onevoicecut.domain.jobs import EngineChoice, JobProgress, JobState, SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobProgress, JobState, SpeakerMode
 from onevoicecut.domain.rendering import (
     CaptionCoverage,
     ClipExport,

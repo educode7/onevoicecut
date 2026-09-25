@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from onevoicecut.domain.framing import TimeSpan
-from onevoicecut.domain.media import SourceMedia
+from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
 from onevoicecut.shared.domain.capabilities import TrackerCapabilities
 
 

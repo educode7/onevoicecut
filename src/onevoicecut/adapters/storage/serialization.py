@@ -43,8 +43,8 @@ from onevoicecut.shared.domain.ids import (
     make_media_id,
     make_operator_id,
 )
-from onevoicecut.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
-from onevoicecut.domain.media import SourceMedia
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
 from onevoicecut.domain.rendering import (
     CaptionCoverage,
     ClipExport,

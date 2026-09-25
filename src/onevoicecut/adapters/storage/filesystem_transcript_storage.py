@@ -37,7 +37,7 @@ from onevoicecut.adapters.storage.serialization import (
     encode_media,
     encode_transcript,
 )
-from onevoicecut.domain.media import SourceMedia
+from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult
 from onevoicecut.shared.domain.errors import (
     JobAlreadyExists,
@@ -46,7 +46,7 @@ from onevoicecut.shared.domain.errors import (
 )
 from onevoicecut.domain.generation import GenerationResult
 from onevoicecut.shared.domain.ids import ClipId, InvalidIdError, JobId, make_job_id
-from onevoicecut.domain.jobs import JobRecord
+from onevoicecut.systems.pipeline.jobs.domain.jobs import JobRecord
 from onevoicecut.domain.rendering import ClipExport
 from onevoicecut.domain.transcript import Transcript
 

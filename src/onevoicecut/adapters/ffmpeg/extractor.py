@@ -40,7 +40,7 @@ from onevoicecut.shared.domain.errors import (
     UnsupportedContainer,
 )
 from onevoicecut.shared.domain.ids import JobId
-from onevoicecut.domain.media import AudioTrack, FrameSize, MediaProbe, SourceMedia
+from onevoicecut.systems.pipeline.jobs.domain.media import AudioTrack, FrameSize, MediaProbe, SourceMedia
 
 # Generous, because multi-hour input is the normal case: this bounds a hung
 # process, it does not bound expected work. Per-chunk timeouts are slice 4's job.

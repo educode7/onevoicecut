@@ -23,11 +23,11 @@ from onevoicecut.shared.domain.ids import (
     generate_media_id,
 )
 from onevoicecut.shared.infrastructure.settings import DEFAULT_MAX_UPLOAD_BYTES
-from onevoicecut.domain.jobs import EngineChoice
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice
 from onevoicecut.domain.rendering import RenderProfile
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
 from onevoicecut.shared.domain.capabilities import DeclaredSupport
-from onevoicecut.ports.media_source import MediaSourcePort
+from onevoicecut.systems.pipeline.jobs.domain.interfaces.media_source import MediaSourcePort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.usecases.generate_artifacts import SCRIPT_TARGETS, ScriptTarget
 from onevoicecut.usecases.render_profiles import RENDER_PROFILES

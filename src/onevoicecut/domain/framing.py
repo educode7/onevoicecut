@@ -37,7 +37,7 @@ import math
 from dataclasses import dataclass
 from enum import StrEnum
 
-from onevoicecut.domain.media import FrameSize
+from onevoicecut.systems.pipeline.jobs.domain.media import FrameSize
 
 
 class KeyframeOrigin(StrEnum):

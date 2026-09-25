@@ -35,13 +35,13 @@ from onevoicecut.shared.application.principal import Principal
 from onevoicecut.shared.domain.errors import UnsupportedContainer
 from onevoicecut.shared.domain.ids import ClipId, InvalidIdError, JobId, OperatorId, make_clip_id, make_job_id
 from onevoicecut.shared.presentation.security import make_current_principal
-from onevoicecut.domain.jobs import JobRecord, JobState, derive_progress
-from onevoicecut.domain.media import SourceMedia
+from onevoicecut.systems.pipeline.jobs.domain.jobs import JobRecord, JobState, derive_progress
+from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
-from onevoicecut.ports.media_source import MediaSourcePort
+from onevoicecut.systems.pipeline.jobs.domain.interfaces.media_source import MediaSourcePort
 from onevoicecut.usecases.admit_job import admit_job
 from onevoicecut.usecases.cancel_job import cancel_job
-from onevoicecut.usecases.ownership import require_owner
+from onevoicecut.systems.pipeline.jobs.domain.ownership import require_owner
 from onevoicecut.usecases.request_clip_export import request_clip_export
 
 # The client's filename travels as metadata, never in the URL — a path parameter

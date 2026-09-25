@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Protocol
 
 from onevoicecut.domain.chunking import AudioChunk, PlannedChunk
-from onevoicecut.domain.media import AudioTrack, MediaProbe, SourceMedia
+from onevoicecut.systems.pipeline.jobs.domain.media import AudioTrack, MediaProbe, SourceMedia
 
 
 class AudioExtractorPort(Protocol):

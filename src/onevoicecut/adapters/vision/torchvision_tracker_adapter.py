@@ -54,7 +54,7 @@ from onevoicecut.adapters.vision.declarations import (
 )
 from onevoicecut.shared.domain.errors import DetectionFailed, TrackingUnavailable
 from onevoicecut.domain.framing import TimeSpan
-from onevoicecut.domain.media import SourceMedia
+from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
 from onevoicecut.shared.domain.capabilities import DetectionSupport, TrackerCapabilities
 from onevoicecut.ports.subject_tracker import BoundingBox, SubjectDetection
 
