@@ -24,16 +24,16 @@ from enum import StrEnum
 
 import pytest
 
-from onevoicecut.adapters.storage.serialization import (
+from onevoicecut.adapters.storage.serialization import encode_job
+from onevoicecut.shared.domain.errors import CorruptedRecord
+from onevoicecut.shared.domain.ids import make_job_id, make_media_id, make_operator_id
+from onevoicecut.shared.infrastructure.storage.core import (
     _member,
     _number,
     _optional_text,
     _optional_whole,
-    encode_job,
 )
-from onevoicecut.adapters.storage.serialization import _loads as loads
-from onevoicecut.shared.domain.errors import CorruptedRecord
-from onevoicecut.shared.domain.ids import make_job_id, make_media_id, make_operator_id
+from onevoicecut.shared.infrastructure.storage.core import _loads as loads
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")

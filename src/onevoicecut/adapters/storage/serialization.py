@@ -22,11 +22,8 @@ away. It decodes back through `Path`, so a record written on one platform reads
 as that platform's flavour rather than as text.
 """
 
-import json
 from dataclasses import asdict
-from enum import StrEnum
 from pathlib import Path
-from typing import Any, TypeVar
 
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
 from onevoicecut.shared.domain.errors import CorruptedRecord
@@ -42,6 +39,21 @@ from onevoicecut.shared.domain.ids import (
     make_job_id,
     make_media_id,
     make_operator_id,
+)
+from onevoicecut.shared.infrastructure.storage.core import (
+    Record,
+    _dumps,
+    _field,
+    _flag,
+    _loads,
+    _member,
+    _number,
+    _objects,
+    _optional_number,
+    _optional_text,
+    _optional_whole,
+    _text,
+    _whole,
 )
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
@@ -62,90 +74,6 @@ from onevoicecut.domain.transcript import (
     TranscriptSegment,
     WordTiming,
 )
-
-Record = dict[str, Any]
-
-_EnumMember = TypeVar("_EnumMember", bound=StrEnum)
-
-
-def _dumps(payload: Record) -> str:
-    # `ensure_ascii=False` because the source language is Spanish: escaping every
-    # accented character inflates a multi-hour transcript and makes the file
-    # unreadable in exactly the situation you open it — debugging a failed job.
-    return json.dumps(payload, ensure_ascii=False, indent=2)
-
-
-def _loads(payload: str) -> Record:
-    try:
-        decoded = json.loads(payload)
-    except json.JSONDecodeError as error:
-        raise CorruptedRecord(f"not valid JSON: {error}") from error
-    if not isinstance(decoded, dict):
-        raise CorruptedRecord(f"expected a JSON object, found {type(decoded).__name__}")
-    return decoded
-
-
-def _field(record: Record, key: str) -> Any:
-    if key not in record:
-        raise CorruptedRecord(f"missing field {key!r}")
-    return record[key]
-
-
-def _text(record: Record, key: str) -> str:
-    value = _field(record, key)
-    if not isinstance(value, str):
-        raise CorruptedRecord(f"field {key!r} is not a string")
-    return value
-
-
-def _number(record: Record, key: str) -> float:
-    value = _field(record, key)
-    # `bool` is an `int`, so without this a `true` would persist as a timestamp.
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise CorruptedRecord(f"field {key!r} is not a number")
-    return float(value)
-
-
-def _whole(record: Record, key: str) -> int:
-    value = _field(record, key)
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise CorruptedRecord(f"field {key!r} is not an integer")
-    return value
-
-
-def _optional_text(record: Record, key: str) -> str | None:
-    return None if _field(record, key) is None else _text(record, key)
-
-
-def _optional_whole(record: Record, key: str) -> int | None:
-    return None if _field(record, key) is None else _whole(record, key)
-
-
-def _optional_number(record: Record, key: str) -> float | None:
-    return None if _field(record, key) is None else _number(record, key)
-
-
-def _flag(record: Record, key: str) -> bool:
-    value = _field(record, key)
-    if not isinstance(value, bool):
-        raise CorruptedRecord(f"field {key!r} is not a boolean")
-    return value
-
-
-def _member(record: Record, key: str, enum: type[_EnumMember]) -> _EnumMember:
-    value = _text(record, key)
-    try:
-        return enum(value)
-    except ValueError as error:
-        raise CorruptedRecord(f"{value!r} is not a known {enum.__name__}") from error
-
-
-def _objects(record: Record, key: str) -> list[Record]:
-    value = _field(record, key)
-    if not isinstance(value, list) or not all(isinstance(i, dict) for i in value):
-        raise CorruptedRecord(f"field {key!r} is not a list of objects")
-    return value
-
 
 def _job_id(record: Record) -> JobId:
     """Validated here because the value is about to become a path component."""

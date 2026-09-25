@@ -10,9 +10,7 @@ exactly what a process killed between `write` and `os.replace` leaves on disk, a
 it is the state the loader must survive.
 """
 
-import os
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -180,30 +178,6 @@ def test_a_retry_over_a_stale_temporary_file_succeeds(
 
     assert storage.load_chunk_results(JOB_ID) == (a_result(4),)
     assert list(results_dir(storage).glob("*.tmp")) == []
-
-
-def test_the_bytes_are_on_disk_before_the_rename_commits_them(
-    storage: FilesystemTranscriptStorage, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A rename is only atomic with respect to what was already durable. Renaming
-    a file whose contents are still in the page cache commits a name, not data."""
-    events: list[str] = []
-    real_fsync, real_replace = os.fsync, os.replace
-
-    def spy_fsync(fd: int) -> None:
-        events.append("fsync")
-        real_fsync(fd)
-
-    def spy_replace(src: Any, dst: Any) -> None:
-        events.append("replace")
-        real_replace(src, dst)
-
-    monkeypatch.setattr(os, "fsync", spy_fsync)
-    monkeypatch.setattr(os, "replace", spy_replace)
-
-    storage.save_chunk_result(a_result(0))
-
-    assert events == ["fsync", "replace"]
 
 
 def test_one_jobs_results_are_not_visible_from_another(

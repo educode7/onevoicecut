@@ -1,5 +1,5 @@
-"""`TranscriptStoragePort` over one directory per job. The only module that owns
-the on-disk layout.
+"""`TranscriptStoragePort` over one directory per job: the domain-typed facade
+over the layout primitives in `shared/infrastructure/storage/core`.
 
     {data_dir}/jobs/{job_id}/
       job.json  control.json  source.<ext>  audio.flac
@@ -16,7 +16,6 @@ path exists; this answers "is this even an id?" before anything is created, whic
 the only order that holds when the value arrives from an HTTP route.
 """
 
-import os
 from pathlib import Path
 
 from onevoicecut.adapters.storage.serialization import (
@@ -37,6 +36,28 @@ from onevoicecut.adapters.storage.serialization import (
     encode_media,
     encode_transcript,
 )
+# The layout vocabulary lives in `core` and is re-exported here (`X as X` for
+# mypy's `no_implicit_reexport`) so every historical importer of these constants
+# from this module keeps resolving — the facade delegates, it does not re-declare.
+from onevoicecut.shared.infrastructure.storage.core import (
+    StorageCore,
+    ARTIFACTS as ARTIFACTS,
+    AUDIO_TRACK as AUDIO_TRACK,
+    CHUNK_PLAN as CHUNK_PLAN,
+    CHUNKS_DIRNAME as CHUNKS_DIRNAME,
+    CONTROL as CONTROL,
+    HEARTBEAT as HEARTBEAT,
+    JOBS_DIRNAME as JOBS_DIRNAME,
+    JOB_RECORD as JOB_RECORD,
+    MEDIA as MEDIA,
+    PENDING_SUFFIX as PENDING_SUFFIX,
+    RENDER_CLAIM as RENDER_CLAIM,
+    RENDER_DIRNAME as RENDER_DIRNAME,
+    RESULTS_DIRNAME as RESULTS_DIRNAME,
+    SOURCE as SOURCE,
+    TRANSCRIPT as TRANSCRIPT,
+    TRANSCRIPT_TEXT as TRANSCRIPT_TEXT,
+)
 from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult
 from onevoicecut.shared.domain.errors import (
@@ -45,45 +66,23 @@ from onevoicecut.shared.domain.errors import (
     RenderProfileInvalid,
 )
 from onevoicecut.domain.generation import GenerationResult
-from onevoicecut.shared.domain.ids import ClipId, InvalidIdError, JobId, make_job_id
+from onevoicecut.shared.domain.ids import ClipId, JobId
 from onevoicecut.systems.pipeline.jobs.domain.jobs import JobRecord
 from onevoicecut.domain.rendering import ClipExport
 from onevoicecut.domain.transcript import Transcript
 
-JOBS_DIRNAME = "jobs"
-JOB_RECORD = "job.json"
-CONTROL = "control.json"
-HEARTBEAT = "heartbeat"
-MEDIA = "media.json"
-CHUNK_PLAN = "plan.json"
-SOURCE = "source"
-AUDIO_TRACK = "audio.flac"
-CHUNKS_DIRNAME = "chunks"
-RESULTS_DIRNAME = "results"
-RENDER_DIRNAME = "render"
-# A name distinct from `{profile}.json`, `.cmds`, `.ass` and `PENDING_SUFFIX`:
-# `load_clip_exports`'s `directory.glob("*.json")` must never pick this up,
-# and `_export_from_trajectory` writes its sidecars one directory over, under
-# `render/{profile}/`, never under `render/{clip_id}/` where this lives.
-RENDER_CLAIM = "claim"
-PENDING_SUFFIX = ".tmp"
-TRANSCRIPT = "transcript.json"
-TRANSCRIPT_TEXT = "transcript.txt"
-ARTIFACTS = "artifacts.json"
-
 
 class FilesystemTranscriptStorage:
     def __init__(self, data_dir: Path) -> None:
-        self._jobs_root = data_dir / JOBS_DIRNAME
+        self._core = StorageCore(data_dir)
 
     def job_dir(self, job_id: JobId) -> Path:
         """The directory that holds everything belonging to one job.
 
         Public because the job directory is not private to persistence: the ffmpeg
-        adapter is constructed against it, and it is this module that decides where
-        it is.
+        adapter is constructed against it, and it is `core` that decides where it is.
         """
-        return self._jobs_root / self._validated(job_id)
+        return self._core.job_dir(job_id)
 
     def source_path(self, job_id: JobId) -> Path:
         """Extensionless by design.
@@ -93,7 +92,7 @@ class FilesystemTranscriptStorage:
         suffix. Keeping it out removes the last place a client-supplied filename
         could reach a path at all.
         """
-        return self.job_dir(job_id) / SOURCE
+        return self._core.source_path(job_id)
 
     def audio_path(self, job_id: JobId) -> Path:
         """Where the extractor writes the normalized track.
@@ -102,18 +101,18 @@ class FilesystemTranscriptStorage:
         stays in one module. Like `job_dir`, it computes a path and creates
         nothing — the extractor owns making the file.
         """
-        return self.job_dir(job_id) / AUDIO_TRACK
+        return self._core.audio_path(job_id)
 
     def chunk_path(self, job_id: JobId, index: int) -> Path:
         """Zero-padded so the directory sorts the way the chunks are numbered."""
-        return self.job_dir(job_id) / CHUNKS_DIRNAME / f"{index:04d}.flac"
+        return self._core.chunk_path(job_id, index)
 
     def create_job(self, job: JobRecord) -> None:
         directory = self.job_dir(job.job_id)
         if (directory / JOB_RECORD).exists():
             raise JobAlreadyExists(f"job {job.job_id} already exists")
         directory.mkdir(parents=True, exist_ok=True)
-        self._write(directory / JOB_RECORD, encode_job(job))
+        self._core.write_atomic(directory / JOB_RECORD, encode_job(job))
 
     def load_job(self, job_id: JobId) -> JobRecord:
         path = self.job_dir(job_id) / JOB_RECORD
@@ -125,7 +124,7 @@ class FilesystemTranscriptStorage:
         path = self.job_dir(job.job_id) / JOB_RECORD
         if not path.is_file():
             raise JobNotFound(f"no job stored under {job.job_id!r}")
-        self._write(path, encode_job(job))
+        self._core.write_atomic(path, encode_job(job))
 
     def list_jobs(self) -> tuple[JobRecord, ...]:
         """Sorted by id, which for ULIDs is already creation order.
@@ -136,12 +135,12 @@ class FilesystemTranscriptStorage:
         the list invites re-running a three-hour transcription, while a loud
         `CorruptedRecord` names the file to fix.
         """
-        if not self._jobs_root.is_dir():
+        if not self._core.jobs_root.is_dir():
             return ()
         records = sorted(
             directory / JOB_RECORD
-            for directory in self._jobs_root.iterdir()
-            if directory.is_dir() and self._is_job_id(directory.name)
+            for directory in self._core.jobs_root.iterdir()
+            if directory.is_dir() and self._core.is_job_id(directory.name)
         )
         return tuple(
             decode_job(record.read_text(encoding="utf-8"))
@@ -150,7 +149,7 @@ class FilesystemTranscriptStorage:
         )
 
     def save_media(self, job_id: JobId, media: SourceMedia) -> None:
-        self._write(self._writable(job_id) / MEDIA, encode_media(media))
+        self._core.write_atomic(self._core.writable(job_id) / MEDIA, encode_media(media))
 
     def load_media(self, job_id: JobId) -> SourceMedia:
         path = self.job_dir(job_id) / MEDIA
@@ -159,10 +158,10 @@ class FilesystemTranscriptStorage:
         return decode_media(path.read_text(encoding="utf-8"))
 
     def save_chunk_plan(self, job_id: JobId, plan: ChunkPlan) -> None:
-        self._write(self._writable(job_id) / CHUNK_PLAN, encode_chunk_plan(plan))
+        self._core.write_atomic(self._core.writable(job_id) / CHUNK_PLAN, encode_chunk_plan(plan))
 
     def load_chunk_plan(self, job_id: JobId) -> ChunkPlan | None:
-        payload = self._read_optional(self.job_dir(job_id) / CHUNK_PLAN)
+        payload = self._core.read_optional(self.job_dir(job_id) / CHUNK_PLAN)
         return None if payload is None else decode_chunk_plan(payload)
 
     def save_chunk_result(self, result: ChunkResult) -> None:
@@ -173,9 +172,9 @@ class FilesystemTranscriptStorage:
         from a half-written one by the directory alone — there is no journal and no
         recovery pass — which is only true if the last step is atomic.
         """
-        directory = self._writable(result.job_id) / RESULTS_DIRNAME
+        directory = self._core.writable(result.job_id) / RESULTS_DIRNAME
         directory.mkdir(parents=True, exist_ok=True)
-        self._write(directory / f"{result.index:04d}.json", encode_chunk_result(result))
+        self._core.write_atomic(directory / f"{result.index:04d}.json", encode_chunk_result(result))
 
     def load_chunk_results(self, job_id: JobId) -> tuple[ChunkResult, ...]:
         """Sorted by chunk index: a retry can commit chunk 7 after chunk 11, but the
@@ -191,25 +190,25 @@ class FilesystemTranscriptStorage:
         return tuple(sorted(results, key=lambda result: result.index))
 
     def save_transcript(self, transcript: Transcript) -> None:
-        directory = self._writable(transcript.job_id)
-        self._write(directory / TRANSCRIPT, encode_transcript(transcript))
+        directory = self._core.writable(transcript.job_id)
+        self._core.write_atomic(directory / TRANSCRIPT, encode_transcript(transcript))
 
     def load_transcript(self, job_id: JobId) -> Transcript | None:
-        payload = self._read_optional(self.job_dir(job_id) / TRANSCRIPT)
+        payload = self._core.read_optional(self.job_dir(job_id) / TRANSCRIPT)
         return None if payload is None else decode_transcript(payload)
 
     def save_artifacts(self, job_id: JobId, artifacts: GenerationResult) -> None:
-        self._write(self._writable(job_id) / ARTIFACTS, encode_artifacts(artifacts))
+        self._core.write_atomic(self._core.writable(job_id) / ARTIFACTS, encode_artifacts(artifacts))
 
     def load_artifacts(self, job_id: JobId) -> GenerationResult | None:
-        payload = self._read_optional(self.job_dir(job_id) / ARTIFACTS)
+        payload = self._core.read_optional(self.job_dir(job_id) / ARTIFACTS)
         return None if payload is None else decode_artifacts(payload)
 
     def export_text(self, job_id: JobId, text: str) -> Path:
         """Writes the derived `.txt`. `transcript.json` is untouched: the export is
         one rendering of the transcript, never a replacement for it."""
-        path = self._writable(job_id) / TRANSCRIPT_TEXT
-        self._write(path, text)
+        path = self._core.writable(job_id) / TRANSCRIPT_TEXT
+        self._core.write_atomic(path, text)
         return path
 
     def save_clip_export(self, export: ClipExport) -> None:
@@ -221,9 +220,9 @@ class FilesystemTranscriptStorage:
         could hold only the last one written -- silently, since a render that
         finished would leave no trace of the render it overwrote.
         """
-        directory = self._writable(export.job_id) / RENDER_DIRNAME
+        directory = self._core.writable(export.job_id) / RENDER_DIRNAME
         path = self._export_path(directory, export.clip_id, export.profile)
-        self._write(path, encode_clip_export(export))
+        self._core.write_atomic(path, encode_clip_export(export))
 
     def load_clip_exports(
         self, job_id: JobId, clip_id: ClipId
@@ -254,12 +253,12 @@ class FilesystemTranscriptStorage:
         mistaken for one. Sorted by `(job_id, clip_id, profile)` so two reads
         of an unchanged store agree, the same reason `load_clip_exports` sorts.
         """
-        if not self._jobs_root.is_dir():
+        if not self._core.jobs_root.is_dir():
             return ()
         exports = [
             decode_clip_export(path.read_text(encoding="utf-8"))
-            for directory in self._jobs_root.iterdir()
-            if directory.is_dir() and self._is_job_id(directory.name)
+            for directory in self._core.jobs_root.iterdir()
+            if directory.is_dir() and self._core.is_job_id(directory.name)
             for path in (directory / RENDER_DIRNAME).glob("*/*.json")
             if path.is_file()
         ]
@@ -271,15 +270,15 @@ class FilesystemTranscriptStorage:
         """The render side of `write_heartbeat`: one timestamp per clip, not
         per profile -- a whole clip's pending profiles are claimed by one
         process in one call, so one file records it."""
-        directory = self._writable(job_id) / RENDER_DIRNAME / clip_id
-        self._write(directory / RENDER_CLAIM, repr(float(at_s)))
+        directory = self._core.writable(job_id) / RENDER_DIRNAME / clip_id
+        self._core.write_atomic(directory / RENDER_CLAIM, repr(float(at_s)))
 
     def render_claim_is_fresh(
         self, job_id: JobId, clip_id: ClipId, *, now_s: float, stale_after_s: float
     ) -> bool:
         """The render side of `heartbeat_is_fresh`, same fail-closed asymmetry
         and the same reading of a future timestamp as fresh under clock skew."""
-        raw = self._read_optional(
+        raw = self._core.read_optional(
             self.job_dir(job_id) / RENDER_DIRNAME / clip_id / RENDER_CLAIM
         )
         if raw is None:
@@ -323,7 +322,7 @@ class FilesystemTranscriptStorage:
         liveness is only ever asked about worker-bound states — and removal
         would buy a writer-and-cleaner pair for no correctness gain.
         """
-        self._write(self._writable(job_id) / HEARTBEAT, repr(float(at_s)))
+        self._core.write_atomic(self._core.writable(job_id) / HEARTBEAT, repr(float(at_s)))
 
     def heartbeat_is_fresh(
         self, job_id: JobId, *, now_s: float, stale_after_s: float
@@ -341,7 +340,7 @@ class FilesystemTranscriptStorage:
         that is plainly working, and the pid check is what establishes the
         process exists at all.
         """
-        raw = self._read_optional(self.job_dir(job_id) / HEARTBEAT)
+        raw = self._core.read_optional(self.job_dir(job_id) / HEARTBEAT)
         if raw is None:
             return False
         try:
@@ -358,7 +357,7 @@ class FilesystemTranscriptStorage:
         ownership split — while a worker is alive it is the sole writer of
         `job.json`, so a cancellation must never be expressed by editing it.
         """
-        self._write(self._writable(job_id) / CONTROL, encode_control(requested))
+        self._core.write_atomic(self._core.writable(job_id) / CONTROL, encode_control(requested))
 
     def cancellation_requested(self, job_id: JobId) -> bool:
         """Polled by the worker at every chunk boundary, so it writes nothing.
@@ -367,66 +366,5 @@ class FilesystemTranscriptStorage:
         ignoring it turns the operator's stop button into a no-op on a job that
         runs for hours, and naming the file to delete is the more useful failure.
         """
-        payload = self._read_optional(self.job_dir(job_id) / CONTROL)
+        payload = self._core.read_optional(self.job_dir(job_id) / CONTROL)
         return False if payload is None else decode_control(payload)
-
-    def _writable(self, job_id: JobId) -> Path:
-        """The job directory, but only once the job record is really there.
-
-        Writes are strict where reads are tolerant. A save against a job that was
-        never created would leave a directory holding a transcript and no
-        `job.json`, and `list_jobs` skips exactly that shape — so the orphan would
-        be invisible rather than merely wrong.
-        """
-        directory = self.job_dir(job_id)
-        if not (directory / JOB_RECORD).is_file():
-            raise JobNotFound(f"no job stored under {job_id!r}")
-        return directory
-
-    def _validated(self, job_id: JobId) -> str:
-        try:
-            return make_job_id(job_id)
-        except InvalidIdError as error:
-            raise JobNotFound(f"{job_id!r} is not a job id") from error
-
-    @staticmethod
-    def _is_job_id(name: str) -> bool:
-        try:
-            make_job_id(name)
-        except InvalidIdError:
-            return False
-        return True
-
-    @staticmethod
-    def _write(path: Path, payload: str) -> None:
-        """Write to a sibling `.tmp`, force it to disk, then rename onto the target.
-
-        Every write goes through this, not only `save_chunk_result`: a torn
-        `job.json` is no more survivable than a torn chunk result, and the worker
-        rewrites it at every state transition.
-
-        The `fsync` is not decoration. A rename is atomic with respect to what is
-        already durable, so renaming a file whose bytes are still in the page cache
-        commits a name and not the data behind it.
-
-        `os.replace` rather than `os.rename` because on Windows a rename onto an
-        existing destination fails — and an existing destination is exactly the
-        retry case. A leftover `.tmp` from a crash is simply overwritten here, and
-        ignored by every reader, which is what makes resume correct rather than
-        hopeful.
-        """
-        path.parent.mkdir(parents=True, exist_ok=True)
-        pending = path.with_name(path.name + PENDING_SUFFIX)
-        with open(pending, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(pending, path)
-
-    @staticmethod
-    def _read_optional(path: Path) -> str | None:
-        """Absent means "not produced yet", a normal mid-run state for a plan or a
-        transcript. The port returns `None` for both rather than raising."""
-        if not path.is_file():
-            return None
-        return path.read_text(encoding="utf-8")

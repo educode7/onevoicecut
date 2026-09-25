@@ -239,7 +239,7 @@ Behavior-frozen relocation.
       `tests/systems/pipeline/jobs/`. **No new behavior test** — behavior-frozen relocation
       proven by unchanged assertions (the `JobStore` Protocol itself is structure, exercised
       for behavior in slice 2b). `[unit 2a]`
-- [ ] 2a.3 Verify (relocation honesty): suite green with same test bodies + mypy; legacy
+- [x] 2a.3 Verify (relocation honesty): suite green with same test bodies + mypy; legacy
       `domain/` and `ports/` shrink but their guard rules stay in force (AB-11). Commit
       `refactor(fca): migrate jobs domain and interfaces into systems/pipeline/jobs`.
       `[unit 2a]`
@@ -253,20 +253,20 @@ construction); preserves atomic `save_chunk_result`, derived progress, key-toler
 decode **byte-frozen** (existing storage tests unchanged). Split at the core/facade seam: both
 halves of 2b are green alone.
 
-- [ ] 2b-i.1 RED-equivalent verification first: relocate the existing storage test bodies
+- [x] 2b-i.1 RED-equivalent verification first: relocate the existing storage test bodies
       covering layout helpers, atomic rename-commit, and key-tolerant JSON decode to
       `tests/shared/infrastructure/storage/` — they fail on import while the modules are
       absent (honest RED-by-import for a pure extraction; **no new assertions invented**).
       `[unit 2b-i]`
-- [ ] 2b-i.2 GREEN: create `shared/infrastructure/storage/core.py` from
+- [x] 2b-i.2 GREEN: create `shared/infrastructure/storage/core.py` from
       `adapters/storage/filesystem_transcript_storage.py` + `serialization.py` primitives —
       on-disk layout helpers, atomic rename-commit, key-tolerant JSON; signatures take
       `Path`/`str`/plain dicts only, never a domain type (AB-08 by construction). `[unit 2b-i]`
-- [ ] 2b-i.3 GREEN: refactor the existing monolith to delegate its primitive operations to
+- [x] 2b-i.3 GREEN: refactor the existing monolith to delegate its primitive operations to
       `core` (internal re-plumbing only — every public method keeps its exact behavior;
       the unchanged suite is the equivalence proof; this prevents core and monolith from
       becoming two implementations of one layout). `[unit 2b-i]`
-- [ ] 2b-i.4 Verify: suite + mypy; `git diff` on `adapters/storage/` shows delegation, not
+- [x] 2b-i.4 Verify: suite + mypy; `git diff` on `adapters/storage/` shows delegation, not
       logic edits. Commit `refactor(fca): extract domain-agnostic storage core`. `[unit 2b-i]`
 
 ---
