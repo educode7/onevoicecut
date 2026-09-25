@@ -21,7 +21,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.routing import APIRoute
 from httpx import ASGITransport, AsyncClient
 
-from onevoicecut.adapters.web.app import WebDependencies, create_app
+from onevoicecut.adapters.web.app import WebDependencies
+from onevoicecut.main import create_app
 from onevoicecut.adapters.web.routers import jobs as jobs_routes
 from onevoicecut.shared.application.principal import Principal, build_authenticator
 from onevoicecut.shared.domain.ids import make_operator_id

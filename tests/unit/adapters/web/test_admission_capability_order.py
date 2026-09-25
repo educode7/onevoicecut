@@ -12,7 +12,8 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from onevoicecut.adapters.web.app import WebDependencies, create_app
+from onevoicecut.adapters.web.app import WebDependencies
+from onevoicecut.main import create_app
 from onevoicecut.shared.domain.errors import DiarizationUnsupported
 from onevoicecut.shared.domain.ids import (
     JobId,

@@ -14,7 +14,8 @@ import pytest
 from fastapi.routing import APIRoute
 from httpx import ASGITransport, AsyncClient
 
-from onevoicecut.adapters.web.app import WebDependencies, create_app
+from onevoicecut.adapters.web.app import WebDependencies
+from onevoicecut.main import create_app
 from onevoicecut.shared.domain.ids import JobId
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.unit.adapters.web.conftest import (

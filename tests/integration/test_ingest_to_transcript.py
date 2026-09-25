@@ -24,7 +24,8 @@ from httpx import ASGITransport, AsyncClient
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
-from onevoicecut.adapters.web.app import WebDependencies, create_app
+from onevoicecut.adapters.web.app import WebDependencies
+from onevoicecut.main import create_app
 from onevoicecut.shared.domain.ids import JobId, make_job_id
 from onevoicecut.domain.jobs import EngineChoice, JobState
 from onevoicecut.runtime.engine_resolver import EngineResolver

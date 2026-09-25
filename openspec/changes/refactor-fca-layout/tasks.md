@@ -189,11 +189,11 @@ AUTH-12 (unhandled 500 leaks no headers or body), AUTH-13/14/15 precedence prese
 the new root. Design decision: one handler installed at the composition root; presentation-level
 `HTTPException`s for pure HTTP/state concerns stay in route/controller code.
 
-- [ ] 1d.1 RED: central-handler test — raise a novel `DomainError` from a test route on
+- [x] 1d.1 RED: central-handler test — raise a novel `DomainError` from a test route on
       `create_app` (imported from `main.get_app`) and assert it maps to 422 without any
       route-local `try`; plus a planted unhandled `Exception` maps to 500 with no headers/body
       (AUTH-12). Fails: no central handler exists. `[unit 1d]`
-- [ ] 1d.2 GREEN: create `src/onevoicecut/main.py` as the web composition root: builds
+- [x] 1d.2 GREEN: create `src/onevoicecut/main.py` as the web composition root: builds
       `Settings`, parses the token map (the one `get_secret_value()` call), runs the
       `check_target_profiles` preflight, constructs storage/auth dependencies, assembles the
       existing routers, installs the `DomainError` handler per the design table (JobNotFound
@@ -201,14 +201,14 @@ the new root. Design decision: one handler installed at the composition root; pr
       UnsupportedContainer 415, validation 422, other `DomainError` 422, unhandled 500) and the
       generic `Exception` handler; lifespan/supervisor startup wiring moves with it —
       supervisor loops themselves stay in `runtime/` untouched. `[unit 1d]`
-- [ ] 1d.3 GREEN: `runtime/app.py:get_app` becomes a one-line re-export of `main.get_app`
+- [x] 1d.3 GREEN: `runtime/app.py:get_app` becomes a one-line re-export of `main.get_app`
       (lives until Phase 5); all existing tests importing `runtime.app:get_app` keep passing
       unchanged. `[unit 1d]`
-- [ ] 1d.4 REFACTOR: remove route-local `DomainError` translation now subsumed by the central
+- [x] 1d.4 REFACTOR: remove route-local `DomainError` translation now subsumed by the central
       handler; keep the documented presentation-level `HTTPException`s verbatim (Content-Length
       413 pre-check, "job not PENDING"/"job not COMPLETED" 409, malformed-id 404). Equivalence
       proven by the existing integration tests with unchanged bodies. `[unit 1d]`
-- [ ] 1d.5 Verify: suite + mypy; 401 to 404 to 403 precedence tests green through `main.get_app`.
+- [x] 1d.5 Verify: suite + mypy; 401 to 404 to 403 precedence tests green through `main.get_app`.
       Commit `refactor(fca): make main.py the web composition root with central error mapping`.
       `[unit 1d]`
 

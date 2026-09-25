@@ -82,8 +82,8 @@ class JobNotOwned(DomainError):
 
     The one ownership rule raises it — `require_owner` — including for jobs with
     no owner at all: a legacy job is visible to everyone and mutable by nobody.
-    The web adapter maps it to 403; job existence is already public under the
-    shared listing, so the refusal leaks nothing new.
+    The composition root maps it to 403 with a generic detail; job existence is
+    already public under the shared listing, so the refusal leaks nothing new.
     """
 
 

@@ -1,20 +1,15 @@
-"""The FastAPI application, built from injected dependencies.
+"""The web adapter's injectable surface: `WebDependencies` and its factories.
 
-`create_app(deps)` rather than a module-level `app`: the composition root decides
-what storage and which clock, and a test points the same application at a
-`tmp_path`. A module-level singleton would read its own configuration at import
-time, which is the one thing that makes a web adapter untestable without a real
-data directory.
+The application factory moved to `main.py` when the composition root landed
+(slice 1d): deciding handlers and startup wiring belongs with the root that
+reads configuration, while this module decides what a route closure may be
+handed. Nothing here reads configuration at import time — that is what keeps
+the adapter testable without a real data directory.
 """
 
 import time
 from collections.abc import Callable, Mapping
-from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
-
-from fastapi import FastAPI
-
-Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None]] | None
 
 from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor
 from onevoicecut.adapters.storage.media_source import FilesystemMediaSource
@@ -91,19 +86,3 @@ class WebDependencies:
     # code that starts a worker. A launcher reachable from a route handler is one
     # refactor away from a second spawn decision point and the race it brings.
     capabilities: Callable[[EngineChoice], DeclaredSupport] | None = None
-
-
-def create_app(deps: WebDependencies, *, lifespan: Lifespan = None) -> FastAPI:
-    """`lifespan` is supplied by the composition root, not built here.
-
-    Startup checks — ffmpeg present, stale jobs reconciled — need real adapters
-    and a real data directory. A test drives the same routes with neither, which
-    is only possible while this stays optional.
-    """
-    from onevoicecut.adapters.web.routers.jobs import build_jobs_router
-
-    app = FastAPI(
-        title="transcribe", docs_url=None, redoc_url=None, lifespan=lifespan
-    )
-    app.include_router(build_jobs_router(deps))
-    return app

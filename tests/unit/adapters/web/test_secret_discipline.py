@@ -14,7 +14,8 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from onevoicecut.adapters.web.app import WebDependencies, create_app
+from onevoicecut.adapters.web.app import WebDependencies
+from onevoicecut.main import create_app
 from onevoicecut.shared.application.principal import build_authenticator
 from onevoicecut.shared.domain.ids import make_job_id, make_operator_id
 from onevoicecut.runtime.app import WORKER_MODULE, spawn_worker

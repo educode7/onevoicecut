@@ -31,7 +31,9 @@ import pytest
 from onevoicecut.shared.domain.errors import RenderProfileInvalid
 from onevoicecut.domain.rendering import OutputSpec, RenderProfile, SafeArea
 from onevoicecut.shared.infrastructure.settings import Settings
-from onevoicecut.runtime import app as runtime_app
+# The registries `build_dependencies` reads live in `main.py` since the
+# composition root landed (slice 1d), so the boot-path tests patch them there.
+from onevoicecut import main as app_root
 from onevoicecut.runtime.app import build_dependencies, check_target_profiles
 from onevoicecut.usecases.generate_artifacts import SCRIPT_TARGETS, ScriptTarget
 from onevoicecut.usecases.render_profiles import RENDER_PROFILES
@@ -185,7 +187,7 @@ class TestItRunsAtComposition:
         monkeypatch.setenv("ONEVOICECUT_DATA_DIR", str(tmp_path))
         monkeypatch.setenv("ONEVOICECUT_OPERATOR_TOKENS", "maria:tok-boot")
         monkeypatch.setattr(
-            runtime_app, "SCRIPT_TARGETS", {"tiktok": _target("tiktok", "vertcal")}
+            app_root, "SCRIPT_TARGETS", {"tiktok": _target("tiktok", "vertcal")}
         )
 
         settings = Settings()  # type: ignore[call-arg]
@@ -209,7 +211,7 @@ class TestItRunsAtComposition:
             "ONEVOICECUT_OPERATOR_TOKENS", "maria:tok-composition-root"
         )
         monkeypatch.setattr(
-            runtime_app, "SCRIPT_TARGETS", {"tiktok": _target("tiktok", "vertcal")}
+            app_root, "SCRIPT_TARGETS", {"tiktok": _target("tiktok", "vertcal")}
         )
 
         settings = Settings()  # type: ignore[call-arg]
@@ -229,7 +231,7 @@ class TestItRunsAtComposition:
         monkeypatch.setenv("ONEVOICECUT_DATA_DIR", str(tmp_path))
         monkeypatch.setenv("ONEVOICECUT_OPERATOR_TOKENS", "maria:tok-unmeasured")
         monkeypatch.setattr(
-            runtime_app, "RENDER_PROFILES", {"vertical": UNMEASURED}
+            app_root, "RENDER_PROFILES", {"vertical": UNMEASURED}
         )
 
         settings = Settings()  # type: ignore[call-arg]

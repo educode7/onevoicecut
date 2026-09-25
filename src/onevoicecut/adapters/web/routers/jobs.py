@@ -3,6 +3,12 @@
 Handlers stay thin on purpose: translate HTTP into a use-case call, translate the
 result back. Every decision worth arguing about — what an admitted job looks like,
 which ids it gets — lives in the use case, where it is testable without a client.
+
+A `DomainError` leaving storage or a use case is not caught here: the composition
+root maps it once (`main.py`), so every route answers one table alike. What still
+raises `HTTPException` is presentation — a malformed id, a state this route itself
+decides, a probe result it must report — where the HTTP answer is the whole point
+rather than a translation of a domain refusal.
 """
 
 from dataclasses import replace
@@ -26,18 +32,7 @@ from onevoicecut.adapters.web.schemas import (
     ProgressResponse,
 )
 from onevoicecut.shared.application.principal import Principal
-from onevoicecut.shared.domain.errors import (
-    ArtifactsNotAvailable,
-    ClassificationUnsupported,
-    ClipCandidateNotFound,
-    ClipTargetsInvalid,
-    DiarizationUnsupported,
-    JobNotFound,
-    JobNotOwned,
-    RenderProfileInvalid,
-    UnsupportedContainer,
-    UploadTooLarge,
-)
+from onevoicecut.shared.domain.errors import UnsupportedContainer
 from onevoicecut.shared.domain.ids import ClipId, InvalidIdError, JobId, OperatorId, make_clip_id, make_job_id
 from onevoicecut.shared.presentation.security import make_current_principal
 from onevoicecut.domain.jobs import JobRecord, JobState, derive_progress
@@ -55,27 +50,25 @@ FILENAME_HEADER = "x-filename"
 
 
 def _owned(job: JobRecord, operator: OperatorId) -> None:
-    """The one 403 translation, shared by every mutating route.
+    """The ownership gate every mutating route calls before it changes anything.
 
-    The use case raises `JobNotOwned`; the adapter maps it. The detail is
-    generic on purpose — under the shared listing every job's existence is
-    already public, so a refusal on a foreign id reveals nothing new and must
-    not name the owner.
+    The use case raises `JobNotOwned`; nothing catches it here — the composition
+    root maps it to a 403 whose detail never names the owner (see `main.py`).
+    The check stays at the route as well as inside the use case because the
+    handler must refuse before the branch is taken: a stranger must not open a
+    partial file or learn the state of somebody else's job.
     """
-    try:
-        require_owner(job, operator)
-    except JobNotOwned as error:
-        raise HTTPException(
-            status_code=403, detail="not the owner of this job"
-        ) from error
+    require_owner(job, operator)
 
 
 def _load(job_id: str, deps: WebDependencies) -> JobRecord:
-    """Validate then load, in that order, on every route that names a job."""
-    try:
-        return deps.storage.load_job(_validated_job_id(job_id))
-    except JobNotFound as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
+    """Validate then load, in that order, on every route that names a job.
+
+    `JobNotFound` from the store rises to the composition root's table (404);
+    the malformed-id refusal below stays here, because it is this route's own
+    question about the path parameter rather than a domain refusal.
+    """
+    return deps.storage.load_job(_validated_job_id(job_id))
 
 
 def _validated_job_id(raw: str) -> JobId:
@@ -180,13 +173,15 @@ def _verified_media(
     the upload form.
 
     A refused file is discarded rather than kept. The retention rule protects the
-    operator's uploaded video; this was never accepted as one.
+    operator's uploaded video; this was never accepted as one. The discard is
+    this route's job; the 415 it answers with belongs to the central table, so
+    the error rises untranslated.
     """
     try:
         probe = extractor.probe(media)
-    except UnsupportedContainer as error:
+    except UnsupportedContainer:
         writer.discard(media)
-        raise HTTPException(status_code=415, detail=str(error)) from error
+        raise
 
     if not probe.has_audio:
         writer.discard(media)
@@ -238,19 +233,16 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         HTTP request.
         """
         operator = principal.identity
-        try:
-            admission = admit_job(
-                engine=body.engine,
-                speaker_mode=body.speaker_mode,
-                operator=operator,
-                storage=deps.storage,
-                now=deps.now,
-                new_job_id=deps.new_job_id,
-                new_media_id=deps.new_media_id,
-                capabilities=deps.capabilities,
-            )
-        except (DiarizationUnsupported, ClassificationUnsupported) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
+        admission = admit_job(
+            engine=body.engine,
+            speaker_mode=body.speaker_mode,
+            operator=operator,
+            storage=deps.storage,
+            now=deps.now,
+            new_job_id=deps.new_job_id,
+            new_media_id=deps.new_media_id,
+            capabilities=deps.capabilities,
+        )
         return AdmitJobResponse(
             job_id=admission.job.job_id,
             state=admission.job.state,
@@ -378,15 +370,14 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
         _refuse_if_declared_too_large(request, deps.max_upload_bytes)
 
         writer = deps.media_source_for(deps.storage, job.job_id)
-        try:
-            media = await writer.store(
-                job.media_id,
-                _client_filename(request.headers.get(FILENAME_HEADER, "")),
-                request.stream(),
-                deps.max_upload_bytes,
-            )
-        except UploadTooLarge as error:
-            raise HTTPException(status_code=413, detail=str(error)) from error
+        # `UploadTooLarge` from a dishonest Content-Length claim rises to the
+        # central table (413), same as the honest-declaration pre-check above.
+        media = await writer.store(
+            job.media_id,
+            _client_filename(request.headers.get(FILENAME_HEADER, "")),
+            request.stream(),
+            deps.max_upload_bytes,
+        )
 
         # Read again, now that the bytes are in. The record consulted before the
         # transfer is hours stale by the time a multi-hour upload finishes, and
@@ -440,22 +431,15 @@ def build_jobs_router(deps: WebDependencies) -> APIRouter:
                 f"export from",
             )
 
-        try:
-            clip_id, profiles = request_clip_export(
-                job.job_id,
-                body.candidate_index,
-                body.targets,
-                storage=deps.storage,
-                new_clip_id=deps.new_clip_id,
-                script_targets=deps.script_targets,
-                render_profiles=deps.render_profiles,
-            )
-        except ArtifactsNotAvailable as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-        except ClipCandidateNotFound as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
-        except (ClipTargetsInvalid, RenderProfileInvalid) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
+        clip_id, profiles = request_clip_export(
+            job.job_id,
+            body.candidate_index,
+            body.targets,
+            storage=deps.storage,
+            new_clip_id=deps.new_clip_id,
+            script_targets=deps.script_targets,
+            render_profiles=deps.render_profiles,
+        )
 
         return ClipExportResponse(
             clip_id=clip_id, profiles=tuple(profile.name for profile in profiles)

@@ -16,7 +16,8 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from onevoicecut.adapters.web.app import WebDependencies, create_app
+from onevoicecut.adapters.web.app import WebDependencies
+from onevoicecut.main import create_app
 from onevoicecut.shared.domain.ids import _ULID_PATTERN
 from onevoicecut.domain.jobs import EngineChoice, JobState, SpeakerMode
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort

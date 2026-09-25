@@ -1,45 +1,38 @@
-"""Composition root for the web process.
+"""Worker spawning and process supervision for the web process.
 
     PYTHONPATH=src uvicorn onevoicecut.runtime.app:get_app --factory
 
-This is where configuration is read, real adapters are constructed, and the two
-processes meet. Everything below it takes what it needs as an argument, which is
-why the whole system can be driven by tests without an environment.
+Configuration, adapters and the `DomainError` handler moved to `main.py` when
+the composition root landed (slice 1d); this module keeps the documented
+entrypoint and the names that used to live here importable from their old home
+until Phase 5, so existing tests and docs keep working unchanged. What stays
+defined here is what belongs to the two processes meeting: the launcher, the
+drain sweeps and the reconciliation they run. Everything below takes what it
+needs as an argument, which is why the whole system can be driven by tests
+without an environment.
 """
 
 import asyncio
-import os
 import subprocess
 import sys
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from contextlib import asynccontextmanager, suppress
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from fastapi import FastAPI
-
-from onevoicecut.adapters.asr.local.declarations import HF_TOKEN_ENV
-from onevoicecut.adapters.ffmpeg.extractor import require_binaries
+# Unused by anything defined in this module since the web factory moved to
+# `main.py`, and kept deliberately: `main.build_app` resolves it *here* at
+# call time, and the wiring tests patch it here too. Dropping the name would
+# break both, from a file neither of them imports. The `as` form marks it a
+# re-export rather than a private use, which strict `no_implicit_reexport`
+# requires for `main`'s call-time import to type-check.
+from onevoicecut.adapters.ffmpeg.extractor import require_binaries as require_binaries
 from onevoicecut.adapters.ffmpeg.video_render import render_timeout_for
-from onevoicecut.adapters.storage.filesystem_transcript_storage import (
-    FilesystemTranscriptStorage,
-)
-from onevoicecut.adapters.web.app import WebDependencies, create_app
-from onevoicecut.shared.application.principal import build_authenticator, parse_operator_tokens
-from onevoicecut.shared.domain.errors import RenderProfileInvalid
 from onevoicecut.shared.domain.ids import ClipId, JobId
 from onevoicecut.domain.jobs import WORKER_BOUND_STATES, JobRecord, JobState
-from onevoicecut.domain.rendering import ClipExport, ClipState, RenderProfile
+from onevoicecut.domain.rendering import ClipExport, ClipState
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
-from onevoicecut.runtime.engine_resolver import declared_support
-from onevoicecut.shared.infrastructure.settings import (
-    Settings,
-    load_env_file,
-)
-from onevoicecut.usecases.generate_artifacts import SCRIPT_TARGETS, ScriptTarget
-from onevoicecut.usecases.render_profiles import RENDER_PROFILES
 
 # Re-exported, not merely used: liveness moved to `supervisor.py` when the
 # watchdog wiring made `app.py` need the sweep and the sweep need the probe —
@@ -53,24 +46,27 @@ from onevoicecut.runtime.supervisor import reap_exited_workers as reap_exited_wo
 from onevoicecut.runtime.supervisor import watchdog_supervisor as watchdog_supervisor
 from onevoicecut.runtime.supervisor import worker_is_alive as worker_is_alive
 
+# Re-exported, not merely used: the web factory, the drain configs and the
+# interval constants moved to `main.py` when the composition root landed
+# (slice 1d). Existing tests — and the documented
+# `uvicorn onevoicecut.runtime.app:get_app` entrypoint, until Phase 5 —
+# import them from here, so each name stays importable from its old home.
+# The intervals are sourced rather than re-declared: `DrainConfig` and this
+# module's `drain_supervisor` must not be free to drift apart on the cadence
+# they share, and two definitions of one number is how they would.
+from onevoicecut.main import DRAIN_SWEEP_INTERVAL_S as DRAIN_SWEEP_INTERVAL_S
+from onevoicecut.main import DrainConfig as DrainConfig
+from onevoicecut.main import RENDER_DRAIN_SWEEP_INTERVAL_S as RENDER_DRAIN_SWEEP_INTERVAL_S
+from onevoicecut.main import RenderDrainConfig as RenderDrainConfig
+from onevoicecut.main import WatchdogConfig as WatchdogConfig
+from onevoicecut.main import WATCHDOG_SWEEP_INTERVAL_S as WATCHDOG_SWEEP_INTERVAL_S
+from onevoicecut.main import build_app as build_app
+from onevoicecut.main import build_dependencies as build_dependencies
+from onevoicecut.main import check_target_profiles as check_target_profiles
+from onevoicecut.main import get_app as get_app
+
 WORKER_MODULE = "onevoicecut.runtime.worker"
 RENDER_WORKER_MODULE = "onevoicecut.runtime.render_worker"
-
-# Five seconds between sweeps. That is the worst-case delay between an upload
-# finishing and its worker starting on an idle machine — noise against a
-# three-hour job, and QUEUED is an honest status to show meanwhile.
-DRAIN_SWEEP_INTERVAL_S = 5.0
-
-# A minute between watchdog sweeps, against a timeout measured in tens of
-# minutes. It bounds only how late a kill lands; sweeping at the drain's cadence
-# would re-list every job on the machine twelve times a minute to re-ask a
-# question whose answer changes on the scale of a chunk.
-WATCHDOG_SWEEP_INTERVAL_S = 60.0
-
-# Same cadence as the job drain: a render is minutes rather than hours, so
-# there is no argument for sweeping it any less eagerly than the queue it sits
-# beside.
-RENDER_DRAIN_SWEEP_INTERVAL_S = 5.0
 
 
 @runtime_checkable
@@ -561,238 +557,3 @@ async def drain_supervisor(
             print(f"drain: sweep failed: {error}", file=sys.stderr)
         await sleep(interval_s)
 
-
-@dataclass(frozen=True, slots=True)
-class DrainConfig:
-    """Everything the supervisor needs, kept off `WebDependencies` on purpose.
-
-    The web adapter no longer knows how to start work, and that is the point of
-    the capacity gate — so the launcher must not sit on the object every route
-    handler receives. A handler that can reach a launcher is one refactor away
-    from calling it.
-    """
-
-    launch: Callable[[JobId], None]
-    max_concurrent_jobs: int
-    is_alive: LivenessProbe = process_is_alive
-    interval_s: float = DRAIN_SWEEP_INTERVAL_S
-    # Defaults to reporting nothing, so an app built without a process registry
-    # sweeps exactly as before rather than reaping workers it never started.
-    reap: Callable[[], tuple[tuple[JobId, int], ...]] = field(default=lambda: ())
-
-
-@dataclass(frozen=True, slots=True)
-class RenderDrainConfig:
-    """`DrainConfig`'s render-side twin -- no `is_alive`, because a render's
-    liveness question is answered by a claim, not a pid probe."""
-
-    launch: Callable[[JobId, ClipId], None]
-    max_concurrent_renders: int
-    interval_s: float = RENDER_DRAIN_SWEEP_INTERVAL_S
-    reap: Callable[[], tuple[tuple[ClipId, int], ...]] = field(default=lambda: ())
-
-
-@dataclass(frozen=True, slots=True)
-class WatchdogConfig:
-    """Separate from `DrainConfig` because they are separate decisions.
-
-    One is capacity, the other is enforcement, and their intervals differ by
-    three orders of magnitude. Folding them together would tie a thirty-minute
-    judgement to a five-second cadence.
-    """
-
-    chunk_timeout_s: float
-    # A minute between sweeps. The timeout is measured in tens of minutes, so
-    # this only bounds how late the kill is, and sweeping harder would re-list
-    # every job on the machine for a question whose answer changes slowly.
-    interval_s: float = WATCHDOG_SWEEP_INTERVAL_S
-    kill: Callable[[int], None] = kill_worker
-    is_alive: LivenessProbe = process_is_alive
-
-
-def check_target_profiles(
-    targets: Mapping[str, ScriptTarget], profiles: Mapping[str, RenderProfile]
-) -> None:
-    """Refuse a script target that names a render profile nobody defined.
-
-    The two registries are edited independently — adding a network is a row in
-    one, adding a destination shape is a row in the other — and the only thing
-    joining them is a string. `profil="vertcal"` type-checks, imports, and
-    transcribes three hours of audio before anybody finds out. So they are read
-    against each other while the server boots, which is the last moment before a
-    job can start.
-
-    **This asserts membership, not renderability, and the distinction is the
-    reason the function exists rather than a call to `resolve_render_profiles`.**
-    That resolver also refuses a profile whose caption safe area nobody has
-    measured — on purpose, because the fractions are a measurement against each
-    destination's live interface rather than a value this project may invent. The
-    shipped profile is now measured, but an unmeasured one remains a legal
-    registry state any future profile can be in, and it stays refused at
-    resolution rather than at boot. Calling the resolver here would refuse to
-    start the server over a destination gap that only rendering needs, and would
-    refuse it for transcription, which renders nothing.
-
-    The two failures differ in both directions that matter. A dangling name is a
-    typo: fixed by editing a row, identical on every retry, unrecoverable
-    downstream — refused here. An unmeasured safe area is a recorded and
-    intended state that the render path already refuses **by name**, at the point
-    where a frame is genuinely needed. Escalating it to a boot refusal would take
-    the transcription pipeline down for a gap in a capability the operator may
-    not be using yet, and would make measuring four destinations a precondition
-    for starting the server at all.
-
-    Every offending row is named, not the first: fixing one and rebooting to be
-    told about the next is a boot loop an operator walks through by hand.
-    """
-    dangling = sorted(
-        f"{target.name} -> {target.profile}"
-        for target in targets.values()
-        if target.profile not in profiles
-    )
-    if dangling:
-        raise RenderProfileInvalid(
-            f"script target(s) {dangling} name a render profile that is not "
-            f"defined; available: {', '.join(sorted(profiles))}"
-        )
-
-
-def build_dependencies(settings: Settings) -> WebDependencies:
-    # Membership preflight: the inlined default `script_targets` and the
-    # registry must agree before anything serves. The model validator that
-    # used to enforce this on `Settings` is gone — `shared/infrastructure`
-    # must not import the clip use case — so the composition root checks it
-    # here, one call later, same exception and message discipline.
-    check_target_profiles(SCRIPT_TARGETS, RENDER_PROFILES)
-    # Parsing the token map is the composition root's one authentication act.
-    # It refuses an empty or malformed map before anything can serve a request —
-    # a server must never come up with authentication disabled or ambiguous.
-    # AUTH-17: the SecretStr is peeled open here, and only here — no module
-    # under shared/ or adapters/ ever holds the plaintext.
-    authenticate = build_authenticator(
-        parse_operator_tokens(settings.operator_tokens.get_secret_value())
-    )
-    return WebDependencies(
-        storage=FilesystemTranscriptStorage(settings.data_dir),
-        authenticate=authenticate,
-        max_upload_bytes=settings.max_upload_bytes,
-        # Slice 6 built this guard and nothing ever supplied it, so `admit_job`
-        # skipped it on the one path an operator uses. An interview-mode job was
-        # admitted, queued, given a worker, and refused by the adapter on its
-        # first chunk — after ffmpeg had extracted three hours of audio that then
-        # went in the bin. Cheap here: neither engine is constructed to answer.
-        capabilities=lambda engine: declared_support(
-            engine, hf_token=os.environ.get(HF_TOKEN_ENV)
-        ),
-    )
-
-
-def build_app(
-    deps: WebDependencies,
-    *,
-    drain: DrainConfig | None = None,
-    watchdog: WatchdogConfig | None = None,
-    render_drain: RenderDrainConfig | None = None,
-) -> FastAPI:
-    """`None` for either builds an app that serves routes and starts nothing.
-
-    That is what route tests want, and it is explicit rather than implied by a
-    forgotten argument — the composition root always supplies both, and a test
-    asserts that it does.
-    """
-
-    @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        # These happen before the first request rather than at first use. A
-        # missing ffmpeg discovered an hour into a job, or a stale TRANSCRIBING
-        # left by yesterday's crash, are both things the operator should learn
-        # about at boot.
-        require_binaries()
-        # Before the drain, always: reconcile turns records left by dead workers
-        # into INTERRUPTED, which is what frees their derived slots. Sweeping
-        # first would count processes that no longer exist and make queued work
-        # wait behind them.
-        reconcile_interrupted_jobs(deps.storage, now=deps.now)
-
-        supervisors: list[asyncio.Task[None]] = []
-        if drain is not None:
-            supervisors.append(
-                asyncio.create_task(
-                    drain_supervisor(
-                        deps.storage,
-                        max_concurrent_jobs=drain.max_concurrent_jobs,
-                        launch=drain.launch,
-                        is_alive=drain.is_alive,
-                        interval_s=drain.interval_s,
-                        reap=drain.reap,
-                    )
-                )
-            )
-        if watchdog is not None:
-            supervisors.append(
-                asyncio.create_task(
-                    watchdog_supervisor(
-                        deps.storage,
-                        chunk_timeout_s=watchdog.chunk_timeout_s,
-                        interval_s=watchdog.interval_s,
-                        kill=watchdog.kill,
-                        is_alive=watchdog.is_alive,
-                    )
-                )
-            )
-        if render_drain is not None:
-            supervisors.append(
-                asyncio.create_task(
-                    render_drain_supervisor(
-                        deps.storage,
-                        max_concurrent_renders=render_drain.max_concurrent_renders,
-                        launch=render_drain.launch,
-                        interval_s=render_drain.interval_s,
-                        reap=render_drain.reap,
-                    )
-                )
-            )
-
-        try:
-            yield
-        finally:
-            # A task outliving its app would keep spawning workers — or killing
-            # them — against a data directory this process is finished with.
-            for supervisor in supervisors:
-                supervisor.cancel()
-            for supervisor in supervisors:
-                with suppress(asyncio.CancelledError):
-                    await supervisor
-
-    return create_app(deps, lifespan=lifespan)
-
-
-def get_app() -> FastAPI:
-    """Built on call, not at import.
-
-    `uvicorn onevoicecut.runtime.app:get_app --factory` reads the environment when
-    it starts the server; a module-level app would read it whenever anything
-    imported this module, including a test collecting it.
-    """
-    # Before `Settings`, and before `build_dependencies` reads the HF token: the
-    # operator's gitignored `.env` is one of the places configuration comes from,
-    # and loading it here also covers every spawned worker, which inherits this
-    # environment.
-    load_env_file()
-    settings = Settings()  # type: ignore[call-arg]
-    workers = spawn_worker(settings.data_dir)
-    render_workers = spawn_render_worker(settings.data_dir)
-    return build_app(
-        build_dependencies(settings),
-        drain=DrainConfig(
-            launch=workers,
-            max_concurrent_jobs=settings.max_concurrent_jobs,
-            reap=workers.finished,
-        ),
-        watchdog=WatchdogConfig(chunk_timeout_s=settings.chunk_timeout_s),
-        render_drain=RenderDrainConfig(
-            launch=render_workers,
-            max_concurrent_renders=settings.max_concurrent_renders,
-            reap=render_workers.finished,
-        ),
-    )

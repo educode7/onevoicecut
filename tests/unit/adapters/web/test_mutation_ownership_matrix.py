@@ -19,7 +19,8 @@ import pytest
 from fastapi.routing import APIRoute
 from httpx import ASGITransport, AsyncClient
 
-from onevoicecut.adapters.web.app import WebDependencies, create_app
+from onevoicecut.adapters.web.app import WebDependencies
+from onevoicecut.main import create_app
 from onevoicecut.shared.domain.errors import JobNotOwned
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_operator_id
 from onevoicecut.domain.jobs import JobState
