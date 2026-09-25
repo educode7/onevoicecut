@@ -11,7 +11,7 @@ import math
 from onevoicecut.domain.chunking import ChunkPlan, PlannedChunk
 from onevoicecut.shared.domain.errors import ChunkTooLarge
 from onevoicecut.shared.domain.ids import JobId
-from onevoicecut.systems.pipeline.jobs.domain.media import AudioTrack
+from onevoicecut.shared.domain.media import AudioTrack
 from onevoicecut.shared.domain.capabilities import TranscriptionCapabilities
 
 DEFAULT_TARGET_CHUNK_S = 600.0

@@ -14,7 +14,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobProgress, JobState, SpeakerMode
+from onevoicecut.shared.domain.speaker import SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobProgress, JobState
 
 
 class AdmitJobRequest(BaseModel):

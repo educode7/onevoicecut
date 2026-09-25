@@ -45,7 +45,7 @@ from onevoicecut.domain.framing import (
     TrajectoryPolicy,
     crop_size_for,
 )
-from onevoicecut.systems.pipeline.jobs.domain.media import FrameSize
+from onevoicecut.shared.domain.media import FrameSize
 from onevoicecut.ports.subject_tracker import SubjectDetection
 
 

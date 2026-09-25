@@ -35,7 +35,7 @@ from onevoicecut.systems.pipeline.jobs.domain.interfaces.media_source import (
     MediaSourcePort,
 )
 from onevoicecut.systems.pipeline.jobs.domain.jobs import JobRecord, JobState
-from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
+from onevoicecut.shared.domain.media import SourceMedia
 from onevoicecut.systems.pipeline.jobs.domain.ownership import require_owner
 
 

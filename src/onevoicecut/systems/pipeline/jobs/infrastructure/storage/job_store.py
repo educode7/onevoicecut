@@ -57,13 +57,13 @@ from onevoicecut.shared.infrastructure.storage.core import (
     _text,
     _whole,
 )
+from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import (
     EngineChoice,
     JobRecord,
     JobState,
-    SpeakerMode,
 )
-from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
+from onevoicecut.shared.domain.media import SourceMedia
 
 
 class FilesystemJobStore:

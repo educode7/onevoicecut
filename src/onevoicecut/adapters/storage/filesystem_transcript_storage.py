@@ -58,7 +58,7 @@ from onevoicecut.shared.infrastructure.storage.core import (
     TRANSCRIPT as TRANSCRIPT,
     TRANSCRIPT_TEXT as TRANSCRIPT_TEXT,
 )
-from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
+from onevoicecut.shared.domain.media import SourceMedia
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult
 from onevoicecut.shared.domain.errors import (
     JobAlreadyExists,

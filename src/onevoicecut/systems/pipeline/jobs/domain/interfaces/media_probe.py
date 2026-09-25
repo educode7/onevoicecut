@@ -10,7 +10,7 @@ invoked. The full extractor port never enters `jobs`.
 
 from typing import Protocol
 
-from onevoicecut.systems.pipeline.jobs.domain.media import MediaProbe, SourceMedia
+from onevoicecut.shared.domain.media import MediaProbe, SourceMedia
 
 
 class MediaProbePort(Protocol):

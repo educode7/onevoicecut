@@ -14,7 +14,7 @@ from typing import Protocol
 
 from onevoicecut.shared.domain.ids import JobId
 from onevoicecut.systems.pipeline.jobs.domain.jobs import JobRecord
-from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
+from onevoicecut.shared.domain.media import SourceMedia
 
 
 class JobStore(Protocol):

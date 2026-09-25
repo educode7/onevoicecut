@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Protocol
 
 from onevoicecut.domain.framing import CropTrajectory, TimeSpan
-from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
+from onevoicecut.shared.domain.media import SourceMedia
 from onevoicecut.domain.rendering import OutputSpec, SubtitleCue
 from onevoicecut.shared.domain.capabilities import RenderCapabilities
 

@@ -30,8 +30,9 @@ from onevoicecut.domain.chunking import (
 )
 from onevoicecut.shared.domain.errors import ChunkTimeout, ChunkTooLarge, TranscriptionFailed
 from onevoicecut.shared.domain.ids import JobId
-from onevoicecut.systems.pipeline.jobs.domain.jobs import JobRecord, JobState, SpeakerMode
-from onevoicecut.systems.pipeline.jobs.domain.media import AudioTrack, SourceMedia
+from onevoicecut.shared.domain.speaker import SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.jobs import JobRecord, JobState
+from onevoicecut.shared.domain.media import AudioTrack, SourceMedia
 from onevoicecut.domain.transcript import Transcript, render_message_text
 from onevoicecut.ports.audio_extractor import AudioExtractorPort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
