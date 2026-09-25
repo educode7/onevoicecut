@@ -396,7 +396,7 @@ Closes: architecture-boundary rule registration **for transcripts from this slic
 AB-02, AB-04, AB-05, AB-06, AB-07, AB-09, AB-10, AB-11, AB-12 — plant proofs), dual coverage
 with legacy packages. Behavior-frozen relocation.
 
-- [ ] 3a.1 RED: register the `transcripts` rule group and plant violations per rule (same
+- [x] 3a.1 RED: register the `transcripts` rule group and plant violations per rule (same
       method as 2a.1, now under `systems/.../transcripts/` trees, plus a plant of
       `transcripts/application` importing `jobs.infrastructure` for AB-06); each fails naming
       its file; legacy plants still fail (AB-11). `[unit 3a]`
