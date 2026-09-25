@@ -5,8 +5,9 @@ every path in the layout, and the home of the primitives under it — three reas
 to change packed into one file, and no seam for a second facade to stand on
 (OQ3). This module is that primitive half, with the boundary enforced by
 construction rather than by review (AB-08): nothing here names a domain type, so
-signatures take `Path`, `str` and `int` only and the shared kernel stays free of
-`systems.*` vocabulary no matter who builds on top.
+signatures take `Path`, `str` and `int` — plus, for an id read, a factory the
+caller owns so this module never names an id type — and the shared kernel stays
+free of `systems.*` vocabulary no matter who builds on top.
 
     {data_dir}/jobs/{job_id}/
       job.json  control.json  source  audio.flac
@@ -25,6 +26,7 @@ missing value refuses as `CorruptedRecord` rather than being guessed.
 
 import json
 import os
+from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, TypeVar
@@ -56,6 +58,7 @@ ARTIFACTS = "artifacts.json"
 Record = dict[str, Any]
 
 _EnumMember = TypeVar("_EnumMember", bound=StrEnum)
+_IdT = TypeVar("_IdT", bound=str)
 
 
 def _dumps(payload: Record) -> str:
@@ -135,6 +138,22 @@ def _objects(record: Record, key: str) -> list[Record]:
     if not isinstance(value, list) or not all(isinstance(i, dict) for i in value):
         raise CorruptedRecord(f"field {key!r} is not a list of objects")
     return value
+
+
+def _id_field(record: Record, key: str, make: Callable[[str], _IdT]) -> _IdT:
+    """Read an id field, refusing anything the factory will not accept.
+
+    One copy of the fail-closed read rather than one per codec module: a job id,
+    a media id and a clip id each become a path component, and three hand-written
+    copies of this `try`/`except` is how one of them eventually stops converting
+    `InvalidIdError` into `CorruptedRecord` — a stored record reaching the path
+    builder unvalidated. Generic over the factory, so this module still names no
+    id type (AB-08): the vocabulary belongs to whoever passes `make`.
+    """
+    try:
+        return make(_text(record, key))
+    except InvalidIdError as error:
+        raise CorruptedRecord(str(error)) from error
 
 
 class StorageCore:

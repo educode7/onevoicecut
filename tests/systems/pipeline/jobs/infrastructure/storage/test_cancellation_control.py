@@ -13,13 +13,18 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.storage.filesystem_transcript_storage import (
-    FilesystemTranscriptStorage,
-)
 from onevoicecut.shared.domain.errors import CorruptedRecord, JobNotFound
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id
-from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.shared.infrastructure.storage.core import StorageCore
+from onevoicecut.systems.pipeline.jobs.domain.jobs import (
+    EngineChoice,
+    JobRecord,
+    JobState,
+    SpeakerMode,
+)
+from onevoicecut.systems.pipeline.jobs.infrastructure.storage.job_store import (
+    FilesystemJobStore,
+)
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
 OTHER_JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFF")
@@ -42,31 +47,20 @@ def a_job(job_id: JobId) -> JobRecord:
 
 
 @pytest.fixture
-def storage(tmp_path: Path) -> FilesystemTranscriptStorage:
-    store = FilesystemTranscriptStorage(tmp_path)
+def storage(tmp_path: Path) -> FilesystemJobStore:
+    store = FilesystemJobStore(StorageCore(tmp_path))
     store.create_job(a_job(JOB_ID))
     return store
 
 
-def test_the_adapter_satisfies_the_port(
-    storage: FilesystemTranscriptStorage,
-) -> None:
-    """Structural conformance, proven by mypy on this assignment rather than at
-    runtime — the point of `Protocol` ports is that no adapter imports the core to
-    declare it implements one. All twelve methods now exist, so this binds."""
-    port: TranscriptStoragePort = storage
-
-    assert len(port.list_jobs()) == 1
-
-
 def test_a_job_nobody_cancelled_is_not_cancelled(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemJobStore,
 ) -> None:
     assert storage.cancellation_requested(JOB_ID) is False
 
 
 def test_a_requested_cancellation_is_visible_to_the_worker(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemJobStore,
 ) -> None:
     storage.request_cancellation(JOB_ID)
 
@@ -74,7 +68,7 @@ def test_a_requested_cancellation_is_visible_to_the_worker(
 
 
 def test_requesting_cancellation_never_writes_the_job_record(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemJobStore,
 ) -> None:
     """The single-writer rule. While the worker is alive it is the sole writer of
     `job.json`; the web process gets a different file or it gets a race."""
@@ -88,7 +82,7 @@ def test_requesting_cancellation_never_writes_the_job_record(
 
 
 def test_the_request_lands_in_its_own_file(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemJobStore,
 ) -> None:
     storage.request_cancellation(JOB_ID)
 
@@ -96,7 +90,7 @@ def test_the_request_lands_in_its_own_file(
 
 
 def test_the_request_is_committed_atomically_like_every_other_write(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemJobStore,
 ) -> None:
     storage.request_cancellation(JOB_ID)
 
@@ -104,7 +98,7 @@ def test_the_request_is_committed_atomically_like_every_other_write(
 
 
 def test_polling_for_cancellation_writes_nothing(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemJobStore,
 ) -> None:
     """The worker polls this at every chunk boundary of a multi-hour job. A poll
     that touched the directory would make the read half of a race."""
@@ -116,7 +110,7 @@ def test_polling_for_cancellation_writes_nothing(
 
 
 def test_cancellation_is_scoped_to_one_job(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemJobStore,
 ) -> None:
     storage.create_job(a_job(OTHER_JOB_ID))
 
@@ -127,7 +121,7 @@ def test_cancellation_is_scoped_to_one_job(
 
 
 def test_a_withdrawn_request_stops_being_visible(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemJobStore,
 ) -> None:
     storage.request_cancellation(JOB_ID)
 
@@ -137,21 +131,21 @@ def test_a_withdrawn_request_stops_being_visible(
 
 
 def test_cancelling_an_uncreated_job_is_refused(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemJobStore,
 ) -> None:
     with pytest.raises(JobNotFound):
         storage.request_cancellation(OTHER_JOB_ID)
 
 
 def test_polling_an_uncreated_job_reports_no_cancellation(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemJobStore,
 ) -> None:
     """Reads stay tolerant, as everywhere else in this adapter."""
     assert storage.cancellation_requested(OTHER_JOB_ID) is False
 
 
 def test_an_unreadable_control_file_is_reported_rather_than_ignored(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemJobStore,
 ) -> None:
     """A silently ignored control file is a stop button that does nothing, on a job
     that runs for hours. Better to name the file the operator has to delete."""

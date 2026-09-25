@@ -275,16 +275,16 @@ halves of 2b are green alone.
 
 Closes: OQ3 jobs half (narrow per-module Protocol, structural satisfaction).
 
-- [ ] 2b-ii.1 RED: move the job-path storage tests (job dir, source path, create/load/update,
+- [x] 2b-ii.1 RED: move the job-path storage tests (job dir, source path, create/load/update,
       list FIFO order, save/load media, heartbeat freshness fail-closed, request/cancellation
       read) to `tests/systems/pipeline/jobs/infrastructure/storage/` — fail on import until
       the facade exists; add a structural-typing assertion that the facade satisfies `JobStore`.
       Existing assertions move verbatim (behavior-frozen). `[unit 2b-ii]`
-- [ ] 2b-ii.2 GREEN: create `systems/pipeline/jobs/infrastructure/storage/job_store.py` —
+- [x] 2b-ii.2 GREEN: create `systems/pipeline/jobs/infrastructure/storage/job_store.py` —
       facade importing only `jobs.domain` plus `core`; composition roots construct `core` once
       and build the facade. The monolith still satisfies `JobStore` structurally, so
       `runtime/` keeps using it until slice 4f — no runtime edit in this slice. `[unit 2b-ii]`
-- [ ] 2b-ii.3 Verify: suite + mypy; AB rules green (infrastructure imports own domain + shared
+- [x] 2b-ii.3 Verify: suite + mypy; AB rules green (infrastructure imports own domain + shared
       core only). Commit `refactor(fca): add jobs JobStore facade over storage core`.
       `[unit 2b-ii]`
 

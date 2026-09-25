@@ -20,7 +20,6 @@ from onevoicecut.shared.domain.errors import JobNotFound
 from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
-from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
 from onevoicecut.domain.transcript import SegmentKind, Transcript, TranscriptSegment
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
@@ -111,35 +110,6 @@ def an_artifact_set() -> GenerationResult:
             ),
         ),
     )
-
-
-def test_the_source_media_record_round_trips(
-    storage: FilesystemTranscriptStorage,
-) -> None:
-    """Written at admission, read by a worker in another process hours later.
-
-    The job record carries only a media id; without this the worker would have to
-    invent a `SourceMedia`, and an invented checksum is worse than none.
-    """
-    media = SourceMedia(
-        media_id=MEDIA_ID,
-        original_filename="predicación del domingo.mp4",
-        stored_path=storage.job_dir(JOB_ID) / "source.mp4",
-        size_bytes=4096,
-        container="mp4",
-        checksum="deadbeef",
-    )
-
-    storage.save_media(JOB_ID, media)
-
-    assert storage.load_media(JOB_ID) == media
-
-
-def test_a_job_with_no_media_recorded_is_reported_not_guessed(
-    storage: FilesystemTranscriptStorage,
-) -> None:
-    with pytest.raises(JobNotFound):
-        storage.load_media(JOB_ID)
 
 
 def test_a_chunk_plan_round_trips(storage: FilesystemTranscriptStorage) -> None:

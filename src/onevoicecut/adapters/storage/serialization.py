@@ -33,30 +33,36 @@ from onevoicecut.shared.domain.ids import (
     ClipId,
     InvalidIdError,
     JobId,
-    MediaId,
-    OperatorId,
     make_clip_id,
     make_job_id,
-    make_media_id,
-    make_operator_id,
 )
 from onevoicecut.shared.infrastructure.storage.core import (
     Record,
     _dumps,
     _field,
     _flag,
+    _id_field,
     _loads,
     _member,
     _number,
     _objects,
     _optional_number,
     _optional_text,
-    _optional_whole,
     _text,
     _whole,
 )
-from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState, SpeakerMode
-from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
+# The six codecs that touch `job.json`, `media.json` and `control.json` now live
+# beside the jobs facade (OQ3), re-exported here (`X as X` for mypy's
+# `no_implicit_reexport`) so every historical importer keeps resolving until
+# slice 4f retires this module's monolith. This file never re-implements them.
+from onevoicecut.systems.pipeline.jobs.infrastructure.storage.job_store import (
+    decode_control as decode_control,
+    decode_job as decode_job,
+    decode_media as decode_media,
+    encode_control as encode_control,
+    encode_job as encode_job,
+    encode_media as encode_media,
+)
 from onevoicecut.domain.rendering import (
     CaptionCoverage,
     ClipExport,
@@ -77,38 +83,7 @@ from onevoicecut.domain.transcript import (
 
 def _job_id(record: Record) -> JobId:
     """Validated here because the value is about to become a path component."""
-    try:
-        return make_job_id(_text(record, "job_id"))
-    except InvalidIdError as error:
-        raise CorruptedRecord(str(error)) from error
-
-
-def _media_id(record: Record) -> MediaId:
-    try:
-        return make_media_id(_text(record, "media_id"))
-    except InvalidIdError as error:
-        raise CorruptedRecord(str(error)) from error
-
-
-def _optional_operator(record: Record) -> OperatorId | None:
-    """The codec's one key-tolerant read.
-
-    Every other field is required at decode because an older build could not
-    legitimately omit it; `owner` is the exception, because records written
-    before this change genuinely lack the key. Absent or null → no owner.
-    A present value is validated like any identity: anything else fails
-    closed as corruption, never coerced to `None` and never invented —
-    a silent owner is a security decision the codec has no business making.
-    """
-    value = record.get("owner")
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise CorruptedRecord("field 'owner' is not a string")
-    try:
-        return make_operator_id(value)
-    except InvalidIdError as error:
-        raise CorruptedRecord(str(error)) from error
+    return _id_field(record, "job_id", make_job_id)
 
 
 def _word_timings(record: Record) -> tuple[WordTiming, ...]:
@@ -160,57 +135,6 @@ def _segment(record: Record) -> TranscriptSegment:
 
 def _segments(record: Record) -> tuple[TranscriptSegment, ...]:
     return tuple(_segment(item) for item in _objects(record, "segments"))
-
-
-def encode_control(cancel_requested: bool) -> str:
-    """The control file is not a domain entity — it is a message from the web
-    process to the worker — but it is still persistence, so its shape lives here
-    rather than as raw `json` inside the adapter."""
-    return _dumps({"cancel_requested": cancel_requested})
-
-
-def decode_control(payload: str) -> bool:
-    return _flag(_loads(payload), "cancel_requested")
-
-
-def encode_job(job: JobRecord) -> str:
-    return _dumps(asdict(job))
-
-
-def decode_job(payload: str) -> JobRecord:
-    record = _loads(payload)
-    return JobRecord(
-        job_id=_job_id(record),
-        media_id=_media_id(record),
-        state=_member(record, "state", JobState),
-        speaker_mode=_member(record, "speaker_mode", SpeakerMode),
-        engine=_member(record, "engine", EngineChoice),
-        created_at=_number(record, "created_at"),
-        updated_at=_number(record, "updated_at"),
-        worker_pid=_optional_whole(record, "worker_pid"),
-        error=_optional_text(record, "error"),
-        owner=_optional_operator(record),
-    )
-
-
-def encode_media(media: SourceMedia) -> str:
-    payload = asdict(media)
-    # The one persisted entity carrying a `Path`. Stored as text and read back as
-    # a `Path`, because JSON has no path type and guessing at load time is worse.
-    payload["stored_path"] = str(media.stored_path)
-    return _dumps(payload)
-
-
-def decode_media(payload: str) -> SourceMedia:
-    record = _loads(payload)
-    return SourceMedia(
-        media_id=_media_id(record),
-        original_filename=_text(record, "original_filename"),
-        stored_path=Path(_text(record, "stored_path")),
-        size_bytes=_whole(record, "size_bytes"),
-        container=_text(record, "container"),
-        checksum=_text(record, "checksum"),
-    )
 
 
 def encode_chunk_plan(plan: ChunkPlan) -> str:
@@ -302,10 +226,7 @@ def decode_artifacts(payload: str) -> GenerationResult:
 def _clip_id(record: Record) -> ClipId:
     """Validated here for the reason `_job_id` is: it is about to become a path
     component, and a stored record is not a trusted one."""
-    try:
-        return make_clip_id(_text(record, "clip_id"))
-    except InvalidIdError as error:
-        raise CorruptedRecord(str(error)) from error
+    return _id_field(record, "clip_id", make_clip_id)
 
 
 def encode_clip_export(export: ClipExport) -> str:
