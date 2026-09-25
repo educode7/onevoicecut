@@ -5,11 +5,7 @@ from enum import StrEnum
 
 from onevoicecut.domain.chunking import ChunkPlan, ChunkResult, ChunkState
 from onevoicecut.shared.domain.ids import JobId, MediaId, OperatorId
-
-
-class SpeakerMode(StrEnum):
-    SINGLE = "single"
-    MULTI = "multi"
+from onevoicecut.shared.domain.speaker import SpeakerMode as SpeakerMode
 
 
 class EngineChoice(StrEnum):
