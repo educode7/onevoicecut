@@ -6,7 +6,7 @@ status response gains `owner` without moving a single pre-change field. The
 frontend is built against these field names — they are the API.
 """
 
-from onevoicecut.adapters.web.schemas import (
+from onevoicecut.systems.pipeline.jobs.presentation.schemas.v1.job_schemas import (
     JobListItem,
     JobListResponse,
     JobStatusResponse,

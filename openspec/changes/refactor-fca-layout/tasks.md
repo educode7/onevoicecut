@@ -352,7 +352,7 @@ Closes: CXL-01/CXL-02 (route to controller to handler dispatch), AUTH-13, AUTH-1
 test preserved. Relocation + decomposition: routes move under module presentation still at the
 `/api` prefix (version flip is Phase 5).
 
-- [ ] 2e.1 RED-by-move: relocate the jobs route/schema tests from `tests/unit/adapters/web/` to
+- [x] 2e.1 RED-by-move: relocate the jobs route/schema tests from `tests/unit/adapters/web/` to
       `tests/systems/pipeline/jobs/presentation/` — they fail on import until wiring lands
       (honest for decomposition; **bodies unchanged**: same status codes, same 401 to 404 to
       403 precedence, same effects). `[unit 2e]`

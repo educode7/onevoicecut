@@ -21,21 +21,23 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from onevoicecut.adapters.web.app import WebDependencies
 from onevoicecut.adapters.web.schemas import (
-    AdmitJobRequest,
-    AdmitJobResponse,
-    CancelJobResponse,
     ClipExportItem,
     ClipExportListResponse,
     ClipExportRequest,
     ClipExportResponse,
+)
+from onevoicecut.shared.application.principal import Principal
+from onevoicecut.shared.domain.ids import ClipId, InvalidIdError, JobId, OperatorId, make_clip_id, make_job_id
+from onevoicecut.shared.presentation.security import make_current_principal
+from onevoicecut.systems.pipeline.jobs.presentation.schemas.v1.job_schemas import (
+    AdmitJobRequest,
+    AdmitJobResponse,
+    CancelJobResponse,
     JobListItem,
     JobListResponse,
     JobStatusResponse,
     ProgressResponse,
 )
-from onevoicecut.shared.application.principal import Principal
-from onevoicecut.shared.domain.ids import ClipId, InvalidIdError, JobId, OperatorId, make_clip_id, make_job_id
-from onevoicecut.shared.presentation.security import make_current_principal
 from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.admit_job import (
     AdmitJobCommand,
     AdmitJobHandler,
