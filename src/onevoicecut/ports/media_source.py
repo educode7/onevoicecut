@@ -1,27 +1,13 @@
-"""The one async port — used only by the web adapter, never by the worker."""
+"""Temporary relocation shim for the slice-2a split chain.
 
-from typing import AsyncIterator, Protocol
+`MediaSourcePort` now lives at
+`onevoicecut.systems.pipeline.jobs.domain.interfaces.media_source` — the jobs
+module owns the async upload boundary. This re-export keeps every legacy import
+path resolving while the importer rewire lands in small reviewable steps; the
+chain's final commit deletes this file, and nothing in the final tree imports
+it.
+"""
 
-from onevoicecut.shared.domain.ids import MediaId
-from onevoicecut.domain.media import SourceMedia
-
-
-class MediaSourcePort(Protocol):
-    async def store(
-        self,
-        media_id: MediaId,
-        filename: str,
-        stream: AsyncIterator[bytes],
-        max_bytes: int,
-    ) -> SourceMedia:
-        """Raises UploadTooLarge, UnsupportedContainer."""
-        ...
-
-    def discard(self, media: SourceMedia) -> None:
-        """Remove a stored upload that turned out to be unusable.
-
-        On the port because whatever owns writing the file owns removing it. A
-        caller that unlinked the path itself would be a second place that knows
-        how uploads live on disk.
-        """
-        ...
+from onevoicecut.systems.pipeline.jobs.domain.interfaces.media_source import (
+    MediaSourcePort as MediaSourcePort,
+)
