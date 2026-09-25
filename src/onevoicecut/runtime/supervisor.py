@@ -34,6 +34,7 @@ write is: by then this module has killed the worker, so nothing else owns it.
 """
 
 import asyncio
+import ctypes
 import os
 import signal
 import sys
@@ -63,15 +64,63 @@ HEARTBEAT_STALE_AFTER_S = 7200.0
 
 LivenessProbe = Callable[[int], bool]
 
+# The win32 liveness probe asks the kernel instead of signalling. Explicit
+# signatures matter twice over: without them ctypes passes arguments as C ints
+# and returns handles truncated to 32 bits, which is silent corruption on a
+# 64-bit host rather than an error.
+_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+_STILL_ACTIVE = 259
+
+if sys.platform == "win32":
+    from ctypes import wintypes
+
+    _kernel32 = ctypes.WinDLL("kernel32")
+    _kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    _kernel32.OpenProcess.restype = wintypes.HANDLE
+    _kernel32.GetExitCodeProcess.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    _kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    _kernel32.CloseHandle.restype = wintypes.BOOL
+
+
+def _win32_process_is_alive(pid: int) -> bool:
+    """A failed `OpenProcess` means the pid does not exist, already exited, or
+    belongs to another user — for the only question this module asks, "is my
+    worker still running", all three are 'not alive'. A process that truly
+    exited with code 259 is indistinguishable from a live one; the heartbeat
+    veto in `worker_is_alive` is what covers that, same as pid reuse."""
+    handle: int | None = _kernel32.OpenProcess(
+        _PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+    )
+    if handle is None:
+        return False
+    try:
+        code = wintypes.DWORD()
+        if not _kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return False
+        return bool(code.value == _STILL_ACTIVE)
+    finally:
+        _kernel32.CloseHandle(handle)
+
 
 def process_is_alive(pid: int) -> bool:
-    """Signal 0 is a probe, not a signal, on both platforms this runs on.
+    """Ask the OS whether a pid exists, without signalling anything.
 
-    Verified on CPython 3.12 / Windows rather than assumed: `os.kill(pid, 0)`
-    returns for a live process, raises `OSError` for a dead one, and — unlike
-    every other signal value there — does not terminate anything. `os.kill(pid, 9)`
-    on the same platform kills with exit code 9, so the special case is real and
-    worth naming.
+    On Windows this must not go through `os.kill`. CPython routes sig 0 and
+    sig 1 there to `GenerateConsoleCtrlEvent` — `signal.CTRL_C_EVENT` *is* 0 —
+    so `os.kill(pid, 0)` is not the neutral probe it is on POSIX: when the pid
+    resolves to a process group attached to the caller's console, it broadcasts
+    Ctrl+C to every process sharing that console. That is not theoretical; it
+    interrupted the test suite mid-run and reached the parent shell, and since
+    the drain, reconcile and the watchdog all call this probe on every sweep, a
+    live worker pid in the caller's console group made the web server signal
+    itself. Whether the broadcast lands depends on console/process-group
+    topology, which is why the failure looks nondeterministic. The win32 branch
+    therefore opens the process for a limited query and reads its exit code;
+    POSIX keeps `os.kill(pid, 0)`, which there is a genuine no-op probe.
 
     A recycled pid reads as alive, and this probe cannot tell the difference.
     That used to be an accepted risk on a single-operator machine; it is not one
@@ -83,6 +132,8 @@ def process_is_alive(pid: int) -> bool:
     heartbeat, and a stale heartbeat vetoes whatever this says. Nothing outside
     that helper should call this directly.
     """
+    if sys.platform == "win32":
+        return _win32_process_is_alive(pid)
     try:
         os.kill(pid, 0)
     except OSError:
