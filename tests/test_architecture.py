@@ -17,6 +17,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
+
 SRC_ROOT = Path(__file__).resolve().parent.parent / "src" / "onevoicecut"
 
 
@@ -56,9 +58,90 @@ SHARED_DOMAIN_LAYER = RuleGroup(
     ),
 )
 
+# Slice 2a — the jobs module's rules, registered in the slice that migrates it
+# (AB-11: no window in which `systems/pipeline/jobs` exists unenforced).
+#
+# AB-04/AB-05 + the Domain Import Prohibitions: a module's domain keeps the
+# load-bearing hexagonal rule — zero third-party imports, no adapters, no
+# runtime — and reaches nothing above itself in the layer matrix.
+JOBS_DOMAIN = RuleGroup(
+    name="jobs-domain",
+    guarded_subtrees=("systems/pipeline/jobs/domain",),
+    forbidden_prefixes=(
+        "fastapi",
+        "pydantic",
+        "sqlalchemy",
+        "onevoicecut.adapters",
+        "onevoicecut.runtime",
+        "onevoicecut.shared.infrastructure",
+        "onevoicecut.shared.application",
+        "onevoicecut.shared.presentation",
+        "onevoicecut.systems.pipeline.jobs.presentation",
+        "onevoicecut.systems.pipeline.jobs.application",
+        "onevoicecut.systems.pipeline.jobs.infrastructure",
+    ),
+)
+
+# AB-02: application imports its own module's domain and nothing outward.
+# Presentation and infrastructure are bound at composition roots (AB-09/AB-10
+# cover the two concrete ways out), and another module's domain or
+# infrastructure is cross-module contact that must go through an interface
+# declared here (AB-06's plant is the transcripts half of that rule).
+JOBS_APPLICATION = RuleGroup(
+    name="jobs-application",
+    guarded_subtrees=("systems/pipeline/jobs/application",),
+    forbidden_prefixes=(
+        "onevoicecut.systems.pipeline.jobs.presentation",
+        "onevoicecut.systems.pipeline.jobs.infrastructure",
+        "onevoicecut.systems.pipeline.transcripts.domain",
+        "onevoicecut.systems.pipeline.transcripts.infrastructure",
+        "onevoicecut.systems.pipeline.clips.domain",
+        "onevoicecut.systems.pipeline.clips.infrastructure",
+        "onevoicecut.adapters",
+        "onevoicecut.runtime",
+    ),
+)
+
+# AB-01: presentation imports its own module's application plus FastAPI and
+# Pydantic — never an infrastructure package and never a concrete adapter, both
+# of which are constructed and bound at a composition root (AB-09).
+JOBS_PRESENTATION = RuleGroup(
+    name="jobs-presentation",
+    guarded_subtrees=("systems/pipeline/jobs/presentation",),
+    forbidden_prefixes=(
+        "onevoicecut.systems.pipeline.jobs.infrastructure",
+        "onevoicecut.systems.pipeline.transcripts.infrastructure",
+        "onevoicecut.systems.pipeline.clips.infrastructure",
+        "onevoicecut.adapters",
+        "onevoicecut.runtime",
+    ),
+)
+
+# AB-07: `jobs.domain` is guarded from the *other side* — a foreign module's
+# domain layer may not reach into it. The rule is anchored on the module that
+# owns the types, so it lands with slice 2a rather than waiting for the module
+# that has not migrated yet; the guarded subtrees simply do not exist until
+# those slices put files there.
+JOBS_DOMAIN_ISOLATION = RuleGroup(
+    name="jobs-domain-isolation",
+    guarded_subtrees=(
+        "systems/pipeline/transcripts/domain",
+        "systems/pipeline/clips/domain",
+    ),
+    forbidden_prefixes=("onevoicecut.systems.pipeline.jobs.domain",),
+)
+
 # AB-11 registration seam: migration slices append their module's RuleGroup
 # here, in the slice that migrates the module.
-RULE_GROUPS: list[RuleGroup] = [LEGACY_HEXAGONAL, SHARED_KERNEL, SHARED_DOMAIN_LAYER]
+RULE_GROUPS: list[RuleGroup] = [
+    LEGACY_HEXAGONAL,
+    SHARED_KERNEL,
+    SHARED_DOMAIN_LAYER,
+    JOBS_DOMAIN,
+    JOBS_APPLICATION,
+    JOBS_PRESENTATION,
+    JOBS_DOMAIN_ISOLATION,
+]
 
 
 def _iter_guarded_python_files(root: Path, subtrees: Sequence[str]) -> list[Path]:
@@ -225,3 +308,134 @@ def test_shared_rules_are_registered_and_both_sides_bite(tmp_path: Path) -> None
     assert violations.get(str(legacy_file)) == {
         "onevoicecut.runtime.supervisor"
     }, violations
+
+
+# Slice 2a — the jobs module's rule groups (AB-01, AB-02, AB-04, AB-05, AB-06,
+# AB-07, AB-09, AB-10). The names below are the registration seam the tests
+# assert: the slice that migrates `systems/pipeline/jobs` appends its groups to
+# `RULE_GROUPS` in the same commit, so the module never exists unenforced.
+JOBS_RULE_GROUP_NAMES = (
+    "jobs-domain",
+    "jobs-application",
+    "jobs-presentation",
+    "jobs-domain-isolation",
+)
+
+# One entry per architecture-boundary scenario: (case, file under the guarded
+# tree, planted source text, the import the report must name). Each case is a
+# separate parametrization so a failure names its own file rather than a
+# bundle.
+JOBS_PLANT_CASES: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "ab-01-presentation-imports-infrastructure",
+        "systems/pipeline/jobs/presentation/v1/routes.py",
+        "from onevoicecut.systems.pipeline.jobs.infrastructure.storage import"
+        " FilesystemJobStore\n",
+        "onevoicecut.systems.pipeline.jobs.infrastructure.storage",
+    ),
+    (
+        "ab-02-application-imports-presentation",
+        "systems/pipeline/jobs/application/use_cases/commands/admit_job.py",
+        "from onevoicecut.systems.pipeline.jobs.presentation.v1.schemas import"
+        " AdmitJobRequest\n",
+        "onevoicecut.systems.pipeline.jobs.presentation.v1.schemas",
+    ),
+    (
+        "ab-04-domain-imports-web-framework",
+        "systems/pipeline/jobs/domain/jobs.py",
+        "import fastapi\n",
+        "fastapi",
+    ),
+    (
+        "ab-05-domain-imports-adapters",
+        "systems/pipeline/jobs/domain/media.py",
+        "import onevoicecut.adapters.ffmpeg.extractor\n",
+        "onevoicecut.adapters.ffmpeg.extractor",
+    ),
+    (
+        "ab-06-application-imports-transcripts-infrastructure",
+        "systems/pipeline/jobs/application/use_cases/commands/transcribe.py",
+        "import onevoicecut.systems.pipeline.transcripts.infrastructure\n",
+        "onevoicecut.systems.pipeline.transcripts.infrastructure",
+    ),
+    (
+        "ab-07-clips-domain-imports-jobs-domain",
+        "systems/pipeline/clips/domain/generation.py",
+        "from onevoicecut.systems.pipeline.jobs.domain.jobs import JobRecord\n",
+        "onevoicecut.systems.pipeline.jobs.domain.jobs",
+    ),
+    (
+        "ab-09-presentation-imports-concrete-adapter",
+        "systems/pipeline/jobs/presentation/v1/controllers/upload.py",
+        "from onevoicecut.adapters.storage.media_source import"
+        " FilesystemMediaSource\n",
+        "onevoicecut.adapters.storage.media_source",
+    ),
+    (
+        "ab-10-application-imports-runtime",
+        "systems/pipeline/jobs/application/use_cases/commands/cancel_job.py",
+        "import onevoicecut.runtime.supervisor\n",
+        "onevoicecut.runtime.supervisor",
+    ),
+)
+
+
+def test_jobs_rule_groups_are_registered() -> None:
+    """AB-11: the slice that migrates `jobs` registers the module's rules in
+    the same slice — there is no window in which `systems/pipeline/jobs` exists
+    while nothing walks it."""
+    registered = {group.name for group in RULE_GROUPS}
+    for name in JOBS_RULE_GROUP_NAMES:
+        assert name in registered, (
+            f"{name} rule group not registered; coverage would be vacuous for "
+            f"the jobs tree: {sorted(registered)}"
+        )
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "source", "expected"),
+    [case[1:] for case in JOBS_PLANT_CASES],
+    ids=[case[0] for case in JOBS_PLANT_CASES],
+)
+def test_jobs_plant_fails_naming_its_file(
+    tmp_path: Path, relative_path: str, source: str, expected: str
+) -> None:
+    """AB-12: every planted jobs violation fails the default run naming the
+    file it was planted in, and the report names the forbidden import — the
+    rule is proven against the plant before it guards real code."""
+    plant = tmp_path / relative_path
+    plant.parent.mkdir(parents=True, exist_ok=True)
+    plant.write_text(source, encoding="utf-8")
+
+    violations = check_tree(tmp_path)
+
+    assert str(plant) in violations, (
+        f"planted violation at {relative_path} not caught: {violations}"
+    )
+    assert violations[str(plant)] == {expected}
+
+
+def test_jobs_and_legacy_plants_fail_in_the_same_run(tmp_path: Path) -> None:
+    """AB-11 both sides in one run: while `domain/`, `usecases/` and `ports/`
+    still exist, a legacy plant is caught alongside a jobs plant — registering
+    the new group may not cost coverage of code that is still there."""
+    legacy_plant = tmp_path / "usecases" / "admit_job.py"
+    legacy_plant.parent.mkdir(parents=True, exist_ok=True)
+    legacy_plant.write_text(
+        "import onevoicecut.runtime.supervisor\n", encoding="utf-8"
+    )
+    jobs_plant = tmp_path / "systems" / "pipeline" / "jobs" / "domain" / "jobs.py"
+    jobs_plant.parent.mkdir(parents=True, exist_ok=True)
+    jobs_plant.write_text("import pydantic\n", encoding="utf-8")
+
+    violations = check_tree(tmp_path)
+
+    assert str(legacy_plant) in violations, (
+        f"legacy plant not caught while the jobs rules were registered: "
+        f"{violations}"
+    )
+    assert violations[str(legacy_plant)] == {"onevoicecut.runtime.supervisor"}
+    assert str(jobs_plant) in violations, (
+        f"jobs plant not caught: {violations}"
+    )
+    assert violations[str(jobs_plant)] == {"pydantic"}

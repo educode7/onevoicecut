@@ -221,7 +221,7 @@ registered **for the jobs module from this slice** (no vacuous-guard window), AB
 coverage while legacy packages still exist, AB-12 (plant proof for the new rule group).
 Behavior-frozen relocation.
 
-- [ ] 2a.1 RED: register the `jobs` rule group in `tests/test_architecture.py` and plant, one
+- [x] 2a.1 RED: register the `jobs` rule group in `tests/test_architecture.py` and plant, one
       at a time: presentation importing infrastructure (AB-01), application importing
       presentation (AB-02), domain importing `fastapi`/`pydantic` (AB-04), domain importing
       `onevoicecut.adapters`/`onevoicecut.runtime` (AB-05), jobs application importing
