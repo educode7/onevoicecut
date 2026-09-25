@@ -131,6 +131,79 @@ JOBS_DOMAIN_ISOLATION = RuleGroup(
     forbidden_prefixes=("onevoicecut.systems.pipeline.jobs.domain",),
 )
 
+# Slice 3a — the transcripts module's rules, registered in the slice that
+# migrates it (AB-11: no window in which `systems/pipeline/transcripts` exists
+# unenforced).
+#
+# AB-04/AB-05 + the Domain Import Prohibitions: a module's domain keeps the
+# load-bearing hexagonal rule — zero third-party imports, no adapters, no
+# runtime — and reaches nothing above itself in the layer matrix. The
+# cross-module half of AB-07 is stated here too: `clips.domain` is refused
+# outright, and `jobs.domain` is restated although `jobs-domain-isolation`
+# (registered in 2a, anchored on the module that owns the types) already walks
+# this subtree — a second line of defense for the one edge slice 3a's port
+# relocation has to satisfy.
+TRANSCRIPTS_DOMAIN = RuleGroup(
+    name="transcripts-domain",
+    guarded_subtrees=("systems/pipeline/transcripts/domain",),
+    forbidden_prefixes=(
+        "fastapi",
+        "pydantic",
+        "sqlalchemy",
+        "onevoicecut.adapters",
+        "onevoicecut.runtime",
+        "onevoicecut.shared.infrastructure",
+        "onevoicecut.shared.application",
+        "onevoicecut.shared.presentation",
+        "onevoicecut.systems.pipeline.transcripts.presentation",
+        "onevoicecut.systems.pipeline.transcripts.application",
+        "onevoicecut.systems.pipeline.transcripts.infrastructure",
+        "onevoicecut.systems.pipeline.jobs.domain",
+        "onevoicecut.systems.pipeline.clips.domain",
+    ),
+)
+
+# AB-02/AB-06: application imports its own module's domain and nothing
+# outward. Both siblings' infrastructure is composition-bound, and
+# `jobs.infrastructure` is the contact AB-06's scenario names. `jobs.domain`
+# is deliberately *not* refused: the behavior-frozen transcription body owns a
+# job's lifecycle and names `JobRecord`/`JobState` while it runs, so forbidding
+# it would fail the tree the moment slice 3c lands that handler — severing
+# that coupling is a behavior change, not a relocation, and no scenario in
+# this slice tests it. `clips` is refused in full because nothing in the
+# transcripts tree names it: clips consumes transcripts' artifacts, never the
+# reverse.
+TRANSCRIPTS_APPLICATION = RuleGroup(
+    name="transcripts-application",
+    guarded_subtrees=("systems/pipeline/transcripts/application",),
+    forbidden_prefixes=(
+        "onevoicecut.systems.pipeline.transcripts.presentation",
+        "onevoicecut.systems.pipeline.transcripts.infrastructure",
+        "onevoicecut.systems.pipeline.jobs.infrastructure",
+        "onevoicecut.systems.pipeline.clips.domain",
+        "onevoicecut.systems.pipeline.clips.infrastructure",
+        "onevoicecut.adapters",
+        "onevoicecut.runtime",
+    ),
+)
+
+# AB-01/AB-09: presentation imports its own module's application plus FastAPI
+# and Pydantic — never an infrastructure package and never a concrete adapter,
+# both of which are constructed and bound at a composition root. Transcripts is
+# worker-driven and may never grow a router; the group still registers, proved
+# against plants rather than against real code that does not exist.
+TRANSCRIPTS_PRESENTATION = RuleGroup(
+    name="transcripts-presentation",
+    guarded_subtrees=("systems/pipeline/transcripts/presentation",),
+    forbidden_prefixes=(
+        "onevoicecut.systems.pipeline.transcripts.infrastructure",
+        "onevoicecut.systems.pipeline.jobs.infrastructure",
+        "onevoicecut.systems.pipeline.clips.infrastructure",
+        "onevoicecut.adapters",
+        "onevoicecut.runtime",
+    ),
+)
+
 # AB-11 registration seam: migration slices append their module's RuleGroup
 # here, in the slice that migrates the module.
 RULE_GROUPS: list[RuleGroup] = [
@@ -141,6 +214,9 @@ RULE_GROUPS: list[RuleGroup] = [
     JOBS_APPLICATION,
     JOBS_PRESENTATION,
     JOBS_DOMAIN_ISOLATION,
+    TRANSCRIPTS_DOMAIN,
+    TRANSCRIPTS_APPLICATION,
+    TRANSCRIPTS_PRESENTATION,
 ]
 
 
@@ -449,3 +525,151 @@ def test_jobs_and_legacy_plants_fail_in_the_same_run(tmp_path: Path) -> None:
         f"jobs plant not caught: {violations}"
     )
     assert violations[str(jobs_plant)] == {"pydantic"}
+
+
+# Slice 3a — the transcripts module's rule groups (AB-01, AB-02, AB-04, AB-05,
+# AB-06, AB-07, AB-09, AB-10). The names below are the registration seam the
+# tests assert: the slice that migrates `systems/pipeline/transcripts` appends
+# its groups to `RULE_GROUPS` in the same commit, so the module never exists
+# unenforced.
+TRANSCRIPTS_RULE_GROUP_NAMES = (
+    "transcripts-domain",
+    "transcripts-application",
+    "transcripts-presentation",
+)
+
+# One entry per architecture-boundary scenario: (case, file under the guarded
+# tree, planted source text, the import the report must name). Each case is a
+# separate parametrization so a failure names its own file rather than a
+# bundle.
+TRANSCRIPTS_PLANT_CASES: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "ab-01-presentation-imports-infrastructure",
+        "systems/pipeline/transcripts/presentation/v1/routes.py",
+        "from onevoicecut.systems.pipeline.transcripts.infrastructure.storage import"
+        " TranscriptStore\n",
+        "onevoicecut.systems.pipeline.transcripts.infrastructure.storage",
+    ),
+    (
+        "ab-02-application-imports-presentation",
+        "systems/pipeline/transcripts/application/use_cases/commands/transcribe.py",
+        "import onevoicecut.systems.pipeline.transcripts.presentation\n",
+        "onevoicecut.systems.pipeline.transcripts.presentation",
+    ),
+    (
+        "ab-04-domain-imports-web-framework",
+        "systems/pipeline/transcripts/domain/chunking.py",
+        "import fastapi\n",
+        "fastapi",
+    ),
+    (
+        "ab-05-domain-imports-adapters",
+        "systems/pipeline/transcripts/domain/transcript.py",
+        "import onevoicecut.adapters.ffmpeg.extractor\n",
+        "onevoicecut.adapters.ffmpeg.extractor",
+    ),
+    (
+        # The plant task 3a.1 names: AB-06's scenario from this module's side.
+        "ab-06-application-imports-jobs-infrastructure",
+        "systems/pipeline/transcripts/application/use_cases/commands/plan_chunks.py",
+        "import onevoicecut.systems.pipeline.jobs.infrastructure\n",
+        "onevoicecut.systems.pipeline.jobs.infrastructure",
+    ),
+    (
+        # The transcripts-side restatement of AB-07, and the exact edge slice
+        # 3a's port relocation must clear: `jobs-domain-isolation` (2a) already
+        # walks this subtree from the owner's side, so this case is pinned
+        # rather than proven here — the clips case below is the one edge only
+        # this group walks.
+        "ab-07-transcripts-domain-imports-jobs-domain",
+        "systems/pipeline/transcripts/domain/interfaces/audio_extractor.py",
+        "from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia\n",
+        "onevoicecut.systems.pipeline.jobs.domain.media",
+    ),
+    (
+        "ab-07-transcripts-domain-imports-clips-domain",
+        "systems/pipeline/transcripts/domain/chunking.py",
+        "from onevoicecut.systems.pipeline.clips.domain.generation import"
+        " ClipCandidate\n",
+        "onevoicecut.systems.pipeline.clips.domain.generation",
+    ),
+    (
+        "ab-09-presentation-imports-concrete-adapter",
+        "systems/pipeline/transcripts/presentation/v1/controllers/transcripts.py",
+        "from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor\n",
+        "onevoicecut.adapters.ffmpeg.extractor",
+    ),
+    (
+        "ab-10-application-imports-runtime",
+        "systems/pipeline/transcripts/application/use_cases/commands/"
+        "stitch_transcript.py",
+        "import onevoicecut.runtime.supervisor\n",
+        "onevoicecut.runtime.supervisor",
+    ),
+)
+
+
+def test_transcripts_rule_groups_are_registered() -> None:
+    """AB-11: the slice that migrates `transcripts` registers the module's
+    rules in the same slice — there is no window in which
+    `systems/pipeline/transcripts` exists while nothing walks it."""
+    registered = {group.name for group in RULE_GROUPS}
+    for name in TRANSCRIPTS_RULE_GROUP_NAMES:
+        assert name in registered, (
+            f"{name} rule group not registered; coverage would be vacuous for "
+            f"the transcripts tree: {sorted(registered)}"
+        )
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "source", "expected"),
+    [case[1:] for case in TRANSCRIPTS_PLANT_CASES],
+    ids=[case[0] for case in TRANSCRIPTS_PLANT_CASES],
+)
+def test_transcripts_plant_fails_naming_its_file(
+    tmp_path: Path, relative_path: str, source: str, expected: str
+) -> None:
+    """AB-12: every planted transcripts violation fails the default run naming
+    the file it was planted in, and the report names the forbidden import — the
+    rule is proven against the plant before it guards real code."""
+    plant = tmp_path / relative_path
+    plant.parent.mkdir(parents=True, exist_ok=True)
+    plant.write_text(source, encoding="utf-8")
+
+    violations = check_tree(tmp_path)
+
+    assert str(plant) in violations, (
+        f"planted violation at {relative_path} not caught: {violations}"
+    )
+    assert violations[str(plant)] == {expected}
+
+
+def test_transcripts_and_legacy_plants_fail_in_the_same_run(tmp_path: Path) -> None:
+    """AB-11 both sides in one run: while `domain/`, `usecases/` and `ports/`
+    still exist, a legacy plant is caught alongside a transcripts plant —
+    registering the new groups may not cost coverage of code that is still
+    there."""
+    legacy_plant = tmp_path / "ports" / "transcription.py"
+    legacy_plant.parent.mkdir(parents=True, exist_ok=True)
+    legacy_plant.write_text(
+        "import onevoicecut.adapters.ffmpeg.extractor\n", encoding="utf-8"
+    )
+    transcripts_plant = (
+        tmp_path / "systems" / "pipeline" / "transcripts" / "domain" / "chunking.py"
+    )
+    transcripts_plant.parent.mkdir(parents=True, exist_ok=True)
+    transcripts_plant.write_text("import pydantic\n", encoding="utf-8")
+
+    violations = check_tree(tmp_path)
+
+    assert str(legacy_plant) in violations, (
+        f"legacy plant not caught while the transcripts rules were registered: "
+        f"{violations}"
+    )
+    assert violations[str(legacy_plant)] == {
+        "onevoicecut.adapters.ffmpeg.extractor"
+    }
+    assert str(transcripts_plant) in violations, (
+        f"transcripts plant not caught: {violations}"
+    )
+    assert violations[str(transcripts_plant)] == {"pydantic"}
