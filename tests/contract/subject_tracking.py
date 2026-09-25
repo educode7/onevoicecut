@@ -25,7 +25,7 @@ import pytest
 
 from onevoicecut.shared.domain.errors import TrackingUnavailable
 from onevoicecut.domain.framing import TimeSpan
-from onevoicecut.domain.media import SourceMedia
+from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
 from onevoicecut.shared.domain.capabilities import DetectionSupport
 from onevoicecut.ports.subject_tracker import SubjectDetection, SubjectTrackerPort
 

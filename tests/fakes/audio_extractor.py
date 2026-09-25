@@ -10,7 +10,7 @@ from pathlib import Path
 
 from onevoicecut.domain.chunking import AudioChunk, PlannedChunk
 from onevoicecut.shared.domain.ids import JobId
-from onevoicecut.domain.media import AudioTrack, MediaProbe, SourceMedia
+from onevoicecut.systems.pipeline.jobs.domain.media import AudioTrack, MediaProbe, SourceMedia
 
 FAKE_DURATION_S = 10.0
 

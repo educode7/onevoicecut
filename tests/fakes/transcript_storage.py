@@ -13,8 +13,8 @@ from onevoicecut.domain.chunking import ChunkPlan, ChunkResult
 from onevoicecut.shared.domain.errors import JobNotFound
 from onevoicecut.domain.generation import GenerationResult
 from onevoicecut.shared.domain.ids import ClipId, JobId
-from onevoicecut.domain.jobs import JobRecord, JobState
-from onevoicecut.domain.media import SourceMedia
+from onevoicecut.systems.pipeline.jobs.domain.jobs import JobRecord, JobState
+from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
 from onevoicecut.domain.rendering import ClipExport
 from onevoicecut.domain.transcript import Transcript
 

@@ -27,7 +27,7 @@ from onevoicecut.adapters.storage.filesystem_transcript_storage import (
 from onevoicecut.adapters.web.app import WebDependencies
 from onevoicecut.main import create_app
 from onevoicecut.shared.domain.ids import JobId, make_job_id
-from onevoicecut.domain.jobs import EngineChoice, JobState
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobState
 from onevoicecut.runtime.engine_resolver import EngineResolver
 from onevoicecut.runtime.worker import run_job
 from tests.fakes.transcription import FakeTranscriptionPort

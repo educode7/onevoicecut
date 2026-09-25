@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import AsyncIterator
 
 from onevoicecut.shared.domain.ids import MediaId
-from onevoicecut.domain.media import SourceMedia
+from onevoicecut.systems.pipeline.jobs.domain.media import SourceMedia
 
 
 class FakeMediaSourcePort:
