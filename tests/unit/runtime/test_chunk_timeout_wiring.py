@@ -45,7 +45,7 @@ from onevoicecut.runtime import worker
 from onevoicecut.runtime.engine_resolver import EngineResolver
 from onevoicecut.shared.infrastructure.settings import CHUNK_TIMEOUT_ENV_NAMES, Settings
 from onevoicecut.runtime.worker import EXIT_UNUSABLE, configured_chunk_timeout_s
-from onevoicecut.usecases.transcribe_job import DEFAULT_CHUNK_TIMEOUT_S
+from onevoicecut.systems.pipeline.transcripts.transcripts_module_api import DEFAULT_CHUNK_TIMEOUT_S
 from tests.fakes.audio_extractor import FakeAudioExtractorPort
 
 JOB_ID_TEXT = "01HQ3M8XKJ7VNPQR2ZYWB4TCFD"

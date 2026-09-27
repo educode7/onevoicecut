@@ -28,7 +28,7 @@ from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecor
 from onevoicecut.shared.domain.media import SourceMedia
 from onevoicecut.systems.pipeline.transcripts.domain.transcript import TranscriptSegment
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionRequest
-from onevoicecut.usecases.transcribe_job import transcribe_job
+from onevoicecut.systems.pipeline.transcripts.transcripts_module_api import transcribe_job
 from tests.fakes.audio_extractor import FAKE_DURATION_S, FakeAudioExtractorPort
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.fakes.transcription import FakeTranscriptionPort

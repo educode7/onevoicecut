@@ -18,7 +18,7 @@ cloud one — which is what keeps engine choice out of the use-case layer entire
 
 import time
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from onevoicecut.systems.pipeline.transcripts.domain.chunking import (
@@ -37,7 +37,10 @@ from onevoicecut.systems.pipeline.transcripts.domain.transcript import Transcrip
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import AudioExtractorPort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionPort, TranscriptionRequest
-from onevoicecut.usecases.plan_chunks import DEFAULT_TARGET_CHUNK_S, plan_chunks
+from onevoicecut.usecases.plan_chunks import (
+    DEFAULT_TARGET_CHUNK_S as DEFAULT_TARGET_CHUNK_S,
+)
+from onevoicecut.usecases.plan_chunks import plan_chunks
 from onevoicecut.usecases.resume_job import pending_chunks
 from onevoicecut.usecases.stitch_transcript import stitch_transcript
 
@@ -64,86 +67,129 @@ DEFAULT_MAX_SPLIT_DEPTH = 3
 Clock = Callable[[], float]
 
 
-def transcribe_job(
-    job_id: JobId,
-    media: SourceMedia,
-    *,
-    extractor: AudioExtractorPort,
-    transcriber: TranscriptionPort,
-    storage: TranscriptStoragePort,
-    now: Clock = time.time,
-    target_chunk_s: float = DEFAULT_TARGET_CHUNK_S,
-    chunk_timeout_s: float | None = DEFAULT_CHUNK_TIMEOUT_S,
-    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
-    max_split_depth: int = DEFAULT_MAX_SPLIT_DEPTH,
-) -> JobRecord:
-    """Returns the job as it ended, not the transcript.
+@dataclass(frozen=True, slots=True)
+class TranscribeJobCommand:
+    """The one job the worker is currently driving, from admission's record to media.
 
-    Three outcomes are normal here — completed, failed with chunks preserved for
-    resume, and cancelled — and only one of them produces a transcript. Returning
-    the record says which happened without making the caller catch an exception
-    for an outcome that is not exceptional. The transcript, when there is one, is
-    in storage.
+    A record, not a request: every dependency the loop needs was resolved by the
+    composition root before this was constructed, so the command carries only
+    what varies per run — which job, and which media it was admitted with.
     """
-    job = storage.load_job(job_id)
 
-    track = _extract(job, media, extractor=extractor, storage=storage, now=now)
-    plan = _plan(
-        job,
-        track,
-        transcriber=transcriber,
-        storage=storage,
-        now=now,
-        target_chunk_s=target_chunk_s,
-    )
+    job_id: JobId
+    media: SourceMedia
 
-    _advance(job, JobState.TRANSCRIBING, storage=storage, now=now)
-    request = TranscriptionRequest(
-        language=SOURCE_LANGUAGE,
-        speaker_mode=job.speaker_mode,
-        timeout_s=chunk_timeout_s,
-    )
 
-    failed: list[int] = []
-    # Resume is not a mode: the loop simply skips what is already done, so a first
-    # run and a restart after a crash take the same route.
-    for planned in pending_chunks(plan, storage.load_chunk_results(job_id)):
-        # Polled every iteration, not once before the loop: a three-hour job
-        # checked at the start would ignore the stop button for three hours.
-        if storage.cancellation_requested(job_id):
-            return _finish(job, JobState.CANCELLED, storage=storage, now=now)
+class TranscribeJobHandler:
+    """Runs the core loop over dependencies the composition root resolved.
 
-        # Liveness as a side effect of doing work, which is the only kind worth
-        # recording. A timer thread would keep reporting a hung worker as
-        # healthy — exactly the case a bare pid check already fails to catch.
-        storage.write_heartbeat(job_id, at_s=now())
+    The handler owns *what* the loop depends on; `handle()` owns the loop's
+    order and the property no piece below can hold alone: a chunk result is
+    committed the moment it completes. Engine choice never reaches here — the
+    engine was resolved before construction, which is what keeps engine choice
+    out of the use-case layer entirely.
+    """
 
-        result = _transcribe_planned(
-            planned,
-            track,
-            storage.chunk_path(job_id, planned.index),
-            request,
-            extractor=extractor,
-            transcriber=transcriber,
-            now=now,
-            max_attempts=max_attempts,
-            max_split_depth=max_split_depth,
-        )
-        # Committed here, inside the loop, not accumulated for a final batch.
-        storage.save_chunk_result(result)
-        if result.state is ChunkState.FAILED:
-            failed.append(planned.index)
+    def __init__(
+        self,
+        *,
+        extractor: AudioExtractorPort,
+        transcriber: TranscriptionPort,
+        storage: TranscriptStoragePort,
+        now: Clock = time.time,
+        target_chunk_s: float = DEFAULT_TARGET_CHUNK_S,
+        chunk_timeout_s: float | None = DEFAULT_CHUNK_TIMEOUT_S,
+        max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+        max_split_depth: int = DEFAULT_MAX_SPLIT_DEPTH,
+    ) -> None:
+        self._extractor = extractor
+        self._transcriber = transcriber
+        self._storage = storage
+        self._now = now
+        self._target_chunk_s = target_chunk_s
+        self._chunk_timeout_s = chunk_timeout_s
+        self._max_attempts = max_attempts
+        self._max_split_depth = max_split_depth
 
-    if failed:
-        return _finish(
+    def handle(self, command: TranscribeJobCommand) -> JobRecord:
+        """Returns the job as it ended, not the transcript.
+
+        Three outcomes are normal here — completed, failed with chunks preserved for
+        resume, and cancelled — and only one of them produces a transcript. Returning
+        the record says which happened without making the caller catch an exception
+        for an outcome that is not exceptional. The transcript, when there is one, is
+        in storage.
+        """
+        job_id = command.job_id
+        media = command.media
+        extractor = self._extractor
+        transcriber = self._transcriber
+        storage = self._storage
+        now = self._now
+        target_chunk_s = self._target_chunk_s
+        chunk_timeout_s = self._chunk_timeout_s
+        max_attempts = self._max_attempts
+        max_split_depth = self._max_split_depth
+
+        job = storage.load_job(job_id)
+
+        track = _extract(job, media, extractor=extractor, storage=storage, now=now)
+        plan = _plan(
             job,
-            JobState.FAILED,
+            track,
+            transcriber=transcriber,
             storage=storage,
             now=now,
-            error=_failure_summary(failed, len(plan.chunks)),
+            target_chunk_s=target_chunk_s,
         )
 
-    return _stitch(job, plan, transcriber=transcriber, storage=storage, now=now)
+        _advance(job, JobState.TRANSCRIBING, storage=storage, now=now)
+        request = TranscriptionRequest(
+            language=SOURCE_LANGUAGE,
+            speaker_mode=job.speaker_mode,
+            timeout_s=chunk_timeout_s,
+        )
+
+        failed: list[int] = []
+        # Resume is not a mode: the loop simply skips what is already done, so a first
+        # run and a restart after a crash take the same route.
+        for planned in pending_chunks(plan, storage.load_chunk_results(job_id)):
+            # Polled every iteration, not once before the loop: a three-hour job
+            # checked at the start would ignore the stop button for three hours.
+            if storage.cancellation_requested(job_id):
+                return _finish(job, JobState.CANCELLED, storage=storage, now=now)
+
+            # Liveness as a side effect of doing work, which is the only kind worth
+            # recording. A timer thread would keep reporting a hung worker as
+            # healthy — exactly the case a bare pid check already fails to catch.
+            storage.write_heartbeat(job_id, at_s=now())
+
+            result = _transcribe_planned(
+                planned,
+                track,
+                storage.chunk_path(job_id, planned.index),
+                request,
+                extractor=extractor,
+                transcriber=transcriber,
+                now=now,
+                max_attempts=max_attempts,
+                max_split_depth=max_split_depth,
+            )
+            # Committed here, inside the loop, not accumulated for a final batch.
+            storage.save_chunk_result(result)
+            if result.state is ChunkState.FAILED:
+                failed.append(planned.index)
+
+        if failed:
+            return _finish(
+                job,
+                JobState.FAILED,
+                storage=storage,
+                now=now,
+                error=_failure_summary(failed, len(plan.chunks)),
+            )
+
+        return _stitch(job, plan, transcriber=transcriber, storage=storage, now=now)
 
 
 def _transcribe_planned(

@@ -40,7 +40,10 @@ from onevoicecut.usecases.generate_artifacts import (
     resolve_script_targets,
     run_generation,
 )
-from onevoicecut.usecases.transcribe_job import DEFAULT_CHUNK_TIMEOUT_S, transcribe_job
+from onevoicecut.systems.pipeline.transcripts.transcripts_module_api import (
+    DEFAULT_CHUNK_TIMEOUT_S,
+    transcribe_job,
+)
 
 ExtractorFactory = Callable[[Path, JobId], AudioExtractorPort]
 

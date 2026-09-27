@@ -43,7 +43,7 @@ from onevoicecut.shared.domain.capabilities import (
     WordTimingSupport,
 )
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionRequest
-from onevoicecut.usecases.transcribe_job import transcribe_job
+from onevoicecut.systems.pipeline.transcripts.transcripts_module_api import transcribe_job
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
