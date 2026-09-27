@@ -487,16 +487,38 @@ Closes: CQRS conversion for plan/transcribe/stitch (behavior preservation); desi
 transcripts; the supervisor reaches it through the transcripts module API (AB-06/07
 compliance; destination stays the jobs command set per the module map).
 
-- [ ] 3c.1 RED: handler-shape tests for `PlanChunksHandler`, `TranscribeJobHandler`,
+- [x] 3c.1 RED: handler-shape tests for `PlanChunksHandler`, `TranscribeJobHandler`,
       `StitchTranscriptHandler` (moved assertions, import-fail RED); plus a RED test that
       `resume_job`'s pending-chunk derivation is exposed through the transcripts module API and
       that the jobs-side resume command receives it via a **jobs-owned** interface declared in
       `jobs/domain/interfaces` (no `jobs` application import of `transcripts.domain` — AB-06/
       AB-07). Fails: handlers and seam absent. `[unit 3c]`
-- [ ] 3c.2 GREEN: convert the three use cases to `systems/pipeline/transcripts/application/
+      → import-fail RED observed before each GREEN, in three commits: **A1 7 collection
+      errors** naming `transcripts_module_api` (the 5 moved transcribe tests + cancel-boundary
+      + chunk-timeout wiring), **A2 3 errors** naming `commands.plan_chunks` (2 moved tests +
+      `test_flac_bitrate` transitively — the cross-test import flipped atomically), **A3
+      4 errors** naming `commands.stitch_transcript` (3 moved tests + the new
+      `test_handler_shape.py` — all three Command/Handler pairs frozen-dataclass + `handle()`
+      asserted, no principal field: transcripts is worker-driven); seam RED **1 error**
+      naming `jobs/.../commands.resume_job` (`tests/.../test_resume_seam.py`, written with
+      the shape test, left untracked until 3c.3 so every commit stays green). No behavior
+      tests invented; moved assertions unchanged.
+- [x] 3c.2 GREEN: convert the three use cases to `systems/pipeline/transcripts/application/
       use_cases/commands/` handlers (bodies verbatim); create `transcripts_module_api.py`
       exporting the wiring and **no router** (stated honestly — transcripts is worker-driven).
       `[unit 3c]`
+      → `TranscribeJobCommand/Handler` (A1 `37f8385`, 288 lines), `PlanChunksCommand/Handler`
+      (A2 `19dd449`, 265 lines), `StitchTranscriptCommand/Handler` (A3). Bodies moved verbatim
+      into `handle()` with a prologue aliasing command/handler fields to the legacy parameter
+      names; **disclosed deviations**: `_plan`/`_stitch` in the transcribe handler now take
+      their sibling handler as a parameter and their call lines construct the sibling command
+      (constructor-injection threading — the facade, not a test, wires siblings); A1's handler
+      temporarily still imported legacy `usecases.{plan_chunks,stitch_transcript}` (rule-legal
+      — `TRANSCRIPTS_APPLICATION` forbids neither), cleared by A2/A3. Module API exports the
+      facade (`transcribe_job`, signature byte-identical to the legacy function so
+      `runtime/worker.py`'s frozen body never changed — import line only), the handler/command
+      pairs `X as X`, and the loop's constants; no router, stated in the module docstring.
+      Shape test green: **6 tests** (3 commands frozen, 3 handlers `handle()`).
 - [ ] 3c.3 GREEN: convert `resume_job` to `systems/pipeline/jobs/application/use_cases/commands/
       resume_job.py`; move the `pending_chunks` derivation to a transcripts-side implementation
       of the jobs-owned interface, bound at composition roots (supervisor + `main.py`);

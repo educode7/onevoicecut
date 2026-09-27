@@ -30,6 +30,12 @@ from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.pla
 from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.plan_chunks import (
     PlanChunksHandler as PlanChunksHandler,
 )
+from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.stitch_transcript import (
+    StitchTranscriptCommand as StitchTranscriptCommand,
+)
+from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.stitch_transcript import (
+    StitchTranscriptHandler as StitchTranscriptHandler,
+)
 from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.transcribe_job import (
     DEFAULT_CHUNK_TIMEOUT_S as DEFAULT_CHUNK_TIMEOUT_S,
 )
@@ -74,6 +80,7 @@ def transcribe_job(
         transcriber=transcriber,
         storage=storage,
         plan_handler=PlanChunksHandler(),
+        stitch_handler=StitchTranscriptHandler(),
         now=now,
         target_chunk_s=target_chunk_s,
         chunk_timeout_s=chunk_timeout_s,

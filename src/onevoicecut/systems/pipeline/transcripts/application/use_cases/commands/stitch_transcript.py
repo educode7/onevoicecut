@@ -13,7 +13,7 @@ return as chunk-local.
 
 import re
 from collections.abc import Mapping
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 from onevoicecut.systems.pipeline.transcripts.domain.chunking import ChunkPlan, ChunkResult, PlannedChunk
@@ -252,46 +252,72 @@ def _keep_every_label(labels: tuple[str, ...]) -> Mapping[str, str]:
     return {}
 
 
-def stitch_transcript(
-    plan: ChunkPlan,
-    results: tuple[ChunkResult, ...],
-    *,
-    resolve_speakers: SpeakerResolver = _keep_every_label,
-) -> tuple[TranscriptSegment, ...]:
-    _require_complete(plan, results)
+@dataclass(frozen=True, slots=True)
+class StitchTranscriptCommand:
+    """The plan and every chunk's result — all of it, at once.
 
-    planned: dict[int, PlannedChunk] = {chunk.index: chunk for chunk in plan.chunks}
-    ordered = sorted(results, key=lambda result: result.index)
+    Holding them together is the point: only this stage has every chunk's
+    segments and labels in front of it, which is what makes both overlap
+    reconciliation and cross-chunk speaker identity answerable here and
+    nowhere else. Frozen because a command being stitched is finished with.
+    """
 
-    accumulator: list[TranscriptSegment] = []
-    previous: PlannedChunk | None = None
+    plan: ChunkPlan
+    results: tuple[ChunkResult, ...]
 
-    for result in ordered:
-        chunk = planned[result.index]
-        segments = [_shift(segment, chunk.start_s) for segment in result.segments]
 
-        if previous is None:
-            accumulator = segments
+class StitchTranscriptHandler:
+    """Reconciles one plan's results; the speaker seam is fixed at construction.
+
+    `resolve_speakers` is a dependency, not per-call input: a resolver's answer
+    must describe the whole transcript, and its cost — potentially a model
+    load — belongs to whoever wires the handler, not to each stitch.
+    """
+
+    def __init__(self, *, resolve_speakers: SpeakerResolver = _keep_every_label) -> None:
+        self._resolve_speakers = resolve_speakers
+
+    def handle(
+        self, command: StitchTranscriptCommand
+    ) -> tuple[TranscriptSegment, ...]:
+        plan = command.plan
+        results = command.results
+        resolve_speakers = self._resolve_speakers
+
+        _require_complete(plan, results)
+
+        planned: dict[int, PlannedChunk] = {chunk.index: chunk for chunk in plan.chunks}
+        ordered = sorted(results, key=lambda result: result.index)
+
+        accumulator: list[TranscriptSegment] = []
+        previous: PlannedChunk | None = None
+
+        for result in ordered:
+            chunk = planned[result.index]
+            segments = [_shift(segment, chunk.start_s) for segment in result.segments]
+
+            if previous is None:
+                accumulator = segments
+                previous = chunk
+                continue
+
+            window_start, window_end = chunk.start_s, previous.end_s
+            if window_end <= window_start:
+                accumulator = accumulator + segments  # no overlap to reconcile
+                previous = chunk
+                continue
+
+            tail = [s for s in accumulator if s.end_s > window_start]
+            head = [s for s in segments if s.start_s < window_end]
+
+            cut = _matched_cut(tail, head)
+            if cut is None:
+                cut = _fallback_cut(window_start, window_end, accumulator)
+
+            accumulator = _clip_before(accumulator, cut) + _clip_after(segments, cut)
             previous = chunk
-            continue
 
-        window_start, window_end = chunk.start_s, previous.end_s
-        if window_end <= window_start:
-            accumulator = accumulator + segments  # no overlap to reconcile
-            previous = chunk
-            continue
-
-        tail = [s for s in accumulator if s.end_s > window_start]
-        head = [s for s in segments if s.start_s < window_end]
-
-        cut = _matched_cut(tail, head)
-        if cut is None:
-            cut = _fallback_cut(window_start, window_end, accumulator)
-
-        accumulator = _clip_before(accumulator, cut) + _clip_after(segments, cut)
-        previous = chunk
-
-    return _resolve_speakers(tuple(accumulator), resolve_speakers)
+        return _resolve_speakers(tuple(accumulator), resolve_speakers)
 
 
 def _resolve_speakers(

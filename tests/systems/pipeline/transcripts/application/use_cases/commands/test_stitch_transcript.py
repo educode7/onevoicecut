@@ -11,7 +11,11 @@ import pytest
 from onevoicecut.systems.pipeline.transcripts.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
 from onevoicecut.shared.domain.ids import make_job_id
 from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind, TranscriptSegment
-from onevoicecut.usecases.stitch_transcript import MIN_MATCH_TOKENS, stitch_transcript
+from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.stitch_transcript import (
+    MIN_MATCH_TOKENS,
+    StitchTranscriptCommand,
+    StitchTranscriptHandler,
+)
 
 JOB_ID = make_job_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 
@@ -62,6 +66,16 @@ def _text(segments: tuple[TranscriptSegment, ...]) -> str:
     return " ".join(s.text for s in segments)
 
 
+def _stitch(
+    plan: ChunkPlan,
+    results: tuple[ChunkResult, ...],
+) -> tuple[TranscriptSegment, ...]:
+    """The handler shape: dependencies live on the handler, identity on the command."""
+    return StitchTranscriptHandler().handle(
+        StitchTranscriptCommand(plan=plan, results=results)
+    )
+
+
 def test_single_chunk_passes_through_with_global_times() -> None:
     plan = ChunkPlan(
         job_id=JOB_ID,
@@ -69,13 +83,13 @@ def test_single_chunk_passes_through_with_global_times() -> None:
         overlap_s=5.0,
         chunks=(PlannedChunk(index=0, start_s=0.0, end_s=120.0),),
     )
-    stitched = stitch_transcript(plan, (_result(0, _seg(0.0, 10.0, "hola")),))
+    stitched = _stitch(plan, (_result(0, _seg(0.0, 10.0, "hola")),))
     assert [(s.start_s, s.end_s, s.text) for s in stitched] == [(0.0, 10.0, "hola")]
 
 
 def test_chunk_local_times_become_global() -> None:
     """The one place chunk-local becomes track-relative. Nothing downstream re-offsets."""
-    stitched = stitch_transcript(
+    stitched = _stitch(
         PLAN,
         (
             _result(0, _seg(10.0, 20.0, "primera parte")),
@@ -89,7 +103,7 @@ def test_chunk_local_times_become_global() -> None:
 
 def test_matched_overlap_is_spoken_once() -> None:
     """Both chunks decode the same six words in the window; the output keeps one."""
-    stitched = stitch_transcript(
+    stitched = _stitch(
         PLAN,
         (
             _result(
@@ -108,7 +122,7 @@ def test_matched_overlap_is_spoken_once() -> None:
 
 
 def test_matched_overlap_loses_no_words() -> None:
-    stitched = stitch_transcript(
+    stitched = _stitch(
         PLAN,
         (
             _result(
@@ -133,7 +147,7 @@ def test_matched_overlap_loses_no_words() -> None:
 
 
 def test_output_is_ordered_by_start_time() -> None:
-    stitched = stitch_transcript(
+    stitched = _stitch(
         PLAN,
         (
             _result(
@@ -158,14 +172,14 @@ def test_results_are_sorted_by_chunk_index_not_arrival_order() -> None:
         _result(1, _seg(100.0, 110.0, "segunda")),
         _result(0, _seg(10.0, 20.0, "primera")),
     )
-    stitched = stitch_transcript(PLAN, out_of_order)
+    stitched = _stitch(PLAN, out_of_order)
     assert [s.text for s in stitched] == ["primera", "segunda"]
 
 
 def test_accents_make_words_distinct() -> None:
     """Spanish `si` and `sí` are different words; a tokenizer that folds accents
     would match them and cut in the wrong place."""
-    stitched = stitch_transcript(
+    stitched = _stitch(
         PLAN,
         (
             _result(0, _seg(598.0, 605.0, "si si si si")),
@@ -181,7 +195,7 @@ def test_accents_make_words_distinct() -> None:
 def test_match_shorter_than_the_minimum_does_not_cut() -> None:
     """Three shared tokens is coincidence, not the same utterance."""
     assert MIN_MATCH_TOKENS == 4
-    stitched = stitch_transcript(
+    stitched = _stitch(
         PLAN,
         (
             _result(0, _seg(598.0, 605.0, "uno dos tres")),
@@ -196,7 +210,7 @@ def test_match_shorter_than_the_minimum_does_not_cut() -> None:
 
 def test_fallback_snaps_to_the_nearest_segment_boundary() -> None:
     """Window [600, 605], midpoint 602.5, only boundary inside is 604."""
-    stitched = stitch_transcript(
+    stitched = _stitch(
         PLAN,
         (
             _result(0, _seg(598.0, 604.0, "algo completamente distinto")),
@@ -207,7 +221,7 @@ def test_fallback_snaps_to_the_nearest_segment_boundary() -> None:
 
 
 def test_fallback_uses_the_raw_midpoint_when_no_boundary_is_inside() -> None:
-    stitched = stitch_transcript(
+    stitched = _stitch(
         PLAN,
         (
             _result(0, _seg(590.0, 620.0, "un segmento largo sin cortes")),
@@ -219,7 +233,7 @@ def test_fallback_uses_the_raw_midpoint_when_no_boundary_is_inside() -> None:
 
 def test_fallback_keeps_content_outside_the_contested_window() -> None:
     """The cut is bounded by the window, so nothing beyond it can be discarded."""
-    stitched = stitch_transcript(
+    stitched = _stitch(
         PLAN,
         (
             _result(
@@ -244,12 +258,12 @@ def test_fallback_is_deterministic() -> None:
         _result(0, _seg(598.0, 604.0, "algo distinto")),
         _result(1, _seg(0.0, 5.0, "otra cosa"), _seg(5.0, 20.0, "sigue")),
     )
-    assert stitch_transcript(PLAN, results) == stitch_transcript(PLAN, results)
+    assert _stitch(PLAN, results) == _stitch(PLAN, results)
 
 
 def test_music_in_the_overlap_window_falls_back_cleanly() -> None:
     """Two decodes of the same song rarely agree; this is the routine path."""
-    stitched = stitch_transcript(
+    stitched = _stitch(
         PLAN,
         (
             _result(0, _seg(598.0, 604.0, "y volare sin ti", SegmentKind.MUSIC)),
@@ -266,7 +280,7 @@ def test_music_in_the_overlap_window_falls_back_cleanly() -> None:
 
 def test_chunk_with_nothing_in_the_window_does_not_discard_our_copy() -> None:
     """A music-only chunk can transcribe to nothing; that is not a reason to cut."""
-    stitched = stitch_transcript(
+    stitched = _stitch(
         PLAN,
         (
             _result(0, _seg(598.0, 605.0, "lo que dijo al final")),
@@ -279,7 +293,7 @@ def test_chunk_with_nothing_in_the_window_does_not_discard_our_copy() -> None:
 
 
 def test_chunk_result_with_no_segments_at_all_is_survivable() -> None:
-    stitched = stitch_transcript(
+    stitched = _stitch(
         PLAN,
         (
             _result(0, _seg(590.0, 605.0, "unico contenido")),
@@ -290,7 +304,7 @@ def test_chunk_result_with_no_segments_at_all_is_survivable() -> None:
 
 
 def test_no_empty_segment_is_ever_emitted() -> None:
-    stitched = stitch_transcript(
+    stitched = _stitch(
         PLAN,
         (
             _result(0, _seg(598.0, 604.0, "algo distinto")),
@@ -304,7 +318,7 @@ def test_no_empty_segment_is_ever_emitted() -> None:
 
 
 def test_segment_straddling_the_cut_is_truncated_not_duplicated() -> None:
-    stitched = stitch_transcript(
+    stitched = _stitch(
         PLAN,
         (
             _result(0, _seg(598.0, 604.0, "nuestra version")),
@@ -320,7 +334,7 @@ def test_segment_straddling_the_cut_is_truncated_not_duplicated() -> None:
 
 def test_segment_entirely_before_the_cut_survives_untouched() -> None:
     original = _seg(100.0, 200.0, "intacto")
-    stitched = stitch_transcript(
+    stitched = _stitch(
         PLAN,
         (
             _result(0, original, _seg(598.0, 604.0, "desacuerdo")),
@@ -332,7 +346,7 @@ def test_segment_entirely_before_the_cut_survives_untouched() -> None:
 
 def test_kind_survives_the_cut() -> None:
     """A relabelled segment would let lyrics into the message export."""
-    stitched = stitch_transcript(
+    stitched = _stitch(
         PLAN,
         (
             _result(
@@ -355,7 +369,7 @@ def test_kind_survives_the_cut() -> None:
 
 
 def test_speaker_and_confidence_survive_the_cut() -> None:
-    stitched = stitch_transcript(
+    stitched = _stitch(
         PLAN,
         (
             _result(0, _seg(598.0, 604.0, "hablado", speaker="c00/S01")),
@@ -384,7 +398,7 @@ def test_a_missing_chunk_result_is_refused_not_silently_stitched() -> None:
         ),
     )
     with pytest.raises(ValueError, match="1"):
-        stitch_transcript(
+        _stitch(
             three,
             (_result(0, _seg(0.0, 10.0, "a")), _result(2, _seg(0.0, 10.0, "c"))),
         )
@@ -392,7 +406,7 @@ def test_a_missing_chunk_result_is_refused_not_silently_stitched() -> None:
 
 def test_a_duplicated_chunk_result_is_refused() -> None:
     with pytest.raises(ValueError):
-        stitch_transcript(
+        _stitch(
             PLAN,
             (
                 _result(0, _seg(0.0, 10.0, "a")),
@@ -403,7 +417,7 @@ def test_a_duplicated_chunk_result_is_refused() -> None:
 
 
 def test_punctuation_and_case_do_not_prevent_a_match() -> None:
-    stitched = stitch_transcript(
+    stitched = _stitch(
         PLAN,
         (
             _result(0, _seg(597.0, 605.0, "Y ahora, viene la parte importante.")),

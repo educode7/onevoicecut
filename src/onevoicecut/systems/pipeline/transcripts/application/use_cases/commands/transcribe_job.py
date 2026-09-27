@@ -44,8 +44,11 @@ from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.pla
     PlanChunksCommand,
     PlanChunksHandler,
 )
+from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.stitch_transcript import (
+    StitchTranscriptCommand,
+    StitchTranscriptHandler,
+)
 from onevoicecut.usecases.resume_job import pending_chunks
-from onevoicecut.usecases.stitch_transcript import stitch_transcript
 
 SOURCE_LANGUAGE = "es"
 
@@ -100,6 +103,7 @@ class TranscribeJobHandler:
         transcriber: TranscriptionPort,
         storage: TranscriptStoragePort,
         plan_handler: PlanChunksHandler,
+        stitch_handler: StitchTranscriptHandler,
         now: Clock = time.time,
         target_chunk_s: float = DEFAULT_TARGET_CHUNK_S,
         chunk_timeout_s: float | None = DEFAULT_CHUNK_TIMEOUT_S,
@@ -110,6 +114,7 @@ class TranscribeJobHandler:
         self._transcriber = transcriber
         self._storage = storage
         self._plan_handler = plan_handler
+        self._stitch_handler = stitch_handler
         self._now = now
         self._target_chunk_s = target_chunk_s
         self._chunk_timeout_s = chunk_timeout_s
@@ -131,6 +136,7 @@ class TranscribeJobHandler:
         transcriber = self._transcriber
         storage = self._storage
         plan_handler = self._plan_handler
+        stitch_handler = self._stitch_handler
         now = self._now
         target_chunk_s = self._target_chunk_s
         chunk_timeout_s = self._chunk_timeout_s
@@ -196,7 +202,14 @@ class TranscribeJobHandler:
                 error=_failure_summary(failed, len(plan.chunks)),
             )
 
-        return _stitch(job, plan, transcriber=transcriber, storage=storage, now=now)
+        return _stitch(
+            job,
+            plan,
+            transcriber=transcriber,
+            storage=storage,
+            now=now,
+            stitch_handler=stitch_handler,
+        )
 
 
 def _transcribe_planned(
@@ -513,6 +526,7 @@ def _stitch(
     transcriber: TranscriptionPort,
     storage: TranscriptStoragePort,
     now: Clock,
+    stitch_handler: StitchTranscriptHandler,
 ) -> JobRecord:
     """Only reached when every chunk succeeded.
 
@@ -526,7 +540,11 @@ def _stitch(
         # The one place chunk-local times become track-relative. Skipping it would
         # restart every chunk's segments at zero, pointing every clip timestamp at
         # the opening seconds of the sermon.
-        segments=stitch_transcript(plan, storage.load_chunk_results(job.job_id)),
+        segments=stitch_handler.handle(
+            StitchTranscriptCommand(
+                plan=plan, results=storage.load_chunk_results(job.job_id)
+            )
+        ),
         engine_id=transcriber.capabilities().engine_id,
         diarized=job.speaker_mode is SpeakerMode.MULTI,
         language=SOURCE_LANGUAGE,

@@ -23,7 +23,10 @@ production today produces exactly that.
 from onevoicecut.systems.pipeline.transcripts.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
 from onevoicecut.shared.domain.ids import make_job_id
 from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind, TranscriptSegment, WordTiming
-from onevoicecut.usecases.stitch_transcript import stitch_transcript
+from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.stitch_transcript import (
+    StitchTranscriptCommand,
+    StitchTranscriptHandler,
+)
 
 JOB_ID = make_job_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 STRIDE_S = 100.0
@@ -76,12 +79,22 @@ def _result(index: int, *segments: TranscriptSegment) -> ChunkResult:
     )
 
 
+def _stitch(
+    plan: ChunkPlan,
+    results: tuple[ChunkResult, ...],
+) -> tuple[TranscriptSegment, ...]:
+    """The handler shape: dependencies live on the handler, identity on the command."""
+    return StitchTranscriptHandler().handle(
+        StitchTranscriptCommand(plan=plan, results=results)
+    )
+
+
 class TestWordsShiftWithTheirSegment:
     def test_a_second_chunks_words_become_track_relative(self) -> None:
         """Chunk 1 starts at 100 s, so a word at 5 s inside it is at 105 s in the
         transcript. Words left chunk-local would offset every caption in the
         chunk by the chunk's own start — two and a half hours by chunk 15."""
-        stitched = stitch_transcript(
+        stitched = _stitch(
             _plan(overlap_s=0.0),
             (
                 _result(0, _segment(0.0, 10.0, "hola ", _words((0.0, 10.0, "hola ")))),
@@ -92,7 +105,7 @@ class TestWordsShiftWithTheirSegment:
         assert stitched[-1].words[0].start_s == 105.0
 
     def test_words_stay_inside_the_segment_that_carries_them(self) -> None:
-        stitched = stitch_transcript(
+        stitched = _stitch(
             _plan(overlap_s=0.0),
             (
                 _result(0, _segment(0.0, 10.0, "hola ", _words((0.0, 10.0, "hola ")))),
@@ -159,7 +172,7 @@ class TestWhenNothingSurvives:
         early = _segment(0.0, 5.0, "temprano ", _words((0.0, 5.0, "temprano ")))
         late = _segment(100.0, 105.0, "tarde", _words((100.0, 105.0, "tarde")))
 
-        stitched = stitch_transcript(
+        stitched = _stitch(
             _plan(),
             (_result(0, early, late), _result(1, _segment(0.0, 5.0, "tarde", _words((0.0, 5.0, "tarde"))))),
         )
@@ -177,7 +190,7 @@ class TestAWordlessTranscriptIsUntouched:
             _result(1, _segment(0.0, 20.0, "queridos de la iglesia y entonces")),
         )
 
-        stitched = stitch_transcript(_plan(), results)
+        stitched = _stitch(_plan(), results)
 
         assert all(segment.words == () for segment in stitched)
         assert stitched[0].text == "hola hermanos queridos de la iglesia"
@@ -191,7 +204,7 @@ class TestAWordlessTranscriptIsUntouched:
             _result(1, _segment(0.0, 20.0, "otra cosa distinta aqui")),
         )
 
-        stitched = stitch_transcript(_plan(), results)
+        stitched = _stitch(_plan(), results)
 
         assert any("texto que no se corta" in s.text for s in stitched)
 
@@ -210,4 +223,4 @@ def _stitched_with_overlap() -> tuple[TranscriptSegment, ...]:
         "frontera y entonces",
         _words((0.0, 10.0, "frontera "), (10.0, 15.0, "y "), (15.0, 20.0, "entonces")),
     )
-    return stitch_transcript(_plan(), (_result(0, first), _result(1, second)))
+    return _stitch(_plan(), (_result(0, first), _result(1, second)))

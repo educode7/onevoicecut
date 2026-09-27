@@ -31,7 +31,11 @@ import pytest
 from onevoicecut.systems.pipeline.transcripts.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
 from onevoicecut.shared.domain.ids import make_job_id
 from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind, TranscriptSegment
-from onevoicecut.usecases.stitch_transcript import SpeakerResolver, stitch_transcript
+from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.stitch_transcript import (
+    SpeakerResolver,
+    StitchTranscriptCommand,
+    StitchTranscriptHandler,
+)
 
 JOB_ID = make_job_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 
@@ -94,11 +98,26 @@ def _result(
     )
 
 
+def _stitch(
+    plan: ChunkPlan,
+    results: tuple[ChunkResult, ...],
+    *,
+    resolve_speakers: SpeakerResolver | None = None,
+) -> tuple[TranscriptSegment, ...]:
+    """The handler shape: dependencies live on the handler, identity on the command."""
+    handler = (
+        StitchTranscriptHandler()
+        if resolve_speakers is None
+        else StitchTranscriptHandler(resolve_speakers=resolve_speakers)
+    )
+    return handler.handle(StitchTranscriptCommand(plan=plan, results=results))
+
+
 class TestTheDefaultChangesNothing:
     def test_namespaced_labels_pass_through_unchanged(self) -> None:
         """Today's behaviour, now expressed as a default rather than as an
         absence — which is what makes the seam free to add."""
-        stitched = stitch_transcript(_plan(), _results())
+        stitched = _stitch(_plan(), _results())
 
         assert [s.speaker for s in stitched] == [
             "c00/S00",
@@ -116,7 +135,7 @@ class TestTheDefaultChangesNothing:
             _result(1, (_segment(0.0, 10.0, "y entonces", None),)),
         )
 
-        stitched = stitch_transcript(_plan(), results)
+        stitched = _stitch(_plan(), results)
 
         assert all(s.speaker is None for s in stitched)
 
@@ -124,7 +143,7 @@ class TestTheDefaultChangesNothing:
 class TestAResolverSubstitutes:
     def test_its_mapping_is_applied_to_every_segment(self) -> None:
         """The point of the seam: one preacher across two chunks, one label."""
-        stitched = stitch_transcript(
+        stitched = _stitch(
             _plan(),
             _results(),
             resolve_speakers=_mapping_to(
@@ -138,7 +157,7 @@ class TestAResolverSubstitutes:
         """A partial answer is a legitimate one. A resolver confident about the
         preacher and unsure about a guest must be able to say so, rather than
         being forced to guess to stay well-formed."""
-        stitched = stitch_transcript(
+        stitched = _stitch(
             _plan(),
             _results(),
             resolve_speakers=_mapping_to({"c01/S00": "c00/S00"}),
@@ -157,7 +176,7 @@ class TestAResolverSubstitutes:
         that holds them all."""
         seen: list[tuple[str, ...]] = []
 
-        stitch_transcript(
+        _stitch(
             _plan(), _results(), resolve_speakers=_recording(seen)
         )
 
@@ -169,7 +188,7 @@ class TestAResolverSubstitutes:
         cannot work from a fragment."""
         seen: list[tuple[str, ...]] = []
 
-        stitch_transcript(
+        _stitch(
             _plan(), _results(), resolve_speakers=_recording(seen)
         )
 
@@ -184,7 +203,7 @@ class TestAResolverSubstitutes:
             _result(1, (_segment(0.0, 10.0, "y entonces", None),)),
         )
 
-        stitch_transcript(_plan(), results, resolve_speakers=_recording(seen))
+        _stitch(_plan(), results, resolve_speakers=_recording(seen))
 
         assert seen == []
 
@@ -194,8 +213,8 @@ class TestItCannotReachIntoTheStitching:
         """The constraint the seam's shape enforces. Overlap reconciliation took
         a slice of its own to get right, and a speaker-identity experiment must
         not be able to put it at risk."""
-        plain = stitch_transcript(_plan(), _results())
-        resolved = stitch_transcript(
+        plain = _stitch(_plan(), _results())
+        resolved = _stitch(
             _plan(),
             _results(),
             resolve_speakers=_mapping_to({"c00/S00": "S00", "c01/S00": "S00"}),
@@ -224,8 +243,8 @@ class TestItCannotReachIntoTheStitching:
                         _segment(10.0, 20.0, "asi sea", "c01/S00"))),
         )
 
-        plain = stitch_transcript(plan, results)
-        resolved = stitch_transcript(
+        plain = _stitch(plan, results)
+        resolved = _stitch(
             plan, results, resolve_speakers=_mapping_to({"c01/S00": "c00/S00"})
         )
 
@@ -237,9 +256,9 @@ class TestItCannotReachIntoTheStitching:
         """An empty mapping and no resolver must be the same thing, so a
         resolver that declines to decide degrades to today's behaviour rather
         than to a blank transcript."""
-        assert stitch_transcript(
+        assert _stitch(
             _plan(), _results(), resolve_speakers=lambda labels: {}
-        ) == stitch_transcript(_plan(), _results())
+        ) == _stitch(_plan(), _results())
 
 
 def _mapping_to(mapping: Mapping[str, str]) -> SpeakerResolver:
@@ -269,6 +288,6 @@ def test_the_namespaced_shape_survives_the_stitcher(label: str) -> None:
         _result(1, (_segment(0.0, 10.0, "y entonces", None),)),
     )
 
-    stitch_transcript(_plan(), results, resolve_speakers=_recording(seen))
+    _stitch(_plan(), results, resolve_speakers=_recording(seen))
 
     assert seen == [(label,)]
