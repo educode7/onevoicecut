@@ -32,11 +32,13 @@ from onevoicecut.shared.domain.errors import ChunkTooLarge
 from onevoicecut.shared.domain.ids import make_job_id, make_media_id
 from onevoicecut.shared.domain.media import AudioTrack
 from onevoicecut.shared.domain.capabilities import TranscriptionCapabilities
-from onevoicecut.usecases.plan_chunks import (
+from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.plan_chunks import (
     DEFAULT_MIN_CHUNK_S,
     DEFAULT_OVERLAP_S,
-    plan_chunks,
+    PlanChunksCommand,
+    PlanChunksHandler,
 )
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import ChunkPlan
 
 JOB_ID = make_job_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 MEDIA_ID = make_media_id("01BX5ZZKBKACTAV9WEVGEMMVRZ")
@@ -72,6 +74,22 @@ def _track(duration_s: float, bytes_per_second: float) -> AudioTrack:
     )
 
 
+def _plan(
+    track: AudioTrack,
+    capabilities: TranscriptionCapabilities,
+    **kwargs: float,
+) -> ChunkPlan:
+    """The handler shape: dependencies live on the handler, identity on the command."""
+    return PlanChunksHandler().handle(
+        PlanChunksCommand(
+            job_id=JOB_ID,
+            track=track,
+            capabilities=capabilities,
+            **kwargs,
+        )
+    )
+
+
 def _largest_chunk_bytes(duration_s: float, bytes_per_second: float) -> float:
     """What the fattest chunk in the plan would weigh on the wire.
 
@@ -79,9 +97,7 @@ def _largest_chunk_bytes(duration_s: float, bytes_per_second: float) -> float:
     the overlap tail and the absorbed short tail are both added after the cap has
     been computed, so only the finished plan knows how long a chunk really is.
     """
-    plan = plan_chunks(
-        JOB_ID, _track(duration_s, bytes_per_second), cloud_capabilities()
-    )
+    plan = _plan(_track(duration_s, bytes_per_second), cloud_capabilities())
     return max((c.end_s - c.start_s) * bytes_per_second for c in plan.chunks)
 
 
@@ -103,8 +119,7 @@ class TestThePlannerReadsTheDeclaredCap:
 
         Nothing is broken by this. A shorter stride is the formula working.
         """
-        plan = plan_chunks(
-            JOB_ID,
+        plan = _plan(
             _track(THREE_HOURS_S, FLAC_CEILING_BYTES_PER_S),
             cloud_capabilities(),
         )
@@ -174,8 +189,7 @@ class TestTheStrideReservesWhatIsAppendedAfterIt:
         assert cap is not None
         wide_overlap_s = DEFAULT_MIN_CHUNK_S * 3
 
-        plan = plan_chunks(
-            JOB_ID,
+        plan = _plan(
             _track(THREE_HOURS_S, 100_000),
             cloud_capabilities(),
             overlap_s=wide_overlap_s,
@@ -192,6 +206,4 @@ class TestARateTheCapCannotHold:
         absurd_rate = 30_000_000
 
         with pytest.raises(ChunkTooLarge, match="openai-whisper"):
-            plan_chunks(
-                JOB_ID, _track(3600.0, absurd_rate), cloud_capabilities()
-            )
+            _plan(_track(3600.0, absurd_rate), cloud_capabilities())

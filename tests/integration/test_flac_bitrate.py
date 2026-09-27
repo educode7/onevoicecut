@@ -24,7 +24,9 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.adapters.ffmpeg.argv import SAMPLE_RATE_HZ, _audio_encoding
-from tests.unit.usecases.test_cloud_byte_cap import FLAC_CEILING_BYTES_PER_S
+from tests.systems.pipeline.transcripts.application.use_cases.commands.test_cloud_byte_cap import (
+    FLAC_CEILING_BYTES_PER_S,
+)
 
 pytestmark = pytest.mark.integration
 

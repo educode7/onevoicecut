@@ -19,11 +19,13 @@ from onevoicecut.shared.domain.capabilities import (
     TranscriptionCapabilities,
     WordTimingSupport,
 )
-from onevoicecut.usecases.plan_chunks import (
+from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.plan_chunks import (
     DEFAULT_OVERLAP_S,
     DEFAULT_TARGET_CHUNK_S,
-    plan_chunks,
+    PlanChunksCommand,
+    PlanChunksHandler,
 )
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import ChunkPlan
 
 JOB_ID = make_job_id("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 MEDIA_ID = make_media_id("01BX5ZZKBKACTAV9WEVGEMMVRZ")
@@ -56,8 +58,24 @@ def _caps(
     )
 
 
+def _plan(
+    track: AudioTrack,
+    capabilities: TranscriptionCapabilities,
+    **kwargs: float,
+) -> ChunkPlan:
+    """The handler shape: dependencies live on the handler, identity on the command."""
+    return PlanChunksHandler().handle(
+        PlanChunksCommand(
+            job_id=JOB_ID,
+            track=track,
+            capabilities=capabilities,
+            **kwargs,
+        )
+    )
+
+
 def test_uncapped_plan_uses_target_stride() -> None:
-    plan = plan_chunks(JOB_ID, _track(1500.0), _caps())
+    plan = _plan(_track(1500.0), _caps())
     assert plan.stride_s == DEFAULT_TARGET_CHUNK_S
     assert plan.overlap_s == DEFAULT_OVERLAP_S
     assert plan.job_id == JOB_ID
@@ -65,7 +83,7 @@ def test_uncapped_plan_uses_target_stride() -> None:
 
 def test_chunk_bounds_follow_the_design_formula() -> None:
     """25 minutes at stride 600 / overlap 5: three chunks, last clamped to duration."""
-    plan = plan_chunks(JOB_ID, _track(1500.0), _caps())
+    plan = _plan(_track(1500.0), _caps())
     assert [(c.index, c.start_s, c.end_s) for c in plan.chunks] == [
         (0, 0.0, 605.0),
         (1, 600.0, 1205.0),
@@ -75,7 +93,7 @@ def test_chunk_bounds_follow_the_design_formula() -> None:
 
 def test_every_internal_boundary_carries_overlap() -> None:
     """No hard cut anywhere: each chunk ends past where the next one starts."""
-    plan = plan_chunks(JOB_ID, _track(3600.0), _caps())
+    plan = _plan(_track(3600.0), _caps())
     assert len(plan.chunks) > 1
     for previous, following in zip(plan.chunks, plan.chunks[1:]):
         assert previous.end_s > following.start_s
@@ -83,7 +101,7 @@ def test_every_internal_boundary_carries_overlap() -> None:
 
 
 def test_plan_covers_the_whole_track_with_no_gaps() -> None:
-    plan = plan_chunks(JOB_ID, _track(3600.0), _caps())
+    plan = _plan(_track(3600.0), _caps())
     assert plan.chunks[0].start_s == 0.0
     assert plan.chunks[-1].end_s == 3600.0
     for previous, following in zip(plan.chunks, plan.chunks[1:]):
@@ -91,17 +109,17 @@ def test_plan_covers_the_whole_track_with_no_gaps() -> None:
 
 
 def test_indices_are_contiguous_from_zero() -> None:
-    plan = plan_chunks(JOB_ID, _track(3600.0), _caps())
+    plan = _plan(_track(3600.0), _caps())
     assert [c.index for c in plan.chunks] == list(range(len(plan.chunks)))
 
 
 def test_no_chunk_is_empty() -> None:
-    plan = plan_chunks(JOB_ID, _track(3600.0), _caps())
+    plan = _plan(_track(3600.0), _caps())
     assert all(c.end_s > c.start_s for c in plan.chunks)
 
 
 def test_track_shorter_than_stride_is_one_chunk() -> None:
-    plan = plan_chunks(JOB_ID, _track(120.0), _caps())
+    plan = _plan(_track(120.0), _caps())
     assert [(c.start_s, c.end_s) for c in plan.chunks] == [(0.0, 120.0)]
 
 
@@ -112,8 +130,8 @@ def test_plan_is_independent_of_which_adapter_fulfils_it() -> None:
     plan — that is the point of declaring them — but engine identity must not.
     """
     track = _track(3600.0)
-    local = plan_chunks(JOB_ID, track, _caps(engine_id="local-whisper"))
-    cloud = plan_chunks(JOB_ID, track, _caps(engine_id="cloud-provider"))
+    local = _plan(track, _caps(engine_id="local-whisper"))
+    cloud = _plan(track, _caps(engine_id="cloud-provider"))
     assert local.chunks == cloud.chunks
     assert local.stride_s == cloud.stride_s
 
@@ -121,7 +139,7 @@ def test_plan_is_independent_of_which_adapter_fulfils_it() -> None:
 def test_non_positive_duration_is_rejected() -> None:
     """Guards the bitrate division, and a zero-duration track is never plannable."""
     with pytest.raises(ValueError, match="duration"):
-        plan_chunks(JOB_ID, _track(0.0), _caps())
+        _plan(_track(0.0), _caps())
 
 
 # --- Byte cap: the cloud limit is in bytes, a plan is in time -----------------
@@ -136,7 +154,7 @@ def test_byte_cap_shortens_the_stride() -> None:
     ever produced (see slice 8a-iii).
     """
     track = _track(3600.0, bytes_per_second=50_000)
-    plan = plan_chunks(JOB_ID, track, _caps(max_chunk_bytes=25_000_000))
+    plan = _plan(track, _caps(max_chunk_bytes=25_000_000))
     assert plan.stride_s == 420.0
 
 
@@ -147,19 +165,18 @@ def test_realistic_flac_bitrate_is_not_constrained_by_the_cap() -> None:
     consequence surfaces here rather than as a runtime ChunkTooLarge.
     """
     track = _track(3600.0, bytes_per_second=FLAC_BYTES_PER_SECOND)
-    plan = plan_chunks(JOB_ID, track, _caps(max_chunk_bytes=25_000_000))
+    plan = _plan(track, _caps(max_chunk_bytes=25_000_000))
     assert plan.stride_s == DEFAULT_TARGET_CHUNK_S
 
 
 def test_duration_cap_shortens_the_stride() -> None:
-    plan = plan_chunks(JOB_ID, _track(3600.0), _caps(max_chunk_duration_s=300.0))
+    plan = _plan(_track(3600.0), _caps(max_chunk_duration_s=300.0))
     assert plan.stride_s == 300.0
 
 
 def test_tightest_constraint_wins() -> None:
     track = _track(3600.0, bytes_per_second=50_000)
-    plan = plan_chunks(
-        JOB_ID,
+    plan = _plan(
         track,
         _caps(max_chunk_bytes=25_000_000, max_chunk_duration_s=200.0),
     )
@@ -171,7 +188,7 @@ def test_planned_payload_stays_under_the_declared_byte_cap() -> None:
     bytes_per_second = 50_000
     cap = 25_000_000
     track = _track(3600.0, bytes_per_second=bytes_per_second)
-    plan = plan_chunks(JOB_ID, track, _caps(max_chunk_bytes=cap))
+    plan = _plan(track, _caps(max_chunk_bytes=cap))
     for chunk in plan.chunks:
         assert (chunk.end_s - chunk.start_s) * bytes_per_second <= cap
 
@@ -184,7 +201,7 @@ def test_bitrate_too_high_to_plan_is_rejected_not_silently_truncated() -> None:
     """
     track = _track(3600.0, bytes_per_second=50_000)
     with pytest.raises(ChunkTooLarge):
-        plan_chunks(JOB_ID, track, _caps(max_chunk_bytes=1_000))
+        _plan(track, _caps(max_chunk_bytes=1_000))
 
 
 # --- Tail merge: short trailing chunks are where Whisper hallucinates most ----
@@ -192,7 +209,7 @@ def test_bitrate_too_high_to_plan_is_rejected_not_silently_truncated() -> None:
 
 def test_short_tail_merges_into_its_predecessor() -> None:
     """1210s at stride 600 would leave a 10s tail; it is absorbed instead."""
-    plan = plan_chunks(JOB_ID, _track(1210.0), _caps())
+    plan = _plan(_track(1210.0), _caps())
     assert [(c.index, c.start_s, c.end_s) for c in plan.chunks] == [
         (0, 0.0, 605.0),
         (1, 600.0, 1210.0),
@@ -201,37 +218,37 @@ def test_short_tail_merges_into_its_predecessor() -> None:
 
 def test_tail_exactly_at_the_threshold_is_kept() -> None:
     """The bound is strict: 30s is long enough to decode on its own."""
-    plan = plan_chunks(JOB_ID, _track(1230.0), _caps())
+    plan = _plan(_track(1230.0), _caps())
     assert len(plan.chunks) == 3
     assert plan.chunks[-1].start_s == 1200.0
     assert plan.chunks[-1].end_s == 1230.0
 
 
 def test_tail_one_second_under_the_threshold_merges() -> None:
-    plan = plan_chunks(JOB_ID, _track(1229.0), _caps())
+    plan = _plan(_track(1229.0), _caps())
     assert len(plan.chunks) == 2
     assert plan.chunks[-1].end_s == 1229.0
 
 
 def test_merge_still_covers_the_whole_track() -> None:
-    plan = plan_chunks(JOB_ID, _track(1210.0), _caps())
+    plan = _plan(_track(1210.0), _caps())
     assert plan.chunks[0].start_s == 0.0
     assert plan.chunks[-1].end_s == 1210.0
 
 
 def test_merge_leaves_indices_contiguous() -> None:
-    plan = plan_chunks(JOB_ID, _track(1210.0), _caps())
+    plan = _plan(_track(1210.0), _caps())
     assert [c.index for c in plan.chunks] == list(range(len(plan.chunks)))
 
 
 def test_single_short_chunk_is_never_merged_away() -> None:
     """A 10s track has no predecessor to merge into — it must survive."""
-    plan = plan_chunks(JOB_ID, _track(10.0), _caps())
+    plan = _plan(_track(10.0), _caps())
     assert [(c.start_s, c.end_s) for c in plan.chunks] == [(0.0, 10.0)]
 
 
 def test_merge_does_not_fire_on_a_long_tail() -> None:
-    plan = plan_chunks(JOB_ID, _track(1500.0), _caps())
+    plan = _plan(_track(1500.0), _caps())
     assert len(plan.chunks) == 3
 
 
@@ -242,7 +259,7 @@ def test_merged_chunk_still_respects_the_byte_cap() -> None:
     # 420s stride, so an 840s+tail track leaves a tail under min_chunk_s (30s)
     # for the predecessor to absorb.
     track = _track(865.0, bytes_per_second=bytes_per_second)
-    plan = plan_chunks(JOB_ID, track, _caps(max_chunk_bytes=cap))
+    plan = _plan(track, _caps(max_chunk_bytes=cap))
     assert len(plan.chunks) == 2
     for chunk in plan.chunks:
         assert (chunk.end_s - chunk.start_s) * bytes_per_second <= cap

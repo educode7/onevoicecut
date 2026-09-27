@@ -24,6 +24,12 @@ from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.shared.domain.ids import JobId
 from onevoicecut.shared.domain.media import SourceMedia
 from onevoicecut.systems.pipeline.jobs.domain.jobs import JobRecord
+from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.plan_chunks import (
+    PlanChunksCommand as PlanChunksCommand,
+)
+from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.plan_chunks import (
+    PlanChunksHandler as PlanChunksHandler,
+)
 from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.transcribe_job import (
     DEFAULT_CHUNK_TIMEOUT_S as DEFAULT_CHUNK_TIMEOUT_S,
 )
@@ -34,8 +40,8 @@ from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.tra
     DEFAULT_MAX_SPLIT_DEPTH,
     DEFAULT_TARGET_CHUNK_S,
     Clock as Clock,
-    TranscribeJobCommand,
-    TranscribeJobHandler,
+    TranscribeJobCommand as TranscribeJobCommand,
+    TranscribeJobHandler as TranscribeJobHandler,
 )
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import (
     AudioExtractorPort,
@@ -67,6 +73,7 @@ def transcribe_job(
         extractor=extractor,
         transcriber=transcriber,
         storage=storage,
+        plan_handler=PlanChunksHandler(),
         now=now,
         target_chunk_s=target_chunk_s,
         chunk_timeout_s=chunk_timeout_s,

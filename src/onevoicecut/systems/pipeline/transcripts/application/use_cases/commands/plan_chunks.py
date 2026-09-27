@@ -7,6 +7,7 @@ differently and none of it would be testable.
 """
 
 import math
+from dataclasses import dataclass
 
 from onevoicecut.systems.pipeline.transcripts.domain.chunking import ChunkPlan, PlannedChunk
 from onevoicecut.shared.domain.errors import ChunkTooLarge
@@ -75,52 +76,78 @@ def _stride_for(
     return min(limits)
 
 
-def plan_chunks(
-    job_id: JobId,
-    track: AudioTrack,
-    capabilities: TranscriptionCapabilities,
-    *,
-    target_chunk_s: float = DEFAULT_TARGET_CHUNK_S,
-    overlap_s: float = DEFAULT_OVERLAP_S,
-    min_chunk_s: float = DEFAULT_MIN_CHUNK_S,
-) -> ChunkPlan:
-    if track.duration_s <= 0:
-        raise ValueError(
-            f"cannot plan chunks for a track of duration {track.duration_s}s"
-        )
+@dataclass(frozen=True, slots=True)
+class PlanChunksCommand:
+    """One track to plan: which job it belongs to, its audio, the engine's limits.
 
-    # The longest chunk any plan can contain is one stride plus whichever of
-    # these two is larger — never both, because a chunk that absorbed a tail
-    # clamps to the end of the track and carries no overlap past it.
-    stride_s = _stride_for(
-        track, capabilities, target_chunk_s, max(overlap_s, min_chunk_s)
-    )
-    count = math.ceil(track.duration_s / stride_s)
-    chunks = [
-        PlannedChunk(
-            index=i,
-            start_s=i * stride_s,
-            # The tail carries the overlap; the final chunk clamps to the track.
-            end_s=min(track.duration_s, i * stride_s + stride_s + overlap_s),
-        )
-        for i in range(count)
-    ]
+    The limits travel on the command because the plan is derived from them, and
+    the planner itself holds no dependency and no state — which is what keeps
+    this the one piece of long-audio correctness provable above the port,
+    before either real engine exists.
+    """
 
-    # Absorb a too-short tail. Only possible with a predecessor to absorb it, so a
-    # track shorter than min_chunk_s stays a single chunk rather than vanishing.
-    # The predecessor grows by less than min_chunk_s, which the stride above has
-    # already reserved room for — it used to be charged to the byte cap's 0.9
-    # headroom instead, which covered it only below about 71 KB/s and said so
-    # nowhere.
-    if len(chunks) > 1 and track.duration_s - chunks[-1].start_s < min_chunk_s:
-        absorbed = chunks.pop()
-        predecessor = chunks[-1]
-        chunks[-1] = PlannedChunk(
-            index=predecessor.index,
-            start_s=predecessor.start_s,
-            end_s=absorbed.end_s,
-        )
+    job_id: JobId
+    track: AudioTrack
+    capabilities: TranscriptionCapabilities
+    target_chunk_s: float = DEFAULT_TARGET_CHUNK_S
+    overlap_s: float = DEFAULT_OVERLAP_S
+    min_chunk_s: float = DEFAULT_MIN_CHUNK_S
 
-    return ChunkPlan(
-        job_id=job_id, stride_s=stride_s, overlap_s=overlap_s, chunks=tuple(chunks)
-    )
+
+class PlanChunksHandler:
+    """Pure arithmetic over what the command carries.
+
+    No constructor dependencies by design: an engine's declared caps arrive on
+    the command rather than being resolved into the handler, so the same
+    instance plans any track and a test proves engine identity never leaks into
+    the boundaries.
+    """
+
+    def handle(self, command: PlanChunksCommand) -> ChunkPlan:
+        job_id = command.job_id
+        track = command.track
+        capabilities = command.capabilities
+        target_chunk_s = command.target_chunk_s
+        overlap_s = command.overlap_s
+        min_chunk_s = command.min_chunk_s
+
+        if track.duration_s <= 0:
+            raise ValueError(
+                f"cannot plan chunks for a track of duration {track.duration_s}s"
+            )
+
+        # The longest chunk any plan can contain is one stride plus whichever of
+        # these two is larger — never both, because a chunk that absorbed a tail
+        # clamps to the end of the track and carries no overlap past it.
+        stride_s = _stride_for(
+            track, capabilities, target_chunk_s, max(overlap_s, min_chunk_s)
+        )
+        count = math.ceil(track.duration_s / stride_s)
+        chunks = [
+            PlannedChunk(
+                index=i,
+                start_s=i * stride_s,
+                # The tail carries the overlap; the final chunk clamps to the track.
+                end_s=min(track.duration_s, i * stride_s + stride_s + overlap_s),
+            )
+            for i in range(count)
+        ]
+
+        # Absorb a too-short tail. Only possible with a predecessor to absorb it, so a
+        # track shorter than min_chunk_s stays a single chunk rather than vanishing.
+        # The predecessor grows by less than min_chunk_s, which the stride above has
+        # already reserved room for — it used to be charged to the byte cap's 0.9
+        # headroom instead, which covered it only below about 71 KB/s and said so
+        # nowhere.
+        if len(chunks) > 1 and track.duration_s - chunks[-1].start_s < min_chunk_s:
+            absorbed = chunks.pop()
+            predecessor = chunks[-1]
+            chunks[-1] = PlannedChunk(
+                index=predecessor.index,
+                start_s=predecessor.start_s,
+                end_s=absorbed.end_s,
+            )
+
+        return ChunkPlan(
+            job_id=job_id, stride_s=stride_s, overlap_s=overlap_s, chunks=tuple(chunks)
+        )
