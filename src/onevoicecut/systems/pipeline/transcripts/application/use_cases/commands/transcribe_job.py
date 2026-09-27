@@ -27,6 +27,7 @@ from onevoicecut.systems.pipeline.transcripts.domain.chunking import (
     ChunkResult,
     ChunkState,
     PlannedChunk,
+    pending_chunks,
 )
 from onevoicecut.shared.domain.errors import ChunkTimeout, ChunkTooLarge, TranscriptionFailed
 from onevoicecut.shared.domain.ids import JobId
@@ -48,7 +49,6 @@ from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.sti
     StitchTranscriptCommand,
     StitchTranscriptHandler,
 )
-from onevoicecut.usecases.resume_job import pending_chunks
 
 SOURCE_LANGUAGE = "es"
 

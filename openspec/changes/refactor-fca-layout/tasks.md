@@ -519,14 +519,39 @@ compliance; destination stays the jobs command set per the module map).
       `runtime/worker.py`'s frozen body never changed — import line only), the handler/command
       pairs `X as X`, and the loop's constants; no router, stated in the module docstring.
       Shape test green: **6 tests** (3 commands frozen, 3 handlers `handle()`).
-- [ ] 3c.3 GREEN: convert `resume_job` to `systems/pipeline/jobs/application/use_cases/commands/
+- [x] 3c.3 GREEN: convert `resume_job` to `systems/pipeline/jobs/application/use_cases/commands/
       resume_job.py`; move the `pending_chunks` derivation to a transcripts-side implementation
       of the jobs-owned interface, bound at composition roots (supervisor + `main.py`);
       `runtime/supervisor.py` import lines rewire to the transcripts module API — **import
       lines only, body frozen** (standing rule; the bulk runtime slice is 4f). `[unit 3c]`
-- [ ] 3c.4 Verify: resume/worker-lifecycle tests unchanged in intent and green; suite + mypy.
+      → RED first: **2 collection errors** (`ImportError: cannot import name 'pending_chunks'
+      from ...domain.chunking` on the moved test; `ModuleNotFoundError` on the jobs resume
+      command from the seam test). GREEN: `pending_chunks` appended to
+      `transcripts/domain/chunking.py` (function docstring verbatim; the module docstring
+      extended one clause to name the derivation — otherwise it would lie after the append);
+      `usecases/resume_job.py` deleted; transcribe handler's import flipped to its own domain;
+      supervisor line 55 rewired to `transcripts_module_api` — line 403's call **untouched**;
+      module API re-exports `pending_chunks as pending_chunks`; `jobs/domain/interfaces/
+      resume.py` declares `PendingChunks` (Protocol; transcripts domain types re-exported
+      `X as X` — `jobs/domain` may name them, and the seam test pins the signature) and
+      `jobs/.../commands/resume_job.py` holds the frozen `ResumeJobCommand` +
+      `ResumeJobHandler(*, pending_chunks)` delegation, importing **only `jobs.*`** so the
+      architecture suite's `JOBS_APPLICATION` rule guards it automatically.
+      **`main.py` binding disclosed**: no resume consumer exists (no HTTP resume operation),
+      so the supervisor's module-API import *is* the binding — no dead wiring invented.
+- [x] 3c.4 Verify: resume/worker-lifecycle tests unchanged in intent and green; suite + mypy.
       Commit `refactor(fca): convert transcripts commands, land resume_job via module API`.
       `[unit 3c]`
+      → `test_resume_job.py` moved to `tests/systems/pipeline/transcripts/domain/` — bodies
+      byte-identical, sole edit the import flip; 9 assertions unchanged. New
+      `test_resume_seam.py` (3 tests): module-API exposure, jobs-owned interface signature,
+      command delegation; one assertion corrected during GREEN (`tuple[...] is` → `==`:
+      subscription builds a fresh alias, not a test-intent change). Full default suite
+      **2182 passed, 44 deselected, 0 skipped** (baseline 2173 + 6 shape + 3 seam = 2182);
+      `mypy src tests` clean over **346** files (344 + seam + 2 jobs files − 1 deleted
+      legacy); `tests/test_architecture.py` green inside the focused runs. Commits: A1
+      `37f8385` (288 lines), A2 `19dd449` (265), A3 `03adb7d` (343), B = this commit
+      (273) — each `additions + deletions` ≤ 400, no `size:exception`.
 
 ---
 

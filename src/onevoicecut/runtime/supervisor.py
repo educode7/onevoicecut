@@ -52,7 +52,7 @@ from onevoicecut.systems.pipeline.jobs.domain.jobs import (
     JobState,
 )
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
-from onevoicecut.usecases.resume_job import pending_chunks
+from onevoicecut.systems.pipeline.transcripts.transcripts_module_api import pending_chunks
 
 # Two hours. Sized from the longest gap the loop can produce between heartbeats:
 # one chunk retried up to three times under the thirty-minute per-chunk timeout,

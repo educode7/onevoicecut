@@ -49,6 +49,9 @@ from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.tra
     TranscribeJobCommand as TranscribeJobCommand,
     TranscribeJobHandler as TranscribeJobHandler,
 )
+from onevoicecut.systems.pipeline.transcripts.domain.chunking import (
+    pending_chunks as pending_chunks,
+)
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import (
     AudioExtractorPort,
 )

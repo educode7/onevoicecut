@@ -1,4 +1,4 @@
-"""Chunk planning and per-chunk transcription result entities."""
+"""Chunk planning entities, per-chunk transcription results, and resume's derivation over them."""
 
 from dataclasses import dataclass
 from enum import StrEnum
@@ -50,3 +50,22 @@ class ChunkResult:
     attempts: int
     error: str | None
     finished_at: float | None
+
+
+def pending_chunks(
+    plan: ChunkPlan, results: tuple[ChunkResult, ...]
+) -> tuple[PlannedChunk, ...]:
+    """The planned chunks with no completed result, in plan order.
+
+    Order comes from the plan rather than from the results, because results are
+    written in whatever order chunks finished — a retry can commit chunk 7 after
+    chunk 11 — while the work must still proceed forward through the sermon.
+
+    A result whose index is not in the plan is ignored rather than trusted. It is
+    a leftover from an earlier plan, and letting it discharge current work would
+    mark a chunk done that this plan never ran.
+    """
+    completed = {
+        result.index for result in results if result.state is ChunkState.DONE
+    }
+    return tuple(chunk for chunk in plan.chunks if chunk.index not in completed)
