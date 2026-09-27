@@ -439,16 +439,44 @@ with legacy packages. Behavior-frozen relocation.
 Closes: OQ3 transcripts half; atomic `save_chunk_result` and legacy decode proven on the
 facade by the **moved, unchanged** storage tests (no invented duplicates).
 
-- [ ] 3b.1 RED-by-move: relocate chunk-plan/result/transcript/export storage tests to
+- [x] 3b.1 RED-by-move: relocate chunk-plan/result/transcript/export storage tests to
       `tests/systems/pipeline/transcripts/infrastructure/storage/` — fail on import until the
       facade exists; include the crash-simulated atomic-write integration test unchanged;
       structural assertion that the facade satisfies `TranscriptStore`. `[unit 3b]`
-- [ ] 3b.2 GREEN: create `systems/pipeline/transcripts/infrastructure/storage/transcript_store.py`
+      → moved `test_atomic_chunk_results.py` (9 tests, `git mv`, bodies verbatim except the
+      three tests whose subject *is* the job record, retargeted to `FilesystemJobStore`:
+      `update_job` is admission's method and the moved file may not reach back into
+      `adapters/storage`) and split `test_filesystem_job_artifacts.py` — 13
+      plan/transcript/export tests + the new structural test to
+      `test_transcript_store.py`; the 3 `artifacts.json` tests stayed adapter-side (clip
+      state, 4b). RED observed before the package existed: **2 collection errors, both
+      `ModuleNotFoundError: No module named 'onevoicecut.systems.pipeline.transcripts.
+      infrastructure'`**, 106 passed elsewhere in the same run. No behavior tests invented;
+      no assertion body changed beyond the fixture retargeting.
+- [x] 3b.2 GREEN: create `systems/pipeline/transcripts/infrastructure/storage/transcript_store.py`
       over `core` (imports own domain + core only); composition roots build it beside
       `JobStore`. Monolith still satisfies `TranscriptStore` structurally — `runtime/` edits
       deferred to 4f. `[unit 3b]`
-- [ ] 3b.3 Verify: suite + mypy (derived-progress and resume tests still green — behavior
+      → `FilesystemTranscriptStore(core)` with the 9 protocol methods + `job_dir` (the moved
+      tests locate the `.txt` through it, and `writable` needs no private access).
+      **Codecs moved in**: tasks.md is silent, but "imports own domain + core only" forces
+      `encode/decode_chunk_plan|chunk_result|transcript` + `_job_id`, `_word_timings`,
+      `_segment`, `_segments` out of `adapters/storage/serialization.py` — a codec taking
+      `ChunkResult` can live neither in the domain-agnostic `core` (AB-08: no `systems.*`
+      vocabulary into `shared`) nor in the adapter the facade replaces. They are re-exported
+      `X as X` for mypy `no_implicit_reexport`, the same seam 2b-ii used for the jobs half.
+      `runtime/` untouched: no src composition root constructs either facade today, so
+      "beside `JobStore`" holds vacuously exactly as in 2b-ii — wiring is 4f.
+- [x] 3b.3 Verify: suite + mypy (derived-progress and resume tests still green — behavior
       frozen). Commit `refactor(fca): add transcripts TranscriptStore facade`. `[unit 3b]`
+      → RED `106 passed, 2 errors`; focused `133 passed`; full default suite **2173 passed,
+      44 deselected, 0 skipped** (2172 baseline +1 = the structural conformance test);
+      `mypy src tests` clean over **337** files (+6 = the 4 empty `__init__.py`, the facade,
+      the recreated artifacts file); `tests/test_architecture.py` **26 passed**. Diff for
+      this unit: **545 insertions / 301 deletions = 846 lines** — over the 800 line budget
+      and the 400 line default; it cannot shrink further (see return summary: a split at
+      the seam would commit the RED-by-move tests green-alone, which is the one thing the
+      slice's RED *is*), so `size:exception` is recommended rather than a silent split.
 
 ---
 

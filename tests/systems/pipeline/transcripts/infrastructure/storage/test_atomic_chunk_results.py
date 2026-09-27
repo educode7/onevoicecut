@@ -14,15 +14,19 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.storage.filesystem_transcript_storage import (
-    FilesystemTranscriptStorage,
-)
+from onevoicecut.shared.infrastructure.storage.core import StorageCore
 from onevoicecut.systems.pipeline.transcripts.domain.chunking import ChunkResult, ChunkState
 from onevoicecut.shared.domain.errors import JobNotFound
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id
 from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState
+from onevoicecut.systems.pipeline.jobs.infrastructure.storage.job_store import (
+    FilesystemJobStore,
+)
 from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind, TranscriptSegment
+from onevoicecut.systems.pipeline.transcripts.infrastructure.storage.transcript_store import (
+    FilesystemTranscriptStore,
+)
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
 OTHER_JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFF")
@@ -45,10 +49,26 @@ def a_job(job_id: JobId) -> JobRecord:
 
 
 @pytest.fixture
-def storage(tmp_path: Path) -> FilesystemTranscriptStorage:
-    store = FilesystemTranscriptStorage(tmp_path)
+def core(tmp_path: Path) -> StorageCore:
+    return StorageCore(tmp_path)
+
+
+@pytest.fixture
+def jobs(core: StorageCore) -> FilesystemJobStore:
+    """Admission's half: the job record every transcript write is strict about.
+
+    Both facades stand on one core the way a composition root builds them, so
+    the setup here is the real dependency (`writable` refuses without a
+    `job.json`) rather than a stub of it.
+    """
+    store = FilesystemJobStore(core)
     store.create_job(a_job(JOB_ID))
     return store
+
+
+@pytest.fixture
+def storage(core: StorageCore, jobs: FilesystemJobStore) -> FilesystemTranscriptStore:
+    return FilesystemTranscriptStore(core)
 
 
 def a_result(
@@ -75,12 +95,12 @@ def a_result(
     )
 
 
-def results_dir(storage: FilesystemTranscriptStorage) -> Path:
+def results_dir(storage: FilesystemTranscriptStore) -> Path:
     return storage.job_dir(JOB_ID) / "results"
 
 
 def test_a_saved_chunk_result_loads_back_identical(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemTranscriptStore,
 ) -> None:
     storage.save_chunk_result(a_result(0))
 
@@ -88,24 +108,25 @@ def test_a_saved_chunk_result_loads_back_identical(
 
 
 def test_a_job_with_no_completed_chunks_has_no_results(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemTranscriptStore,
 ) -> None:
     assert storage.load_chunk_results(JOB_ID) == ()
 
 
 def test_a_chunk_result_is_retrievable_before_the_job_completes(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemTranscriptStore,
+    jobs: FilesystemJobStore,
 ) -> None:
     """Chunk 10 of 87 is readable the moment it lands. This is what makes
     chunk-level progress and resume real rather than in-memory."""
     storage.save_chunk_result(a_result(10))
 
-    assert storage.load_job(JOB_ID).state is JobState.TRANSCRIBING
+    assert jobs.load_job(JOB_ID).state is JobState.TRANSCRIBING
     assert [r.index for r in storage.load_chunk_results(JOB_ID)] == [10]
 
 
 def test_results_come_back_in_chunk_order_however_they_were_written(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemTranscriptStore,
 ) -> None:
     """Chunks may finish out of order after a retry; the transcript may not be
     assembled out of order."""
@@ -116,7 +137,7 @@ def test_results_come_back_in_chunk_order_however_they_were_written(
 
 
 def test_a_chunk_result_is_named_by_its_zero_padded_index(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemTranscriptStore,
 ) -> None:
     storage.save_chunk_result(a_result(7))
 
@@ -124,7 +145,7 @@ def test_a_chunk_result_is_named_by_its_zero_padded_index(
 
 
 def test_no_temporary_file_survives_a_completed_save(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemTranscriptStore,
 ) -> None:
     storage.save_chunk_result(a_result(0))
 
@@ -132,7 +153,7 @@ def test_no_temporary_file_survives_a_completed_save(
 
 
 def test_a_temporary_file_left_by_a_crash_is_ignored(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemTranscriptStore,
 ) -> None:
     """The exact residue of a process killed between the write and the rename."""
     storage.save_chunk_result(a_result(0))
@@ -144,7 +165,7 @@ def test_a_temporary_file_left_by_a_crash_is_ignored(
 
 
 def test_a_crash_before_the_rename_loses_only_the_chunk_in_flight(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemTranscriptStore,
 ) -> None:
     """Committed chunks stay committed. That is the whole value of the rename:
     a three-hour job resumes from chunk 3 instead of chunk 0."""
@@ -156,7 +177,7 @@ def test_a_crash_before_the_rename_loses_only_the_chunk_in_flight(
 
 
 def test_a_retry_overwrites_the_previous_result_for_that_chunk(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemTranscriptStore,
 ) -> None:
     """`os.replace`, not `os.rename`: on Windows a rename onto an existing
     destination fails, and an existing destination is precisely the retry case."""
@@ -170,7 +191,7 @@ def test_a_retry_overwrites_the_previous_result_for_that_chunk(
 
 
 def test_a_retry_over_a_stale_temporary_file_succeeds(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemTranscriptStore,
 ) -> None:
     results_dir(storage).mkdir(parents=True, exist_ok=True)
     (results_dir(storage) / "0004.json.tmp").write_text("torn", encoding="utf-8")
@@ -182,9 +203,10 @@ def test_a_retry_over_a_stale_temporary_file_succeeds(
 
 
 def test_one_jobs_results_are_not_visible_from_another(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemTranscriptStore,
+    jobs: FilesystemJobStore,
 ) -> None:
-    storage.create_job(a_job(OTHER_JOB_ID))
+    jobs.create_job(a_job(OTHER_JOB_ID))
 
     storage.save_chunk_result(a_result(0, JOB_ID))
 
@@ -193,18 +215,18 @@ def test_one_jobs_results_are_not_visible_from_another(
 
 
 def test_saving_a_result_for_an_uncreated_job_is_refused(
-    storage: FilesystemTranscriptStorage,
+    storage: FilesystemTranscriptStore,
 ) -> None:
     with pytest.raises(JobNotFound):
         storage.save_chunk_result(a_result(0, OTHER_JOB_ID))
 
 
 def test_the_job_record_is_committed_the_same_way(
-    storage: FilesystemTranscriptStorage,
+    jobs: FilesystemJobStore,
 ) -> None:
     """A torn `job.json` is no more survivable than a torn chunk result, and the
     worker rewrites it at every state transition."""
-    storage.update_job(a_job(JOB_ID))
+    jobs.update_job(a_job(JOB_ID))
 
-    assert list(storage.job_dir(JOB_ID).glob("*.tmp")) == []
-    assert storage.load_job(JOB_ID) == a_job(JOB_ID)
+    assert list(jobs.job_dir(JOB_ID).glob("*.tmp")) == []
+    assert jobs.load_job(JOB_ID) == a_job(JOB_ID)

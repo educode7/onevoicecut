@@ -25,7 +25,6 @@ as that platform's flavour rather than as text.
 from dataclasses import asdict
 from pathlib import Path
 
-from onevoicecut.systems.pipeline.transcripts.domain.chunking import ChunkPlan, ChunkResult, ChunkState, PlannedChunk
 from onevoicecut.shared.domain.errors import CorruptedRecord
 from onevoicecut.domain.framing import TrackingConfidence
 from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
@@ -40,18 +39,15 @@ from onevoicecut.shared.infrastructure.storage.core import (
     Record,
     _dumps,
     _field,
-    _flag,
     _id_field,
     _loads,
     _member,
     _number,
     _objects,
-    _optional_number,
     _optional_text,
     _text,
-    _whole,
 )
-# The six codecs that touch `job.json`, `media.json` and `control.json` now live
+# The six codecs that touch `job.json`, `media.json` and `control.json` live
 # beside the jobs facade (OQ3), re-exported here (`X as X` for mypy's
 # `no_implicit_reexport`) so every historical importer keeps resolving until
 # slice 4f retires this module's monolith. This file never re-implements them.
@@ -62,6 +58,17 @@ from onevoicecut.systems.pipeline.jobs.infrastructure.storage.job_store import (
     encode_control as encode_control,
     encode_job as encode_job,
     encode_media as encode_media,
+)
+# The transcripts half moved the same way with slice 3b: plan, chunk result and
+# transcript codecs live beside `FilesystemTranscriptStore`, because a codec
+# taking `ChunkResult` belongs to the module whose domain type it names.
+from onevoicecut.systems.pipeline.transcripts.infrastructure.storage.transcript_store import (
+    decode_chunk_plan as decode_chunk_plan,
+    decode_chunk_result as decode_chunk_result,
+    decode_transcript as decode_transcript,
+    encode_chunk_plan as encode_chunk_plan,
+    encode_chunk_result as encode_chunk_result,
+    encode_transcript as encode_transcript,
 )
 from onevoicecut.domain.rendering import (
     CaptionCoverage,
@@ -74,121 +81,10 @@ from onevoicecut.domain.rendering import (
     RenderedClip,
     SubtitleTimingSource,
 )
-from onevoicecut.systems.pipeline.transcripts.domain.transcript import (
-    SegmentKind,
-    Transcript,
-    TranscriptSegment,
-    WordTiming,
-)
 
 def _job_id(record: Record) -> JobId:
     """Validated here because the value is about to become a path component."""
     return _id_field(record, "job_id", make_job_id)
-
-
-def _word_timings(record: Record) -> tuple[WordTiming, ...]:
-    """Word-level timings, treating an absent key as an older writer.
-
-    The mirror image of how `kind` is read next door, and the asymmetry is the
-    point. A stored segment always carries a kind, so an absent one is a broken
-    file. **An absent `words` key is information**: every transcript written
-    before slice 11 has none, and those files are on disk right now — a job that
-    completed last week is old, not corrupt.
-
-    Present-but-wrong is a different answer entirely. A key that is not a list of
-    well-formed entries was written by something that meant to record timings and
-    failed, and reading past it would put partial or fabricated timings into a
-    transcript that then renders captions from them.
-
-    `null` is refused rather than read as absent, because absent means "written
-    before this existed" and `null` means something wrote the key with nothing in
-    it. Those are different facts and only one of them is expected.
-    """
-    if "words" not in record:
-        return ()
-
-    return tuple(
-        WordTiming(
-            start_s=_number(word, "start_s"),
-            end_s=_number(word, "end_s"),
-            text=_text(word, "text"),
-        )
-        for word in _objects(record, "words")
-    )
-
-
-def _segment(record: Record) -> TranscriptSegment:
-    # `kind` is read explicitly rather than left to the entity default. The entity
-    # defaults to `UNCERTAIN` so a non-classifying adapter cannot assert speech;
-    # a *stored* segment always carries a kind, so an absent one is a broken file,
-    # not an unclassified one, and must not be quietly rewritten as uncertain.
-    return TranscriptSegment(
-        start_s=_number(record, "start_s"),
-        end_s=_number(record, "end_s"),
-        text=_text(record, "text"),
-        speaker=_optional_text(record, "speaker"),
-        confidence=_optional_number(record, "confidence"),
-        kind=_member(record, "kind", SegmentKind),
-        words=_word_timings(record),
-    )
-
-
-def _segments(record: Record) -> tuple[TranscriptSegment, ...]:
-    return tuple(_segment(item) for item in _objects(record, "segments"))
-
-
-def encode_chunk_plan(plan: ChunkPlan) -> str:
-    return _dumps(asdict(plan))
-
-
-def decode_chunk_plan(payload: str) -> ChunkPlan:
-    record = _loads(payload)
-    return ChunkPlan(
-        job_id=_job_id(record),
-        stride_s=_number(record, "stride_s"),
-        overlap_s=_number(record, "overlap_s"),
-        chunks=tuple(
-            PlannedChunk(
-                index=_whole(item, "index"),
-                start_s=_number(item, "start_s"),
-                end_s=_number(item, "end_s"),
-            )
-            for item in _objects(record, "chunks")
-        ),
-    )
-
-
-def encode_chunk_result(result: ChunkResult) -> str:
-    return _dumps(asdict(result))
-
-
-def decode_chunk_result(payload: str) -> ChunkResult:
-    record = _loads(payload)
-    return ChunkResult(
-        job_id=_job_id(record),
-        index=_whole(record, "index"),
-        state=_member(record, "state", ChunkState),
-        segments=_segments(record),
-        engine_id=_text(record, "engine_id"),
-        attempts=_whole(record, "attempts"),
-        error=_optional_text(record, "error"),
-        finished_at=_optional_number(record, "finished_at"),
-    )
-
-
-def encode_transcript(transcript: Transcript) -> str:
-    return _dumps(asdict(transcript))
-
-
-def decode_transcript(payload: str) -> Transcript:
-    record = _loads(payload)
-    return Transcript(
-        job_id=_job_id(record),
-        segments=_segments(record),
-        engine_id=_text(record, "engine_id"),
-        diarized=_flag(record, "diarized"),
-        language=_text(record, "language"),
-    )
 
 
 def encode_artifacts(artifacts: GenerationResult) -> str:
