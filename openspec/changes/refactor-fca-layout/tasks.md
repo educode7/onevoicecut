@@ -648,10 +648,16 @@ Closes: architecture-boundary rule registration **for clips from this slice** (A
 AB-04, AB-05, AB-06, AB-07, AB-09, AB-10, AB-11, AB-12 — plant proofs), dual coverage.
 Behavior-frozen relocation.
 
-- [ ] 4a.1 RED: register the `clips` rule group and plant violations per rule under
+- [x] 4a.1 RED: register the `clips` rule group and plant violations per rule under
       `systems/.../clips/` trees (including AB-07: clips domain importing jobs domain, and
       AB-06: clips application importing jobs infrastructure); each fails naming its file;
       legacy plants still fail while legacy packages exist (AB-11). `[unit 4a]`
+      (RED observed: `10 failed, 27 passed in 0.68s` — the registration test, 8 plant
+      parametrizations and the AB-11 dual test failed; the ninth plant,
+      `ab-07-clips-domain-imports-jobs-domain`, passed because 2a's `jobs-domain-isolation`
+      already walks this subtree — disclosed dual coverage, not a second proof. GREEN
+      observed: `37 passed in 0.45s`. Full default suite `2193 passed, 44 deselected,
+      0 skipped`; mypy clean over 350 source files.)
 - [ ] 4a.2 GREEN: relocate `domain/{generation,rendering,framing}.py` to
       `systems/pipeline/clips/domain/`; relocate `ports/{text_generation,subject_tracker,
       video_render}.py` to `systems/pipeline/clips/domain/interfaces/`; declare `ClipStore`
