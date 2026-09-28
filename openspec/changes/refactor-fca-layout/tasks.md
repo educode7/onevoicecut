@@ -631,13 +631,14 @@ factory-on-call) preserved exactly — the 7a-ii collection-defect lesson is not
       module-level import of an optional extra introduced — the moved modules' import
       blocks differ only by the rewired sibling paths, and every `importorskip` /
       factory-on-call site is untouched (proven by the `localmodel`/`paid` collect counts
-      in 3d.1).       `.gitignore` trap checked: `git check-ignore` reports **none** of the four new files
-      ignored. Measured on the staged tree, `git diff --cached --numstat` excluding the
-      pre-existing `.atl/` dirt: **146 additions + 66 deletions over 54 paths = 212**
-      (src 47 / tests 98 / this file 67), plus the 18-line conftest copy and three
-      zero-byte `__init__.py` = **230** — one commit, ≤400, no split needed, no
-      `size:exception`. (Measured before these notes were written the same diff read
-      67 + 62 = 129 over 49 paths; the difference is this file.)
+      in 3d.1). `.gitignore` trap checked: `git check-ignore` reports **none** of the four
+      new files ignored. **Measured: commit `d501ce0` reports 54 files changed, 148
+      insertions(+), 66 deletions(-) = 214** — one unit, ≤400, no split needed, no
+      `size:exception`. Excluding this file the code delta is 67 + 62 = 129 over 49 paths,
+      plus the 18-line conftest copy and three zero-byte `__init__.py` (= **147**); this
+      file adds 67/4. (An earlier wording of this note read "230", double-counting the
+      conftest already staged inside the 148 — the commit message carries the same
+      over-count, deliberately not amended; recorded here instead.)
 
 ---
 
