@@ -30,9 +30,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from onevoicecut.domain.framing import CropTrajectory, TimeSpan
+from onevoicecut.systems.pipeline.clips.domain.framing import CropTrajectory, TimeSpan
 from onevoicecut.shared.domain.media import SourceMedia
-from onevoicecut.domain.rendering import OutputSpec, SubtitleCue
+from onevoicecut.systems.pipeline.clips.domain.rendering import OutputSpec, SubtitleCue
 from onevoicecut.shared.domain.capabilities import RenderCapabilities
 
 

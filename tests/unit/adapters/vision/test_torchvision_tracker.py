@@ -35,11 +35,11 @@ from onevoicecut.adapters.vision.torchvision_tracker_adapter import (
     scaled_size,
 )
 from onevoicecut.shared.domain.errors import DetectionFailed, TrackingUnavailable
-from onevoicecut.domain.framing import TimeSpan
+from onevoicecut.systems.pipeline.clips.domain.framing import TimeSpan
 from onevoicecut.shared.domain.ids import make_media_id
 from onevoicecut.shared.domain.media import SourceMedia
 from onevoicecut.shared.domain.capabilities import DetectionSupport
-from onevoicecut.ports.subject_tracker import BoundingBox
+from onevoicecut.systems.pipeline.clips.domain.interfaces.subject_tracker import BoundingBox
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 VISION_DIR = REPO_ROOT / "src" / "onevoicecut" / "adapters" / "vision"

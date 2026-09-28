@@ -20,9 +20,9 @@ from pathlib import Path
 
 from onevoicecut.systems.pipeline.transcripts.domain.chunking import PlannedChunk
 from onevoicecut.shared.domain.errors import ClipRangeInvalid, ExtractionFailed
-from onevoicecut.domain.framing import TimeSpan
+from onevoicecut.systems.pipeline.clips.domain.framing import TimeSpan
 from onevoicecut.shared.domain.ids import make_clip_id
-from onevoicecut.domain.rendering import OutputSpec
+from onevoicecut.systems.pipeline.clips.domain.rendering import OutputSpec
 
 FFMPEG_BINARY = "ffmpeg"
 FFPROBE_BINARY = "ffprobe"

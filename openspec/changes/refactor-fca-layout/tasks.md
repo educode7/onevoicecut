@@ -658,15 +658,47 @@ Behavior-frozen relocation.
       already walks this subtree — disclosed dual coverage, not a second proof. GREEN
       observed: `37 passed in 0.45s`. Full default suite `2193 passed, 44 deselected,
       0 skipped`; mypy clean over 350 source files.)
-- [ ] 4a.2 GREEN: relocate `domain/{generation,rendering,framing}.py` to
+- [x] 4a.2 GREEN: relocate `domain/{generation,rendering,framing}.py` to
       `systems/pipeline/clips/domain/`; relocate `ports/{text_generation,subject_tracker,
       video_render}.py` to `systems/pipeline/clips/domain/interfaces/`; declare `ClipStore`
       per the OQ3 method table; `PublishPort` is **not** created (does not exist in the tree —
       design footnote); update importers; move tests to `tests/systems/pipeline/clips/`.
       **No new behavior test** — behavior-frozen relocation. `[unit 4a]`
-- [ ] 4a.3 Verify: suite + mypy; `check_target_profiles` cross-module pin (from 1b) still
+      (`git mv` renames: 6 source + 7 test files; 63 files import-rewired by a single-pass
+      alternation, 0 residual old paths; `ClipStore` added at
+      `clips/domain/interfaces/clip_store.py` with the OQ3 seven methods and their
+      contract docstrings preserved from `ports/transcript_storage.py` before that port is
+      deleted. **Disclosures.** (1) Retargeted assertion —
+      `tests/unit/usecases/test_generation_scope_boundary.py` filtered
+      `name.startswith("onevoicecut.ports")`, which would have matched nothing after the
+      move and asserted against an empty set (passing for the wrong reason); the filter now
+      also accepts `.domain.interfaces.` and the expected set names the new FQN. (2) Moved
+      rather than kept — `tests/unit/usecases/test_text_generation_fake.py` went with the
+      interface it exercises, to `.../clips/domain/interfaces/`. (3) `tests/unit/domain/`
+      removed: all three members moved and only `__init__.py` was left. (4) Two prose
+      docstring re-points, `usecases/generate_artifacts.py` (`domain/generation.py`) and
+      `usecases/plan_trajectory.py` (`domain/framing.py`), now name the full new path.
+      (5) `FrameSize` verified, no action: `domain/framing.py:40` already imported it from
+      `onevoicecut.shared.domain.media`, `src/onevoicecut/domain/media.py` was moved to
+      `shared/domain/media.py:31` by `9a98cf4` in 3a, so nothing referenced a path this
+      slice removes. (6) `CLIPS_APPLICATION` deliberately does not forbid `transcripts.domain`
+      — the frozen generation/subtitle bodies read the transcript, so forbidding it would
+      fail 4c; disclosed in the rule's own comment.)
+- [x] 4a.3 Verify: suite + mypy; `check_target_profiles` cross-module pin (from 1b) still
       green against relocated `RENDER_PROFILES`. Commit
       `refactor(fca): migrate clips domain and interfaces into systems/pipeline`. `[unit 4a]`
+      (Default suite **2193 passed, 44 deselected, 0 skipped, 0 collection errors** —
+      byte-identical count to the pre-relocation baseline, which is what behavior-frozen
+      means here. mypy **clean over 356 source files** (350 + 7 new − 1 deleted).
+      `tests/unit/runtime/test_settings.py` — the 1b `check_target_profiles` pin — green,
+      in a 62-test run with the arch suite (`37 passed`) and the scope-boundary test.
+      Arch rules verified against the **real** tree, not only plants: `clips-domain` guards
+      9 real files with 0 violations; `clips-application`/`clips-presentation` guard 0
+      because 4c/4e have not built those trees, as their comments state.
+      **Measured diff: 241 insertions + 130 deletions = 371 lines, 73 files — under the
+      400 budget**, against the 3a precedent `24d92e5` at 368. Note for review: a tool
+      that counts renamed files at full content will report ~2,495 instead, because 13
+      files moved; that is a rename artifact, not authored lines.)
 
 ---
 

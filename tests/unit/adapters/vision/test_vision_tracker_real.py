@@ -43,7 +43,7 @@ from onevoicecut.adapters.vision.torchvision_tracker_adapter import (  # noqa: E
     TorchvisionSubjectTracker,
 )
 from onevoicecut.shared.domain.errors import DetectionFailed  # noqa: E402
-from onevoicecut.domain.framing import TimeSpan  # noqa: E402
+from onevoicecut.systems.pipeline.clips.domain.framing import TimeSpan  # noqa: E402
 from onevoicecut.shared.domain.ids import make_media_id  # noqa: E402
 from onevoicecut.shared.domain.media import SourceMedia  # noqa: E402
 from onevoicecut.shared.domain.capabilities import DetectionSupport  # noqa: E402

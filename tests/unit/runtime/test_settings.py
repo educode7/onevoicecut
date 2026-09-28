@@ -29,7 +29,7 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.shared.domain.errors import RenderProfileInvalid
-from onevoicecut.domain.rendering import OutputSpec, RenderProfile, SafeArea
+from onevoicecut.systems.pipeline.clips.domain.rendering import OutputSpec, RenderProfile, SafeArea
 from onevoicecut.shared.infrastructure.settings import Settings
 # The registries `build_dependencies` reads live in `main.py` since the
 # composition root landed (slice 1d), so the boot-path tests patch them there.

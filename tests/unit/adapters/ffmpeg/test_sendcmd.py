@@ -36,7 +36,7 @@ from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.sendcmd impo
     DEFAULT_COMMAND_HZ,
     build_sendcmd_script,
 )
-from onevoicecut.domain.framing import (
+from onevoicecut.systems.pipeline.clips.domain.framing import (
     CropKeyframe,
     CropRect,
     CropTrajectory,

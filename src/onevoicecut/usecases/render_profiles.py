@@ -27,8 +27,8 @@ step, not a coding task.
 from collections.abc import Mapping
 
 from onevoicecut.shared.domain.errors import RenderProfileInvalid
-from onevoicecut.domain.generation import ScriptVariant
-from onevoicecut.domain.rendering import OutputSpec, RenderProfile, SafeArea
+from onevoicecut.systems.pipeline.clips.domain.generation import ScriptVariant
+from onevoicecut.systems.pipeline.clips.domain.rendering import OutputSpec, RenderProfile, SafeArea
 from onevoicecut.usecases.generate_artifacts import ScriptTarget
 
 # Every destination this change delivers to is vertical 9:16, so they share one

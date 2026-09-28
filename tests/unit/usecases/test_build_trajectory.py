@@ -31,7 +31,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.framing import (
+from onevoicecut.systems.pipeline.clips.domain.framing import (
     KeyframeOrigin,
     TimeSpan,
     TrackingConfidence,
@@ -39,7 +39,7 @@ from onevoicecut.domain.framing import (
     crop_size_for,
 )
 from onevoicecut.shared.domain.media import FrameSize
-from onevoicecut.ports.subject_tracker import BoundingBox, SubjectDetection
+from onevoicecut.systems.pipeline.clips.domain.interfaces.subject_tracker import BoundingBox, SubjectDetection
 from onevoicecut.usecases import plan_trajectory
 from onevoicecut.usecases.plan_trajectory import build_trajectory
 

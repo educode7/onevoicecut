@@ -21,10 +21,10 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.framing import TrackingConfidence
-from onevoicecut.domain.generation import ScriptVariant
+from onevoicecut.systems.pipeline.clips.domain.framing import TrackingConfidence
+from onevoicecut.systems.pipeline.clips.domain.generation import ScriptVariant
 from onevoicecut.shared.domain.ids import ClipId, JobId, make_clip_id, make_job_id
-from onevoicecut.domain.rendering import (
+from onevoicecut.systems.pipeline.clips.domain.rendering import (
     CaptionCoverage,
     ClipExport,
     ClipState,

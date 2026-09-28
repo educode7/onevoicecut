@@ -18,8 +18,8 @@ unmeasured profile is refused rather than given somebody else's margin.
 import pytest
 
 from onevoicecut.shared.domain.errors import DomainError, RenderProfileInvalid
-from onevoicecut.domain.generation import ScriptVariant
-from onevoicecut.domain.rendering import OutputSpec, RenderProfile, SafeArea
+from onevoicecut.systems.pipeline.clips.domain.generation import ScriptVariant
+from onevoicecut.systems.pipeline.clips.domain.rendering import OutputSpec, RenderProfile, SafeArea
 from onevoicecut.usecases.generate_artifacts import ScriptTarget
 from onevoicecut.usecases.render_profiles import (
     RENDER_PROFILES,

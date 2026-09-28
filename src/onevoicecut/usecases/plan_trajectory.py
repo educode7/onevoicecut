@@ -1,7 +1,7 @@
 """Turning a detection series into a stable crop path. Stages 2 to 4.
 
 Stage 1 — the one crop size for the whole clip — is `crop_size_for` in
-`domain/framing.py`. Stages 5 and 6 — clamping, and filling the runs nobody was
+`systems/pipeline/clips/domain/framing.py`. Stages 5 and 6 — clamping, and filling the runs nobody was
 detected in — are slice 12b-ii. What lives here is the part that decides *where
 the window wants to be* at every moment a subject was actually found.
 
@@ -35,7 +35,7 @@ in-frame positioning on both axes.
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 
-from onevoicecut.domain.framing import (
+from onevoicecut.systems.pipeline.clips.domain.framing import (
     CropKeyframe,
     CropRect,
     CropTrajectory,
@@ -46,7 +46,7 @@ from onevoicecut.domain.framing import (
     crop_size_for,
 )
 from onevoicecut.shared.domain.media import FrameSize
-from onevoicecut.ports.subject_tracker import SubjectDetection
+from onevoicecut.systems.pipeline.clips.domain.interfaces.subject_tracker import SubjectDetection
 
 
 @dataclass(frozen=True, slots=True)

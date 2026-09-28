@@ -16,7 +16,7 @@ a use case ship with no recovery path at all.
 import pytest
 
 from onevoicecut.shared.domain.errors import ContextLengthExceeded, GenerationFailed
-from onevoicecut.ports.text_generation import TextGenerationPort
+from onevoicecut.systems.pipeline.clips.domain.interfaces.text_generation import TextGenerationPort
 from tests.fakes.text_generation import FakeTextGenerationPort
 
 

@@ -32,8 +32,8 @@ cue construction is **total** over the eligible set: only then are "zero cues" a
 something an operator can act on.
 """
 
-from onevoicecut.domain.framing import TimeSpan
-from onevoicecut.domain.rendering import (
+from onevoicecut.systems.pipeline.clips.domain.framing import TimeSpan
+from onevoicecut.systems.pipeline.clips.domain.rendering import (
     CaptionCoverage,
     SubtitleCue,
     SubtitleTimingSource,

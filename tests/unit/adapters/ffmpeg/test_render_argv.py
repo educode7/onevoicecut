@@ -32,9 +32,9 @@ from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.argv import 
     build_render_argv,
 )
 from onevoicecut.shared.domain.errors import ClipRangeInvalid
-from onevoicecut.domain.framing import TimeSpan
+from onevoicecut.systems.pipeline.clips.domain.framing import TimeSpan
 from onevoicecut.shared.domain.ids import InvalidIdError, make_clip_id
-from onevoicecut.domain.rendering import OutputSpec
+from onevoicecut.systems.pipeline.clips.domain.rendering import OutputSpec
 
 CLIP_ID = make_clip_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
 SPAN = TimeSpan(120.0, 150.0)

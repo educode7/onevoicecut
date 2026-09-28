@@ -26,10 +26,10 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.framing import CropRect, TimeSpan, TrackingConfidence
-from onevoicecut.domain.generation import ScriptVariant
+from onevoicecut.systems.pipeline.clips.domain.framing import CropRect, TimeSpan, TrackingConfidence
+from onevoicecut.systems.pipeline.clips.domain.generation import ScriptVariant
 from onevoicecut.shared.domain.ids import make_clip_id, make_job_id
-from onevoicecut.domain.rendering import (
+from onevoicecut.systems.pipeline.clips.domain.rendering import (
     CaptionCoverage,
     ClipExport,
     ClipState,
@@ -585,7 +585,7 @@ class TestTheAspectDerivation:
         """The whole point of deriving it: the pair feeds `TrajectoryPolicy`
         directly, and `crop_size_for` then yields a crop of that shape. This is
         what makes a second aspect a value rather than a code path."""
-        from onevoicecut.domain.framing import TrajectoryPolicy, crop_size_for
+        from onevoicecut.systems.pipeline.clips.domain.framing import TrajectoryPolicy, crop_size_for
         from onevoicecut.shared.domain.media import FrameSize
 
         four_by_five = dataclasses.replace(
@@ -607,7 +607,7 @@ def test_the_authoritative_crops_come_from_the_real_derivation() -> None:
     they are re-derived here rather than trusted: a fixture that drifted from
     `crop_size_for` would pin the arithmetic to a value the pipeline never
     produces."""
-    from onevoicecut.domain.framing import TrajectoryPolicy, crop_size_for
+    from onevoicecut.systems.pipeline.clips.domain.framing import TrajectoryPolicy, crop_size_for
     from onevoicecut.shared.domain.media import FrameSize
 
     policy = TrajectoryPolicy()

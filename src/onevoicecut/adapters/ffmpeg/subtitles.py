@@ -35,7 +35,7 @@ file parses, renders, and looks correct at the one resolution it was written for
 """
 
 from onevoicecut.shared.domain.errors import RenderProfileInvalid
-from onevoicecut.domain.rendering import RenderProfile, SubtitleCue
+from onevoicecut.systems.pipeline.clips.domain.rendering import RenderProfile, SubtitleCue
 
 # ASS's hard line break. The only one that reaches a rendered file, because
 # `escape_cue_text` has already removed every backslash the source could carry.

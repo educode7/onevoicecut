@@ -26,9 +26,9 @@ from onevoicecut.shared.domain.errors import (
     ClipTargetsInvalid,
     RenderProfileInvalid,
 )
-from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
+from onevoicecut.systems.pipeline.clips.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
 from onevoicecut.shared.domain.ids import ClipId, JobId, make_clip_id, make_job_id
-from onevoicecut.domain.rendering import ClipState, OutputSpec, RenderProfile, SafeArea
+from onevoicecut.systems.pipeline.clips.domain.rendering import ClipState, OutputSpec, RenderProfile, SafeArea
 from onevoicecut.usecases.generate_artifacts import ScriptTarget
 from onevoicecut.usecases.request_clip_export import request_clip_export
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort

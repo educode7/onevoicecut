@@ -25,7 +25,7 @@ never appears here, because attaching one to an interpolated command is exactly
 the confusion the split above exists to prevent.
 """
 
-from onevoicecut.domain.framing import CropKeyframe, CropTrajectory
+from onevoicecut.systems.pipeline.clips.domain.framing import CropKeyframe, CropTrajectory
 
 # "About frame rate", per design.md, which records it as a guess rather than a
 # measurement — `MediaProbe` does not report frame rate yet. Named here so a

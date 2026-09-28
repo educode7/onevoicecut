@@ -27,10 +27,10 @@ from onevoicecut.adapters.vision.declarations import weights_cached
 from onevoicecut.adapters.vision.torchvision_tracker_adapter import (
     TorchvisionSubjectTracker,
 )
-from onevoicecut.domain.framing import TimeSpan
+from onevoicecut.systems.pipeline.clips.domain.framing import TimeSpan
 from onevoicecut.shared.domain.ids import make_media_id
 from onevoicecut.shared.domain.media import SourceMedia
-from onevoicecut.ports.subject_tracker import SubjectTrackerPort
+from onevoicecut.systems.pipeline.clips.domain.interfaces.subject_tracker import SubjectTrackerPort
 from tests.contract.subject_tracking import SAMPLE_HZ, SubjectTrackerPortContract
 from tests.fakes.subject_tracker import (
     FakeSubjectTrackerPort,

@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.framing import (
+from onevoicecut.systems.pipeline.clips.domain.framing import (
     CropKeyframe,
     CropRect,
     CropTrajectory,
@@ -31,14 +31,14 @@ from onevoicecut.domain.framing import (
 )
 from onevoicecut.shared.domain.ids import make_media_id
 from onevoicecut.shared.domain.media import SourceMedia
-from onevoicecut.domain.rendering import OutputSpec, SubtitleCue
-from onevoicecut.ports import video_render
+from onevoicecut.systems.pipeline.clips.domain.rendering import OutputSpec, SubtitleCue
+from onevoicecut.systems.pipeline.clips.domain.interfaces import video_render
 from onevoicecut.shared.domain.capabilities import (
     DiarizationSupport,
     RenderCapabilities,
     RenderSupport,
 )
-from onevoicecut.ports.video_render import RenderedFile, RenderRequest
+from onevoicecut.systems.pipeline.clips.domain.interfaces.video_render import RenderedFile, RenderRequest
 
 # Anything that could carry content the source sermon did not produce.
 FORBIDDEN_FIELD_TYPES = {
@@ -192,7 +192,7 @@ class TestNothingExternalCanBeRendered:
 
     @pytest.mark.parametrize(
         "module_name",
-        ["onevoicecut.ports.video_render", "onevoicecut.domain.rendering"],
+        ["onevoicecut.systems.pipeline.clips.domain.interfaces.video_render", "onevoicecut.systems.pipeline.clips.domain.rendering"],
     )
     def test_no_field_type_can_carry_an_external_asset(
         self, module_name: str

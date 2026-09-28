@@ -19,14 +19,14 @@ from onevoicecut.shared.domain.errors import (
     JobNotFound,
     RenderProfileInvalid,
 )
-from onevoicecut.domain.framing import TrackingConfidence
-from onevoicecut.domain.generation import ScriptVariant
+from onevoicecut.systems.pipeline.clips.domain.framing import TrackingConfidence
+from onevoicecut.systems.pipeline.clips.domain.generation import ScriptVariant
 from onevoicecut.shared.domain.ids import ClipId, JobId, make_clip_id, make_job_id, make_media_id
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState
 from tests.contract.clip_export_storage import assert_keyed_by_clip_and_profile
-from onevoicecut.domain.rendering import (
+from onevoicecut.systems.pipeline.clips.domain.rendering import (
     CaptionCoverage,
     ClipExport,
     ClipState,

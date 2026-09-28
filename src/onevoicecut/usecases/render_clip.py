@@ -30,9 +30,9 @@ enforce it.
 from pathlib import Path
 
 from onevoicecut.shared.domain.errors import ClipRangeInvalid
-from onevoicecut.domain.framing import TimeSpan
+from onevoicecut.systems.pipeline.clips.domain.framing import TimeSpan
 from onevoicecut.shared.domain.media import MediaProbe
-from onevoicecut.ports.video_render import (
+from onevoicecut.systems.pipeline.clips.domain.interfaces.video_render import (
     RenderedFile,
     RenderRequest,
     VideoRenderPort,

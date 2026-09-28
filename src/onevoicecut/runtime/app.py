@@ -31,7 +31,7 @@ from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.extractor im
 from onevoicecut.adapters.ffmpeg.video_render import render_timeout_for
 from onevoicecut.shared.domain.ids import ClipId, JobId
 from onevoicecut.systems.pipeline.jobs.domain.jobs import WORKER_BOUND_STATES, JobRecord, JobState
-from onevoicecut.domain.rendering import ClipExport, ClipState
+from onevoicecut.systems.pipeline.clips.domain.rendering import ClipExport, ClipState
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 
 # Re-exported, not merely used: liveness moved to `supervisor.py` when the

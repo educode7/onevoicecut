@@ -36,7 +36,7 @@ from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
 from onevoicecut.adapters.web.app import WebDependencies
-from onevoicecut.domain.rendering import RenderProfile
+from onevoicecut.systems.pipeline.clips.domain.rendering import RenderProfile
 from onevoicecut.runtime.engine_resolver import declared_support
 from onevoicecut.runtime.supervisor import (
     LivenessProbe,

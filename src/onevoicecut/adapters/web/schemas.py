@@ -12,9 +12,9 @@ which moves when its routes do.
 
 from pydantic import BaseModel, ConfigDict
 
-from onevoicecut.domain.framing import TrackingConfidence
-from onevoicecut.domain.generation import ScriptVariant
-from onevoicecut.domain.rendering import (
+from onevoicecut.systems.pipeline.clips.domain.framing import TrackingConfidence
+from onevoicecut.systems.pipeline.clips.domain.generation import ScriptVariant
+from onevoicecut.systems.pipeline.clips.domain.rendering import (
     CaptionCoverage,
     ClipExport,
     ClipState,

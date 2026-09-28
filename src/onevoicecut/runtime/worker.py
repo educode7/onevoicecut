@@ -30,7 +30,7 @@ from onevoicecut.shared.domain.errors import DomainError
 from onevoicecut.shared.domain.ids import InvalidIdError, JobId, make_job_id
 from onevoicecut.systems.pipeline.jobs.domain.jobs import TERMINAL_STATES, JobRecord, JobState
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import AudioExtractorPort
-from onevoicecut.ports.text_generation import TextGenerationPort
+from onevoicecut.systems.pipeline.clips.domain.interfaces.text_generation import TextGenerationPort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionPort
 from onevoicecut.runtime.engine_resolver import EngineResolver, production_factories

@@ -30,7 +30,7 @@ from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState
 from onevoicecut.shared.domain.media import SourceMedia
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import AudioExtractorPort
-from onevoicecut.ports.text_generation import TextGenerationPort
+from onevoicecut.systems.pipeline.clips.domain.interfaces.text_generation import TextGenerationPort
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionPort
 from onevoicecut.runtime import worker
 from onevoicecut.runtime.engine_resolver import EngineResolver

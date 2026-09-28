@@ -43,7 +43,7 @@ from onevoicecut.shared.infrastructure.ffmpeg.process import BinaryInvoker, real
 from onevoicecut.adapters.ffmpeg.subtitles import render_ass
 from onevoicecut.adapters.ffmpeg.video_render import FfmpegVideoRenderer
 from onevoicecut.shared.domain.errors import RenderFailed
-from onevoicecut.domain.framing import (
+from onevoicecut.systems.pipeline.clips.domain.framing import (
     CropKeyframe,
     CropRect,
     CropTrajectory,
@@ -53,13 +53,13 @@ from onevoicecut.domain.framing import (
 )
 from onevoicecut.shared.domain.ids import make_clip_id, make_media_id
 from onevoicecut.shared.domain.media import SourceMedia
-from onevoicecut.domain.rendering import (
+from onevoicecut.systems.pipeline.clips.domain.rendering import (
     OutputSpec,
     RenderProfile,
     SafeArea,
     SubtitleCue,
 )
-from onevoicecut.ports.video_render import RenderRequest
+from onevoicecut.systems.pipeline.clips.domain.interfaces.video_render import RenderRequest
 
 pytestmark = pytest.mark.integration
 

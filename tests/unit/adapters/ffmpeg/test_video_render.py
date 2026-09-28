@@ -36,7 +36,7 @@ from onevoicecut.shared.domain.errors import (
     FfmpegUnavailable,
     RenderFailed,
 )
-from onevoicecut.domain.framing import (
+from onevoicecut.systems.pipeline.clips.domain.framing import (
     CropKeyframe,
     CropRect,
     CropTrajectory,
@@ -46,14 +46,14 @@ from onevoicecut.domain.framing import (
 )
 from onevoicecut.shared.domain.ids import InvalidIdError, make_media_id
 from onevoicecut.shared.domain.media import SourceMedia
-from onevoicecut.domain.rendering import (
+from onevoicecut.systems.pipeline.clips.domain.rendering import (
     OutputSpec,
     RenderProfile,
     SafeArea,
     SubtitleCue,
 )
 from onevoicecut.shared.domain.capabilities import RenderSupport
-from onevoicecut.ports.video_render import RenderRequest
+from onevoicecut.systems.pipeline.clips.domain.interfaces.video_render import RenderRequest
 
 CLIP_ID = "01HQ3M8XKJ7VNPQR2ZYWB4TCFD"
 MEDIA_ID = make_media_id("01BX5ZZKBKACTAV9WEVGEMMVRZ")

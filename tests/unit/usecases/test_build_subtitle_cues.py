@@ -24,8 +24,8 @@ only then are "zero cues" and "no eligible segment" the same condition, which is
 what lets `NONE` mean something an operator can act on.
 """
 
-from onevoicecut.domain.framing import TimeSpan
-from onevoicecut.domain.rendering import CaptionCoverage, SubtitleTimingSource
+from onevoicecut.systems.pipeline.clips.domain.framing import TimeSpan
+from onevoicecut.systems.pipeline.clips.domain.rendering import CaptionCoverage, SubtitleTimingSource
 from onevoicecut.systems.pipeline.transcripts.domain.transcript import (
     UNCERTAIN_MARKER,
     SegmentKind,

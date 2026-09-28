@@ -28,16 +28,16 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.framing import (
+from onevoicecut.systems.pipeline.clips.domain.framing import (
     CropTrajectory,
     TimeSpan,
     TrackingConfidence,
     TrajectoryPolicy,
 )
-from onevoicecut.domain.generation import ClipCandidate, ScriptVariant
+from onevoicecut.systems.pipeline.clips.domain.generation import ClipCandidate, ScriptVariant
 from onevoicecut.shared.domain.ids import make_clip_id, make_job_id, make_media_id
 from onevoicecut.shared.domain.media import FrameSize, MediaProbe, SourceMedia
-from onevoicecut.domain.rendering import (
+from onevoicecut.systems.pipeline.clips.domain.rendering import (
     CaptionCoverage,
     ClipExport,
     RenderedClip,
@@ -51,8 +51,8 @@ from onevoicecut.domain.rendering import (
 )
 from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind, Transcript, TranscriptSegment
 from onevoicecut.shared.domain.capabilities import RenderCapabilities, RenderSupport
-from onevoicecut.ports.subject_tracker import SubjectDetection
-from onevoicecut.ports.video_render import RenderedFile, RenderRequest
+from onevoicecut.systems.pipeline.clips.domain.interfaces.subject_tracker import SubjectDetection
+from onevoicecut.systems.pipeline.clips.domain.interfaces.video_render import RenderedFile, RenderRequest
 from onevoicecut.runtime.render_worker import render_pending_exports
 from tests.fakes.subject_tracker import (
     FakeSubjectTrackerPort,

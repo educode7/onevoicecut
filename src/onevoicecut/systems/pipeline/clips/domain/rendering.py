@@ -32,8 +32,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from onevoicecut.domain.framing import CropRect, TimeSpan, TrackingConfidence
-from onevoicecut.domain.generation import ScriptVariant
+from onevoicecut.systems.pipeline.clips.domain.framing import CropRect, TimeSpan, TrackingConfidence
+from onevoicecut.systems.pipeline.clips.domain.generation import ScriptVariant
 from onevoicecut.shared.domain.ids import ClipId, JobId
 
 

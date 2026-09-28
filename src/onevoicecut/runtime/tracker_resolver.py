@@ -21,7 +21,7 @@ probe answers per machine, at construction, with no environment of its own.
 
 from collections.abc import Callable
 
-from onevoicecut.ports.subject_tracker import SubjectTrackerPort
+from onevoicecut.systems.pipeline.clips.domain.interfaces.subject_tracker import SubjectTrackerPort
 
 TrackerFactory = Callable[[], SubjectTrackerPort]
 

@@ -16,7 +16,7 @@ import ast
 from pathlib import Path
 
 from onevoicecut.shared.domain.capabilities import TrackerCapabilities
-from onevoicecut.ports.subject_tracker import SubjectTrackerPort
+from onevoicecut.systems.pipeline.clips.domain.interfaces.subject_tracker import SubjectTrackerPort
 from onevoicecut.runtime.tracker_resolver import resolve_tracker, vision_tracker
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

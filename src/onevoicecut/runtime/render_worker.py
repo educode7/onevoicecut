@@ -52,13 +52,13 @@ from onevoicecut.shared.domain.errors import (
     FrameGeometryUnavailable,
     TrackingUnavailable,
 )
-from onevoicecut.domain.framing import (
+from onevoicecut.systems.pipeline.clips.domain.framing import (
     CropTrajectory,
     TimeSpan,
     TrajectoryPolicy,
     crop_size_for,
 )
-from onevoicecut.domain.generation import ScriptVariant
+from onevoicecut.systems.pipeline.clips.domain.generation import ScriptVariant
 from onevoicecut.shared.domain.ids import (
     ClipId,
     InvalidIdError,
@@ -67,7 +67,7 @@ from onevoicecut.shared.domain.ids import (
     make_job_id,
 )
 from onevoicecut.shared.domain.media import FrameSize, MediaProbe, SourceMedia
-from onevoicecut.domain.rendering import (
+from onevoicecut.systems.pipeline.clips.domain.rendering import (
     CaptionCoverage,
     ClipExport,
     ClipState,
@@ -81,9 +81,9 @@ from onevoicecut.domain.rendering import (
 )
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import AudioExtractorPort
 from onevoicecut.shared.domain.capabilities import DetectionSupport
-from onevoicecut.ports.subject_tracker import SubjectTrackerPort
+from onevoicecut.systems.pipeline.clips.domain.interfaces.subject_tracker import SubjectTrackerPort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
-from onevoicecut.ports.video_render import RenderRequest, VideoRenderPort
+from onevoicecut.systems.pipeline.clips.domain.interfaces.video_render import RenderRequest, VideoRenderPort
 from onevoicecut.runtime.tracker_resolver import resolve_tracker
 from onevoicecut.usecases.build_subtitle_cues import build_subtitle_cues
 from onevoicecut.usecases.plan_trajectory import build_trajectory

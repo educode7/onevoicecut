@@ -36,9 +36,9 @@ import math
 from dataclasses import dataclass, replace
 
 from onevoicecut.shared.domain.errors import ContextLengthExceeded, GenerationFailed
-from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
+from onevoicecut.systems.pipeline.clips.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
 from onevoicecut.systems.pipeline.transcripts.domain.transcript import Transcript, TranscriptSegment, is_speech
-from onevoicecut.ports.text_generation import TextGenerationPort
+from onevoicecut.systems.pipeline.clips.domain.interfaces.text_generation import TextGenerationPort
 
 # From design.md. A silent change to either is a change in what the model is
 # asked to reason about, and nothing downstream would report it.
@@ -87,7 +87,7 @@ class MapWindow:
 
     Not a domain entity — it is an artefact of prompt construction, with no life
     outside this module, so it stays here rather than joining the summary and
-    clip candidates in `domain/generation.py`.
+    clip candidates in `systems/pipeline/clips/domain/generation.py`.
     """
 
     segment_ids: tuple[int, ...]

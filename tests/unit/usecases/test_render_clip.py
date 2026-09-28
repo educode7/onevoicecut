@@ -22,7 +22,7 @@ import pytest
 
 from onevoicecut.adapters.ffmpeg.video_render import FfmpegVideoRenderer
 from onevoicecut.shared.domain.errors import ClipRangeInvalid
-from onevoicecut.domain.framing import (
+from onevoicecut.systems.pipeline.clips.domain.framing import (
     CropKeyframe,
     CropRect,
     CropTrajectory,
@@ -32,9 +32,9 @@ from onevoicecut.domain.framing import (
 )
 from onevoicecut.shared.domain.ids import make_media_id
 from onevoicecut.shared.domain.media import MediaProbe, SourceMedia
-from onevoicecut.domain.rendering import OutputSpec, SubtitleCue
+from onevoicecut.systems.pipeline.clips.domain.rendering import OutputSpec, SubtitleCue
 from onevoicecut.shared.domain.capabilities import RenderCapabilities, RenderSupport
-from onevoicecut.ports.video_render import RenderedFile, RenderRequest
+from onevoicecut.systems.pipeline.clips.domain.interfaces.video_render import RenderedFile, RenderRequest
 from onevoicecut.usecases.render_clip import DEFAULT_MAX_CLIP_SECONDS, render_clip
 
 CLIP_ID = "01HQ3M8XKJ7VNPQR2ZYWB4TCFD"

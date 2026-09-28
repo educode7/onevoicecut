@@ -26,7 +26,7 @@ from onevoicecut.shared.domain.ids import (
 )
 from onevoicecut.shared.infrastructure.settings import DEFAULT_MAX_UPLOAD_BYTES
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice
-from onevoicecut.domain.rendering import RenderProfile
+from onevoicecut.systems.pipeline.clips.domain.rendering import RenderProfile
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import AudioExtractorPort
 from onevoicecut.shared.domain.capabilities import DeclaredSupport
 from onevoicecut.systems.pipeline.jobs.domain.interfaces.media_source import MediaSourcePort

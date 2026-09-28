@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
+from onevoicecut.systems.pipeline.clips.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
 from onevoicecut.usecases import generate_artifacts
 from onevoicecut.usecases.generate_artifacts import (
     MapWindow,
@@ -120,10 +120,23 @@ class TestTheModuleCannotRender:
     def test_it_reaches_no_port_but_text_generation(self) -> None:
         """The one port generation is entitled to. Reaching another from here
         would be the layering violation the architecture test cannot see, since
-        `usecases` may legitimately import `ports`."""
-        ports = {name for name in _imported_names() if name.startswith("onevoicecut.ports")}
+        `usecases` may legitimately import `ports`.
 
-        assert ports == {"onevoicecut.ports.text_generation"}
+        The filter names both spellings of that seam: the legacy `onevoicecut.ports`
+        package and the `domain/interfaces` package every module's narrow Protocols
+        moved behind in slice 4a. Matching only the old one would have left this
+        asserting against an empty set — passing for the wrong reason, which is
+        worse than failing.
+        """
+        ports = {
+            name
+            for name in _imported_names()
+            if name.startswith("onevoicecut.ports") or ".domain.interfaces." in name
+        }
+
+        assert ports == {
+            "onevoicecut.systems.pipeline.clips.domain.interfaces.text_generation"
+        }
 
 
 class TestEveryPromptIsBuiltTheSameWay:

@@ -26,8 +26,8 @@ from dataclasses import asdict
 from pathlib import Path
 
 from onevoicecut.shared.domain.errors import CorruptedRecord
-from onevoicecut.domain.framing import TrackingConfidence
-from onevoicecut.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
+from onevoicecut.systems.pipeline.clips.domain.framing import TrackingConfidence
+from onevoicecut.systems.pipeline.clips.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
 from onevoicecut.shared.domain.ids import (
     ClipId,
     InvalidIdError,
@@ -70,7 +70,7 @@ from onevoicecut.systems.pipeline.transcripts.infrastructure.storage.transcript_
     encode_chunk_result as encode_chunk_result,
     encode_transcript as encode_transcript,
 )
-from onevoicecut.domain.rendering import (
+from onevoicecut.systems.pipeline.clips.domain.rendering import (
     CaptionCoverage,
     ClipExport,
     ClipState,

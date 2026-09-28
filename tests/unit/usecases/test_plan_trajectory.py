@@ -27,10 +27,10 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.domain.framing import TimeSpan, TrajectoryPolicy
+from onevoicecut.systems.pipeline.clips.domain.framing import TimeSpan, TrajectoryPolicy
 from onevoicecut.shared.domain.ids import make_media_id
 from onevoicecut.shared.domain.media import FrameSize, SourceMedia
-from onevoicecut.ports.subject_tracker import BoundingBox, SubjectDetection
+from onevoicecut.systems.pipeline.clips.domain.interfaces.subject_tracker import BoundingBox, SubjectDetection
 from onevoicecut.usecases.plan_trajectory import (
     Centre,
     apply_dead_zone,

@@ -27,8 +27,8 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.ports import subject_tracker
-from onevoicecut.ports.subject_tracker import BoundingBox, SubjectDetection
+from onevoicecut.systems.pipeline.clips.domain.interfaces import subject_tracker
+from onevoicecut.systems.pipeline.clips.domain.interfaces.subject_tracker import BoundingBox, SubjectDetection
 
 
 class TestABoundingBox:

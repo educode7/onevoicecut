@@ -54,9 +54,9 @@ from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.argv import 
 from onevoicecut.shared.infrastructure.ffmpeg.process import BinaryInvoker, real_process
 from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.sendcmd import build_sendcmd_script
 from onevoicecut.shared.domain.errors import RenderFailed
-from onevoicecut.domain.framing import CropTrajectory
+from onevoicecut.systems.pipeline.clips.domain.framing import CropTrajectory
 from onevoicecut.shared.domain.capabilities import RenderCapabilities, RenderSupport
-from onevoicecut.ports.video_render import RenderedFile, RenderRequest
+from onevoicecut.systems.pipeline.clips.domain.interfaces.video_render import RenderedFile, RenderRequest
 
 RENDERER_ID = "ffmpeg"
 

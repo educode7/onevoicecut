@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.shared.domain.ids import ClipId, JobId, make_clip_id, make_job_id
-from onevoicecut.domain.rendering import ClipExport, ClipState
+from onevoicecut.systems.pipeline.clips.domain.rendering import ClipExport, ClipState
 from onevoicecut.runtime import render_worker
 from onevoicecut.runtime.render_worker import (
     EXIT_FAILED,
@@ -129,8 +129,8 @@ class TestRunRenderReceivesTheParsedIds:
 
 
 def _a_done_export() -> ClipExport:
-    from onevoicecut.domain.framing import TrackingConfidence
-    from onevoicecut.domain.rendering import (
+    from onevoicecut.systems.pipeline.clips.domain.framing import TrackingConfidence
+    from onevoicecut.systems.pipeline.clips.domain.rendering import (
         CaptionCoverage,
         DurationCompliance,
         DurationComplianceKind,
