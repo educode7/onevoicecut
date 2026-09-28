@@ -39,7 +39,7 @@ from time import monotonic
 
 import pytest
 
-from onevoicecut.adapters.ffmpeg.process import BinaryInvoker, real_process
+from onevoicecut.shared.infrastructure.ffmpeg.process import BinaryInvoker, real_process
 from onevoicecut.adapters.ffmpeg.subtitles import render_ass
 from onevoicecut.adapters.ffmpeg.video_render import FfmpegVideoRenderer
 from onevoicecut.shared.domain.errors import RenderFailed

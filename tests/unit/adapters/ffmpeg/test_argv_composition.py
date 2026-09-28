@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.ffmpeg.argv import (
+from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.argv import (
     FFMPEG_BINARY,
     FFPROBE_BINARY,
     build_extract_argv,

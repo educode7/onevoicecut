@@ -35,7 +35,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import replace
 from typing import Any
 
-from onevoicecut.adapters.asr.local.declarations import HF_TOKEN_ENV
+from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local.declarations import HF_TOKEN_ENV
 from onevoicecut.shared.domain.errors import EngineUnavailable
 from onevoicecut.systems.pipeline.transcripts.domain.transcript import TranscriptSegment
 

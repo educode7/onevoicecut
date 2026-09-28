@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor, ProcessRunner
+from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.extractor import FfmpegAudioExtractor, ProcessRunner
 from onevoicecut.shared.domain.ids import make_job_id, make_media_id
 from onevoicecut.shared.domain.media import FrameSize, SourceMedia
 

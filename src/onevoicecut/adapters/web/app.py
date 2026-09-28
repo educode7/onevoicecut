@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
-from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor
+from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.extractor import FfmpegAudioExtractor
 from onevoicecut.systems.pipeline.jobs.infrastructure.media_source import (
     FilesystemMediaSource,
 )

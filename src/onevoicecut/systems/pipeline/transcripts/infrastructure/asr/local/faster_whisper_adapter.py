@@ -41,13 +41,13 @@ from faster_whisper import WhisperModel, decode_audio
 from faster_whisper.transcribe import Segment
 from faster_whisper.vad import VadOptions, get_speech_timestamps
 
-from onevoicecut.adapters.asr.local.declarations import (
+from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local.declarations import (
     CLASSIFICATION,
     WORD_TIMING,
     diarization_support,
     is_installed,
 )
-from onevoicecut.adapters.asr.local.diarization import LocalDiarizer, assign_speakers
+from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local.diarization import LocalDiarizer, assign_speakers
 from onevoicecut.systems.pipeline.transcripts.domain.chunking import AudioChunk
 from onevoicecut.shared.domain.errors import DomainError, EngineUnavailable, TranscriptionFailed
 from onevoicecut.shared.domain.speaker import SpeakerMode

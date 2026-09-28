@@ -24,7 +24,7 @@ pytest.importorskip(
 
 import subprocess  # noqa: E402 - must follow the guard above
 
-from onevoicecut.adapters.asr.local.faster_whisper_adapter import (  # noqa: E402
+from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local.faster_whisper_adapter import (  # noqa: E402
     FasterWhisperTranscriber,
 )
 from onevoicecut.systems.pipeline.transcripts.domain.chunking import AudioChunk  # noqa: E402

@@ -76,7 +76,7 @@ def local_transcriber(
     """
 
     def build() -> TranscriptionPort:
-        from onevoicecut.adapters.asr.local.faster_whisper_adapter import (
+        from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local.faster_whisper_adapter import (
             FasterWhisperTranscriber,
         )
 
@@ -106,7 +106,7 @@ def cloud_transcriber(api_key: str, *, model: str | None = None) -> TranscriberF
     """
 
     def build() -> TranscriptionPort:
-        from onevoicecut.adapters.asr.cloud.openai_whisper_adapter import (
+        from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.cloud.openai_whisper_adapter import (
             DEFAULT_MODEL,
             OpenAiWhisperTranscriber,
         )
@@ -175,11 +175,11 @@ def declared_diarization(
     guard unwireable: the rest of that object cannot be known without an engine.
     """
     if engine is EngineChoice.CLOUD:
-        from onevoicecut.adapters.asr.cloud.openai_whisper_adapter import DIARIZATION
+        from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.cloud.openai_whisper_adapter import DIARIZATION
 
         return DIARIZATION
 
-    from onevoicecut.adapters.asr.local.declarations import (
+    from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local.declarations import (
         diarization_support,
         is_installed,
     )
@@ -207,11 +207,11 @@ def declared_support(
 
 def _declared_classification(engine: EngineChoice) -> ClassificationSupport:
     if engine is EngineChoice.CLOUD:
-        from onevoicecut.adapters.asr.cloud.openai_whisper_adapter import CLASSIFICATION
+        from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.cloud.openai_whisper_adapter import CLASSIFICATION
 
         return CLASSIFICATION
 
-    from onevoicecut.adapters.asr.local.declarations import CLASSIFICATION
+    from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local.declarations import CLASSIFICATION
 
     return CLASSIFICATION
 
@@ -225,10 +225,10 @@ def _declared_word_timing(engine: EngineChoice) -> WordTimingSupport:
     would keep warning operators about a capability the build now has.
     """
     if engine is EngineChoice.CLOUD:
-        from onevoicecut.adapters.asr.cloud.openai_whisper_adapter import WORD_TIMING
+        from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.cloud.openai_whisper_adapter import WORD_TIMING
 
         return WORD_TIMING
 
-    from onevoicecut.adapters.asr.local.declarations import WORD_TIMING
+    from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local.declarations import WORD_TIMING
 
     return WORD_TIMING

@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.asr.cloud.openai_whisper_adapter import (
+from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.cloud.openai_whisper_adapter import (
     OpenAiWhisperTranscriber,
 )
 from onevoicecut.shared.domain.errors import ChunkTooLarge

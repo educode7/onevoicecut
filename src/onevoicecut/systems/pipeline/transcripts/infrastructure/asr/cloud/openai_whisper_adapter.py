@@ -110,7 +110,8 @@ CONNECT_TIMEOUT_S = 10.0
 # The pipeline normalizes every chunk to 16 kHz mono FLAC, but the adapter is
 # told a path rather than a format, so the type is derived rather than assumed.
 # The provider infers the codec from the filename, so this must stay in step
-# with what `adapters/ffmpeg/argv.py` writes.
+# with what `systems/pipeline/transcripts/infrastructure/ffmpeg/argv.py`
+# writes.
 _CONTENT_TYPES = {
     ".flac": "audio/flac",
     ".wav": "audio/wav",

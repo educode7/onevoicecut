@@ -47,12 +47,12 @@ import subprocess
 from pathlib import Path
 from typing import Protocol
 
-from onevoicecut.adapters.ffmpeg.argv import (
+from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.argv import (
     FFMPEG_BINARY,
     build_render_argv,
 )
-from onevoicecut.adapters.ffmpeg.process import BinaryInvoker, real_process
-from onevoicecut.adapters.ffmpeg.sendcmd import build_sendcmd_script
+from onevoicecut.shared.infrastructure.ffmpeg.process import BinaryInvoker, real_process
+from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.sendcmd import build_sendcmd_script
 from onevoicecut.shared.domain.errors import RenderFailed
 from onevoicecut.domain.framing import CropTrajectory
 from onevoicecut.shared.domain.capabilities import RenderCapabilities, RenderSupport

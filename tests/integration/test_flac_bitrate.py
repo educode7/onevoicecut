@@ -7,7 +7,8 @@ nothing ever measured it. It is the input to the cloud engine's 25 MB cap, so a
 guess that is wrong by a factor of five is a job that fails per chunk, three
 hours in.
 
-So this encodes through `adapters/ffmpeg/argv.py`'s own encoding flags — not a
+So this encodes through `systems/pipeline/transcripts/infrastructure/ffmpeg/argv.py`'s
+own encoding flags — not a
 copy of them — and measures. Using the real argv is what makes the measurement
 about the pipeline rather than about ffmpeg: if normalization ever moves to a
 different codec or sample rate, this fails here, at planning-time arithmetic,
@@ -23,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.ffmpeg.argv import SAMPLE_RATE_HZ, _audio_encoding
+from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.argv import SAMPLE_RATE_HZ, _audio_encoding
 from tests.systems.pipeline.transcripts.application.use_cases.commands.test_cloud_byte_cap import (
     FLAC_CEILING_BYTES_PER_S,
 )

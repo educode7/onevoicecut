@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor
+from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.extractor import FfmpegAudioExtractor
 from onevoicecut.shared.domain.errors import ExtractionFailed, UnsupportedContainer
 from onevoicecut.shared.domain.ids import make_job_id, make_media_id
 from onevoicecut.shared.domain.media import SourceMedia

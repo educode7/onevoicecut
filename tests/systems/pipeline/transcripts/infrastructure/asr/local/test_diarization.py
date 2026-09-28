@@ -19,8 +19,8 @@ from typing import Any
 
 import pytest
 
-from onevoicecut.adapters.asr.local.declarations import HF_TOKEN_ENV
-from onevoicecut.adapters.asr.local.diarization import (
+from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local.declarations import HF_TOKEN_ENV
+from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local.diarization import (
     LocalDiarizer,
     SpeakerRegion,
     assign_speakers,

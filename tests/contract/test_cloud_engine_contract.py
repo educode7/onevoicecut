@@ -3,7 +3,8 @@
 `paid`-marked in full: every test in this module bills a real transcription
 request. It is excluded from the default run, which is a success criterion of
 this project rather than a preference — so the adapter's behaviour is proven
-without a network next door, in `tests/unit/adapters/asr/cloud/`, and this
+without a network next door, in `tests/systems/pipeline/transcripts/infrastructure/asr/cloud/`, and
+this
 module exists to answer the one question a mock cannot: does the provider still
 behave the way the adapter believes it does.
 
@@ -21,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.asr.cloud.openai_whisper_adapter import (
+from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.cloud.openai_whisper_adapter import (
     CLOUD_API_KEY_ENV,
     DEFAULT_MODEL,
     OpenAiWhisperTranscriber,

@@ -16,7 +16,7 @@ import subprocess
 from pathlib import Path
 from typing import Protocol
 
-from onevoicecut.adapters.ffmpeg.argv import (
+from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.argv import (
     AUDIO_CODEC,
     CHANNELS,
     FFMPEG_BINARY,
@@ -27,7 +27,7 @@ from onevoicecut.adapters.ffmpeg.argv import (
     build_slice_argv,
     resolve_inside,
 )
-from onevoicecut.adapters.ffmpeg.process import (
+from onevoicecut.shared.infrastructure.ffmpeg.process import (
     BinaryInvoker,
     missing_binary_message,
     real_process,

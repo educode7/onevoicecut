@@ -562,23 +562,82 @@ marking, device proof, `TrackingUnavailable` paths all ride unchanged); AB rules
 infrastructure tree already registered in 3a. Lazy-import discipline (`importorskip`,
 factory-on-call) preserved exactly — the 7a-ii collection-defect lesson is not repeated.
 
-- [ ] 3d.1 RED-by-move: relocate adapter tests (`tests/unit/adapters/asr/...`,
+- [x] 3d.1 RED-by-move: relocate adapter tests (`tests/unit/adapters/asr/...`,
       extractor tests) to `tests/systems/pipeline/transcripts/infrastructure/...` — import-fail
       RED; **bodies unchanged**; `localmodel`/`paid` markers preserved so the default run still
       collects with no extras installed. `[unit 3d]`
-- [ ] 3d.2 GREEN: relocate `adapters/asr/{local,cloud}` to
+      → Safety net before the move **478 passed, 20 deselected**. Moved
+      `tests/unit/adapters/asr/**` (9 test modules + 3 `__init__.py`) to
+      `tests/systems/pipeline/transcripts/infrastructure/asr/**`, and the four
+      extractor-subject tests (`test_extractor`, `test_slicing`, `test_availability`,
+      `test_probe_frame`) to `.../infrastructure/ffmpeg/` **plus a verbatim copy of
+      `tests/unit/adapters/ffmpeg/conftest.py`** — `tests/unit/adapters/ffmpeg` still
+      needs its autouse `assume_binaries_present` fixture for the tests that stay, so the
+      file is duplicated rather than moved (**disclosed**). Import lines re-pointed to
+      the not-yet-existing new paths; **RED observed verbatim:
+      `360 passed, 7 deselected, 12 errors in 10.64s`** under
+      `--continue-on-collection-errors`, all 12 errors
+      `ModuleNotFoundError: No module named 'onevoicecut.systems.pipeline.transcripts.
+      infrastructure.{asr,ffmpeg}'` (default flags do not tally, they abort — recorded
+      too: `Interrupted: 12 errors during collection`). Bodies unchanged but for the two
+      disclosed lines in `test_faster_whisper_diarization.py`: `parents[5]` →
+      `parents[7]` (+2 directory levels, same intent — the repo root where the gitignored
+      `.env` lives) and its comment. Markers preserved: `--collect-only -m localmodel`
+      collects **13** in the moved tree, `-m paid` **10** in the cloud contract.
+- [x] 3d.2 GREEN: relocate `adapters/asr/{local,cloud}` to
       `systems/pipeline/transcripts/infrastructure/asr/`; `adapters/ffmpeg/extractor.py` to
       `systems/pipeline/transcripts/infrastructure/ffmpeg/`; evaluate domain-type-free ffmpeg
       helpers (`process`, `sendcmd`, `argv`) against the design rule and place them in
       `shared/infrastructure/ffmpeg/` if clean of domain imports, otherwise keep them beside
       the extractor in transcripts (record the placement reason in the commit body).
       `[unit 3d]`
-- [ ] 3d.3 GREEN: `runtime/engine_resolver.py` import lines rewire to the new adapter paths —
+      → `adapters/asr/{local,cloud}` → `.../transcripts/infrastructure/asr/`;
+      `extractor.py`, `argv.py`, `sendcmd.py` → `.../transcripts/infrastructure/ffmpeg/`
+      (new `__init__.py`); `process.py` → `shared/infrastructure/ffmpeg/`.
+      **Placement evaluation (recorded in the commit body):** `process.py` imports stdlib +
+      `shared.domain.errors` only — clean, so it lands in `shared/` (AB-08 by construction,
+      the same shape as `shared/infrastructure/storage/core.py`); `argv.py` names
+      `PlannedChunk` and `sendcmd.py` names `domain.framing.{CropKeyframe,CropTrajectory}`
+      — both carry domain vocabulary, so the task's fallback keeps them beside the
+      extractor. **Disclosed consequence:** the clips-side `video_render` now imports
+      `argv`/`sendcmd` from transcripts infrastructure until 4d builds the clips adapters.
+      Rewired 25 importers (src: `main.py`, `adapters/web/app.py`, the three runtime roots,
+      `adapters/ffmpeg/video_render.py`, both ASR self-imports, `extractor.py`; tests:
+      both contract tests, four runtime-wiring tests, four integration tests,
+      `test_cloud_byte_cap`, four adapter-side helper tests) +4 prose references (cloud
+      adapter comment, cloud contract docstring, flac comment, `scripts/try_local_asr.py`).
+      `tests/test_architecture.py`'s plant strings **deliberately untouched** — they are
+      AST-written text that never imports the target; `CLAUDE.md`, the archive and the
+      `adapters/{llm,vision}` historical comments left stale on purpose (6b/4d own them).
+      Focused run restored to **478 passed, 20 deselected** — the safety-net number.
+- [x] 3d.3 GREEN: `runtime/engine_resolver.py` import lines rewire to the new adapter paths —
       import lines only, factory-on-call structure preserved, **body frozen**. `[unit 3d]`
-- [ ] 3d.4 Verify: suite + mypy; `pytest -m integration` still green when ffmpeg is present;
+      → Eight ASR import statements in `engine_resolver.py` (lines 79, 109, 178, 182, 210,
+      214, 228, 232) re-pointed. `git diff -U0 -- src/onevoicecut/runtime/` is **12 changed
+      lines across `app.py`, `engine_resolver.py`, `render_worker.py`, `worker.py` — every
+      one a `from ... import` line, zero body diff**; the lazy factory-on-call structure
+      (imports inside `local_transcriber`/`cloud_transcriber`/the declaration probes) is
+      untouched.
+- [x] 3d.4 Verify: suite + mypy; `pytest -m integration` still green when ffmpeg is present;
       no module-level import of optional extras introduced. Commit
       `refactor(fca): move ASR and extractor adapters under transcripts infrastructure`.
       `[unit 3d]`
+      → Full default suite **2182 passed, 44 deselected, 2 warnings, 0 skipped** (105 s) —
+      identical to the c2d9060 baseline, so the ffmpeg integration tests genuinely ran;
+      explicit harness `pytest -m integration` with the WinGet bin dir prepended in the
+      same command **53 passed, 2173 deselected, 0 skipped** (19 s);
+      `mypy src tests` clean over **350** files (+4: the two new src `__init__.py`, the new
+      test `__init__.py` + conftest); `tests/test_architecture.py` **26 passed**. No
+      module-level import of an optional extra introduced — the moved modules' import
+      blocks differ only by the rewired sibling paths, and every `importorskip` /
+      factory-on-call site is untouched (proven by the `localmodel`/`paid` collect counts
+      in 3d.1).       `.gitignore` trap checked: `git check-ignore` reports **none** of the four new files
+      ignored. Measured on the staged tree, `git diff --cached --numstat` excluding the
+      pre-existing `.atl/` dirt: **146 additions + 66 deletions over 54 paths = 212**
+      (src 47 / tests 98 / this file 67), plus the 18-line conftest copy and three
+      zero-byte `__init__.py` = **230** — one commit, ≤400, no split needed, no
+      `size:exception`. (Measured before these notes were written the same diff read
+      67 + 62 = 129 over 49 paths; the difference is this file.)
 
 ---
 

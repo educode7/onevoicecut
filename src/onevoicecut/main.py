@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from onevoicecut.adapters.asr.local.declarations import HF_TOKEN_ENV
+from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local.declarations import HF_TOKEN_ENV
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )

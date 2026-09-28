@@ -62,7 +62,7 @@ def _extract(source: Path, start_s: float, seconds: float | None, into: Path) ->
     """Cut the window under test to 16 kHz mono, the rate the engine works at.
 
     List-form argv with `-nostdin` and an explicit timeout, the same discipline
-    `adapters/ffmpeg/argv.py` enforces — a dev script is still a subprocess call
+    `systems/pipeline/transcripts/infrastructure/ffmpeg/argv.py` enforces — a dev script is still a subprocess call
     with a filename in it.
     """
     window = ["-t", str(seconds)] if seconds is not None else []

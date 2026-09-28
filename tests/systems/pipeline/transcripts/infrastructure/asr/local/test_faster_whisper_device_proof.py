@@ -28,8 +28,8 @@ pytest.importorskip(
 
 from typing import Any  # noqa: E402
 
-from onevoicecut.adapters.asr.local import faster_whisper_adapter as adapter  # noqa: E402
-from onevoicecut.adapters.asr.local.faster_whisper_adapter import (  # noqa: E402
+from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local import faster_whisper_adapter as adapter  # noqa: E402
+from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local.faster_whisper_adapter import (  # noqa: E402
     FasterWhisperTranscriber,
 )
 from onevoicecut.shared.domain.errors import EngineUnavailable  # noqa: E402

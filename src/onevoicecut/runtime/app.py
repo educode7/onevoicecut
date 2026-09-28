@@ -27,7 +27,7 @@ from typing import Protocol, runtime_checkable
 # break both, from a file neither of them imports. The `as` form marks it a
 # re-export rather than a private use, which strict `no_implicit_reexport`
 # requires for `main`'s call-time import to type-check.
-from onevoicecut.adapters.ffmpeg.extractor import require_binaries as require_binaries
+from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.extractor import require_binaries as require_binaries
 from onevoicecut.adapters.ffmpeg.video_render import render_timeout_for
 from onevoicecut.shared.domain.ids import ClipId, JobId
 from onevoicecut.systems.pipeline.jobs.domain.jobs import WORKER_BOUND_STATES, JobRecord, JobState

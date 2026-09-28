@@ -38,11 +38,11 @@ pytest.importorskip(
 
 from dotenv import dotenv_values  # noqa: E402 - must follow the guard above
 
-from onevoicecut.adapters.asr.local.declarations import (  # noqa: E402
+from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local.declarations import (  # noqa: E402
     HF_TOKEN_ENV,
     is_installed,
 )
-from onevoicecut.adapters.asr.local.faster_whisper_adapter import (  # noqa: E402
+from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local.faster_whisper_adapter import (  # noqa: E402
     FasterWhisperTranscriber,
 )
 from onevoicecut.systems.pipeline.transcripts.domain.chunking import AudioChunk  # noqa: E402
@@ -70,9 +70,9 @@ CHUNK_START_S = 120.0
 # The fixture runs ~27 s; the window only has to contain it.
 FIXTURE_WINDOW_S = 60.0
 
-# tests/unit/adapters/asr/local/ -> five levels up is the repository root,
+# tests/systems/pipeline/transcripts/infrastructure/asr/local/ -> seven levels up is the repository root,
 # which is where the gitignored `.env` lives.
-REPO_ROOT = Path(__file__).resolve().parents[5]
+REPO_ROOT = Path(__file__).resolve().parents[7]
 
 # Two voices alternating, Spanish first: the source language of every real job.
 # Which two voices is the machine's choice — it takes any enabled pair, prefers

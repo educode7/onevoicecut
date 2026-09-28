@@ -39,7 +39,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor
+from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.extractor import FfmpegAudioExtractor
 from onevoicecut.adapters.ffmpeg.subtitles import render_ass
 from onevoicecut.adapters.ffmpeg.video_render import FfmpegVideoRenderer
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (

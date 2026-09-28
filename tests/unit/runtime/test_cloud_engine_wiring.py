@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.asr.cloud.openai_whisper_adapter import (
+from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.cloud.openai_whisper_adapter import (
     CLOUD_API_KEY_ENV,
     ENGINE_NAME,
 )

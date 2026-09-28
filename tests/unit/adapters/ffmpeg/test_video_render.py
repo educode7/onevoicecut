@@ -26,8 +26,8 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.ffmpeg.argv import build_render_argv
-from onevoicecut.adapters.ffmpeg.sendcmd import build_sendcmd_script
+from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.argv import build_render_argv
+from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.sendcmd import build_sendcmd_script
 from onevoicecut.adapters.ffmpeg.subtitles import render_ass
 from onevoicecut.adapters.ffmpeg.video_render import FfmpegVideoRenderer
 from onevoicecut.shared.domain.errors import (

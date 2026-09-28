@@ -29,8 +29,10 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.ffmpeg import sendcmd as sendcmd_module
-from onevoicecut.adapters.ffmpeg.sendcmd import (
+from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg import (
+    sendcmd as sendcmd_module,
+)
+from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.sendcmd import (
     DEFAULT_COMMAND_HZ,
     build_sendcmd_script,
 )

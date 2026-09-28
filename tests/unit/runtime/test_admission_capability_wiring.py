@@ -31,7 +31,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.asr.local.declarations import HF_TOKEN_ENV
+from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local.declarations import HF_TOKEN_ENV
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice
 from onevoicecut.shared.domain.capabilities import DiarizationSupport
 from onevoicecut.runtime.app import build_dependencies
@@ -116,7 +116,7 @@ class TestWhatEachEngineDeclares:
         admission accepting a job the adapter then refuses three hours later,
         which is the exact defect this unit exists to close.
         """
-        from onevoicecut.adapters.asr.local import declarations
+        from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local import declarations
 
         expected = declarations.diarization_support(
             installed=declarations.is_installed(), token=None
