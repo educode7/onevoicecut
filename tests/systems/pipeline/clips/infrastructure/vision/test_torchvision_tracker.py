@@ -7,7 +7,7 @@ opener — prove the sampling arithmetic, the person filter, the coordinate
 rescale, the span guard, the capability declaration and the model lifecycle in
 the default suite. `test_vision_tracker_real.py` proves the one claim only the
 installed extras can make, and the structural tests here prove the absences no
-request can: no subprocess anywhere under `adapters/vision`, and no heavy
+request can: no subprocess anywhere under the vision package, and no heavy
 extra imported at module scope.
 """
 
@@ -18,8 +18,10 @@ from typing import Any
 
 import pytest
 
-from onevoicecut.adapters.vision import torchvision_tracker_adapter
-from onevoicecut.adapters.vision.declarations import (
+from onevoicecut.systems.pipeline.clips.infrastructure.vision import (
+    torchvision_tracker_adapter,
+)
+from onevoicecut.systems.pipeline.clips.infrastructure.vision.declarations import (
     VISION_PACKAGES,
     WEIGHTS_FILENAME,
     default_hub_dir,
@@ -27,7 +29,7 @@ from onevoicecut.adapters.vision.declarations import (
     is_installed,
     weights_cached,
 )
-from onevoicecut.adapters.vision.torchvision_tracker_adapter import (
+from onevoicecut.systems.pipeline.clips.infrastructure.vision.torchvision_tracker_adapter import (
     TRACKER_ID,
     TorchvisionSubjectTracker,
     best_person,
@@ -41,8 +43,17 @@ from onevoicecut.shared.domain.media import SourceMedia
 from onevoicecut.shared.domain.capabilities import DetectionSupport
 from onevoicecut.systems.pipeline.clips.domain.interfaces.subject_tracker import BoundingBox
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
-VISION_DIR = REPO_ROOT / "src" / "onevoicecut" / "adapters" / "vision"
+REPO_ROOT = Path(__file__).resolve().parents[6]
+VISION_DIR = (
+    REPO_ROOT
+    / "src"
+    / "onevoicecut"
+    / "systems"
+    / "pipeline"
+    / "clips"
+    / "infrastructure"
+    / "vision"
+)
 HEAVY_EXTRAS = {"torch", "torchvision", "av", "numpy"}
 
 MEDIA_ID = make_media_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFE")

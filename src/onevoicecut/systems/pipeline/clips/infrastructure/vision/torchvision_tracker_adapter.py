@@ -44,7 +44,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
-from onevoicecut.adapters.vision.declarations import (
+from onevoicecut.systems.pipeline.clips.infrastructure.vision.declarations import (
     VISION_REQUIREMENTS,
     WEIGHTS_FILENAME,
     SpecFinder,

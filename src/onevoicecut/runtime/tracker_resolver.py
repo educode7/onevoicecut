@@ -40,7 +40,7 @@ def vision_tracker(*, max_clip_seconds: float) -> TrackerFactory:
     """
 
     def build() -> SubjectTrackerPort:
-        from onevoicecut.adapters.vision.torchvision_tracker_adapter import (
+        from onevoicecut.systems.pipeline.clips.infrastructure.vision.torchvision_tracker_adapter import (
             TorchvisionSubjectTracker,
         )
 

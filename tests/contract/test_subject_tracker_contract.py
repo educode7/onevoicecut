@@ -23,8 +23,8 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.vision.declarations import weights_cached
-from onevoicecut.adapters.vision.torchvision_tracker_adapter import (
+from onevoicecut.systems.pipeline.clips.infrastructure.vision.declarations import weights_cached
+from onevoicecut.systems.pipeline.clips.infrastructure.vision.torchvision_tracker_adapter import (
     TorchvisionSubjectTracker,
 )
 from onevoicecut.systems.pipeline.clips.domain.framing import TimeSpan

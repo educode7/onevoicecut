@@ -32,12 +32,12 @@ pytest.importorskip(
 )
 pytest.importorskip("av", reason="vision extras not installed (requirements-vision.txt)")
 
-from onevoicecut.adapters.vision.declarations import (  # noqa: E402
+from onevoicecut.systems.pipeline.clips.infrastructure.vision.declarations import (  # noqa: E402
     WEIGHTS_FILENAME,
     is_installed,
     weights_cached,
 )
-from onevoicecut.adapters.vision.torchvision_tracker_adapter import (  # noqa: E402
+from onevoicecut.systems.pipeline.clips.infrastructure.vision.torchvision_tracker_adapter import (  # noqa: E402
     PERSON_LABEL,
     TRACKER_ID,
     TorchvisionSubjectTracker,
