@@ -25,19 +25,35 @@ what lets `NONE` mean something an operator can act on.
 """
 
 from onevoicecut.systems.pipeline.clips.domain.framing import TimeSpan
-from onevoicecut.systems.pipeline.clips.domain.rendering import CaptionCoverage, SubtitleTimingSource
+from onevoicecut.systems.pipeline.clips.domain.rendering import CaptionCoverage, SubtitleCue, SubtitleTimingSource
 from onevoicecut.systems.pipeline.transcripts.domain.transcript import (
     UNCERTAIN_MARKER,
     SegmentKind,
     TranscriptSegment,
     WordTiming,
 )
-from onevoicecut.usecases.build_subtitle_cues import (
+from onevoicecut.systems.pipeline.clips.application.use_cases.queries.build_subtitle_cues import (
     DEFAULT_MAX_CUE_CHARS,
-    build_subtitle_cues,
+    BuildSubtitleCuesHandler,
+    BuildSubtitleCuesQuery,
 )
 
 SPAN = TimeSpan(100.0, 130.0)
+
+
+def _cues(
+    segments: tuple[TranscriptSegment, ...],
+    span: TimeSpan,
+    max_cue_chars: int = DEFAULT_MAX_CUE_CHARS,
+) -> tuple[tuple[SubtitleCue, ...], SubtitleTimingSource, CaptionCoverage]:
+    """Dispatch one `BuildSubtitleCuesQuery` through its handler — the CQRS shape
+    slice 4c converts `build_subtitle_cues` to, kept in one place so the
+    assertions below stay about captions rather than about dispatch."""
+    return BuildSubtitleCuesHandler().handle(
+        BuildSubtitleCuesQuery(
+            segments=segments, span=span, max_cue_chars=max_cue_chars
+        )
+    )
 
 
 def _words(text: str, start_s: float, end_s: float) -> tuple[WordTiming, ...]:
@@ -80,7 +96,7 @@ class TestEligibility:
             _segment(105.0, 110.0, "aleluya aleluya", SegmentKind.MUSIC),
         )
 
-        cues, _, _ = build_subtitle_cues(segments, SPAN)
+        cues, _, _ = _cues(segments, SPAN)
 
         assert not any("aleluya" in cue.text for cue in cues)
 
@@ -90,7 +106,7 @@ class TestEligibility:
         music = _segment(105.0, 110.0, "aleluya", SegmentKind.MUSIC)
         segments = (_segment(100.0, 105.0, "hermanos"), music)
 
-        build_subtitle_cues(segments, SPAN)
+        _cues(segments, SPAN)
 
         assert (music.start_s, music.end_s) == (105.0, 110.0)
 
@@ -99,7 +115,7 @@ class TestEligibility:
         Excluding it would leave a muted clip with a blank caption channel."""
         segments = (_segment(100.0, 105.0, "quizas dijo esto", SegmentKind.UNCERTAIN),)
 
-        cues, _, _ = build_subtitle_cues(segments, SPAN)
+        cues, _, _ = _cues(segments, SPAN)
 
         assert cues
 
@@ -108,7 +124,7 @@ class TestEligibility:
         caption *is* the message, and `[?]` on screen is not what was said."""
         segments = (_segment(100.0, 105.0, "quizas dijo esto", SegmentKind.UNCERTAIN),)
 
-        cues, _, _ = build_subtitle_cues(segments, SPAN)
+        cues, _, _ = _cues(segments, SPAN)
 
         assert all(UNCERTAIN_MARKER.strip() not in cue.text for cue in cues)
 
@@ -118,7 +134,7 @@ class TestEligibility:
         is a blank box on screen."""
         segments = (_segment(100.0, 105.0, "   "),)
 
-        cues, _, coverage = build_subtitle_cues(segments, SPAN)
+        cues, _, coverage = _cues(segments, SPAN)
 
         assert cues == ()
         assert coverage is CaptionCoverage.NONE
@@ -131,7 +147,7 @@ class TestEligibility:
             _segment(200.0, 210.0, "muy tarde"),
         )
 
-        cues, _, _ = build_subtitle_cues(segments, SPAN)
+        cues, _, _ = _cues(segments, SPAN)
 
         assert all("dentro" in cue.text for cue in cues)
 
@@ -143,14 +159,14 @@ class TestCuesAreClipLocal:
         cue would land a hundred seconds away."""
         segments = (_segment(100.0, 105.0, "hermanos"),)
 
-        cues, _, _ = build_subtitle_cues(segments, SPAN)
+        cues, _, _ = _cues(segments, SPAN)
 
         assert cues[0].start_s == 0.0
 
     def test_a_later_segment_is_offset_not_reset(self) -> None:
         segments = (_segment(110.0, 115.0, "hermanos"),)
 
-        cues, _, _ = build_subtitle_cues(segments, SPAN)
+        cues, _, _ = _cues(segments, SPAN)
 
         assert cues[0].start_s == 10.0
 
@@ -159,14 +175,14 @@ class TestCuesAreClipLocal:
         appear before the words were spoken."""
         segments = (_segment(95.0, 105.0, "hermanos queridos"),)
 
-        cues, _, _ = build_subtitle_cues(segments, SPAN)
+        cues, _, _ = _cues(segments, SPAN)
 
         assert cues[0].start_s == 0.0
 
     def test_no_cue_runs_past_the_end_of_the_clip(self) -> None:
         segments = (_segment(125.0, 140.0, "hermanos queridos"),)
 
-        cues, _, _ = build_subtitle_cues(segments, SPAN)
+        cues, _, _ = _cues(segments, SPAN)
 
         assert all(cue.end_s <= SPAN.duration_s for cue in cues)
 
@@ -178,7 +194,7 @@ class TestSplittingOnWordTiming:
         text = " ".join(f"palabra{i:02d}" for i in range(20))
         segments = (_segment(100.0, 110.0, text, timed=True),)
 
-        cues, _, _ = build_subtitle_cues(segments, SPAN)
+        cues, _, _ = _cues(segments, SPAN)
 
         assert len(cues) > 1
 
@@ -186,7 +202,7 @@ class TestSplittingOnWordTiming:
         text = " ".join(f"palabra{i:02d}" for i in range(20))
         segments = (_segment(100.0, 110.0, text, timed=True),)
 
-        cues, _, _ = build_subtitle_cues(segments, SPAN)
+        cues, _, _ = _cues(segments, SPAN)
 
         assert all(len(cue.text) <= DEFAULT_MAX_CUE_CHARS for cue in cues)
 
@@ -196,7 +212,7 @@ class TestSplittingOnWordTiming:
         text = " ".join(f"palabra{i:02d}" for i in range(20))
         segments = (_segment(100.0, 110.0, text, timed=True),)
 
-        cues, _, _ = build_subtitle_cues(segments, SPAN)
+        cues, _, _ = _cues(segments, SPAN)
 
         assert cues[1].start_s > cues[0].start_s
         assert cues[0].end_s <= cues[1].start_s
@@ -205,7 +221,7 @@ class TestSplittingOnWordTiming:
         text = " ".join(f"palabra{i:02d}" for i in range(20))
         segments = (_segment(100.0, 110.0, text, timed=True),)
 
-        cues, _, _ = build_subtitle_cues(segments, SPAN)
+        cues, _, _ = _cues(segments, SPAN)
 
         assert all(word in text for cue in cues for word in cue.text.split())
 
@@ -215,7 +231,7 @@ class TestSplittingOnWordTiming:
         text = " ".join(f"palabra{i:02d}" for i in range(20))
         segments = (_segment(100.0, 110.0, text, timed=True),)
 
-        cues, _, _ = build_subtitle_cues(segments, SPAN)
+        cues, _, _ = _cues(segments, SPAN)
 
         assert " ".join(cue.text for cue in cues).split() == text.split()
 
@@ -226,14 +242,14 @@ class TestTheWordlessFallback:
         timing and drifts with every syllable the speaker lingers on."""
         segments = (_segment(100.0, 110.0, "hermanos queridos de la iglesia"),)
 
-        cues, _, _ = build_subtitle_cues(segments, SPAN)
+        cues, _, _ = _cues(segments, SPAN)
 
         assert len(cues) == 1
 
     def test_that_cue_carries_the_segments_own_times(self) -> None:
         segments = (_segment(100.0, 110.0, "hermanos queridos"),)
 
-        cues, _, _ = build_subtitle_cues(segments, SPAN)
+        cues, _, _ = _cues(segments, SPAN)
 
         assert (cues[0].start_s, cues[0].end_s) == (0.0, 10.0)
 
@@ -245,7 +261,7 @@ class TestTheWordlessFallback:
         long_text = " ".join(f"palabra{i:02d}" for i in range(20))
         segments = (_segment(100.0, 110.0, long_text),)
 
-        cues, timing, _ = build_subtitle_cues(segments, SPAN)
+        cues, timing, _ = _cues(segments, SPAN)
 
         assert len(cues) == 1
         assert timing is SubtitleTimingSource.SEGMENT_LEVEL
@@ -258,7 +274,7 @@ class TestTheTimingDeclaration:
             _segment(105.0, 110.0, "de la iglesia", timed=True),
         )
 
-        _, timing, _ = build_subtitle_cues(segments, SPAN)
+        _, timing, _ = _cues(segments, SPAN)
 
         assert timing is SubtitleTimingSource.WORD_LEVEL
 
@@ -270,7 +286,7 @@ class TestTheTimingDeclaration:
             _segment(105.0, 110.0, "de la iglesia"),
         )
 
-        _, timing, _ = build_subtitle_cues(segments, SPAN)
+        _, timing, _ = _cues(segments, SPAN)
 
         assert timing is SubtitleTimingSource.SEGMENT_LEVEL
 
@@ -282,7 +298,7 @@ class TestTheTimingDeclaration:
             _segment(105.0, 110.0, "aleluya", SegmentKind.MUSIC),
         )
 
-        _, timing, _ = build_subtitle_cues(segments, SPAN)
+        _, timing, _ = _cues(segments, SPAN)
 
         assert timing is SubtitleTimingSource.WORD_LEVEL
 
@@ -291,7 +307,7 @@ class TestTheTimingDeclaration:
         would declare word-level timing for captions it does not have."""
         segments = (_segment(100.0, 110.0, "aleluya", SegmentKind.MUSIC),)
 
-        _, timing, _ = build_subtitle_cues(segments, SPAN)
+        _, timing, _ = _cues(segments, SPAN)
 
         assert timing is SubtitleTimingSource.SEGMENT_LEVEL
 
@@ -303,7 +319,7 @@ class TestTheCoverageDeclaration:
             _segment(105.0, 110.0, "queridos"),
         )
 
-        _, _, coverage = build_subtitle_cues(segments, SPAN)
+        _, _, coverage = _cues(segments, SPAN)
 
         assert coverage is CaptionCoverage.CONFIRMED_SPEECH
 
@@ -315,20 +331,20 @@ class TestTheCoverageDeclaration:
             _segment(105.0, 110.0, "quizas", SegmentKind.UNCERTAIN),
         )
 
-        _, _, coverage = build_subtitle_cues(segments, SPAN)
+        _, _, coverage = _cues(segments, SPAN)
 
         assert coverage is CaptionCoverage.INCLUDES_UNVERIFIED
 
     def test_a_span_of_pure_music_declares_none(self) -> None:
         segments = (_segment(100.0, 110.0, "aleluya", SegmentKind.MUSIC),)
 
-        cues, _, coverage = build_subtitle_cues(segments, SPAN)
+        cues, _, coverage = _cues(segments, SPAN)
 
         assert cues == ()
         assert coverage is CaptionCoverage.NONE
 
     def test_an_empty_transcript_declares_none(self) -> None:
-        cues, _, coverage = build_subtitle_cues((), SPAN)
+        cues, _, coverage = _cues((), SPAN)
 
         assert cues == ()
         assert coverage is CaptionCoverage.NONE
@@ -343,7 +359,7 @@ class TestTotality:
             _segment(110.0, 115.0, "de la iglesia", SegmentKind.UNCERTAIN),
         )
 
-        cues, _, _ = build_subtitle_cues(segments, SPAN)
+        cues, _, _ = _cues(segments, SPAN)
 
         assert len(cues) >= 3
 
@@ -357,14 +373,14 @@ class TestTotality:
         )
 
         for segments, expect_empty in cases:
-            cues, _, coverage = build_subtitle_cues(segments, SPAN)
+            cues, _, coverage = _cues(segments, SPAN)
             assert (cues == ()) is expect_empty
             assert (coverage is CaptionCoverage.NONE) is expect_empty
 
     def test_a_captioned_clip_never_reports_zero_coverage(self) -> None:
         segments = (_segment(100.0, 105.0, "hermanos"),)
 
-        cues, _, coverage = build_subtitle_cues(segments, SPAN)
+        cues, _, coverage = _cues(segments, SPAN)
 
         assert cues
         assert coverage is not CaptionCoverage.NONE
@@ -390,7 +406,7 @@ class TestTotality:
         )
 
         for segments, expected in cases:
-            cues, _, coverage = build_subtitle_cues(segments, SPAN)
+            cues, _, coverage = _cues(segments, SPAN)
 
             assert coverage is expected
             assert cues

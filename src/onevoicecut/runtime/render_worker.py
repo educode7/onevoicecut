@@ -85,7 +85,13 @@ from onevoicecut.systems.pipeline.clips.domain.interfaces.subject_tracker import
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.systems.pipeline.clips.domain.interfaces.video_render import RenderRequest, VideoRenderPort
 from onevoicecut.runtime.tracker_resolver import resolve_tracker
-from onevoicecut.usecases.build_subtitle_cues import build_subtitle_cues
+# Temporary composition wiring: 4e's `clips_module_api` is where the clips
+# handlers are supposed to be constructed, until then this composition root
+# builds them itself (4c.2).
+from onevoicecut.systems.pipeline.clips.application.use_cases.queries.build_subtitle_cues import (
+    BuildSubtitleCuesHandler,
+    BuildSubtitleCuesQuery,
+)
 from onevoicecut.usecases.plan_trajectory import build_trajectory
 from onevoicecut.usecases.render_clip import (
     DEFAULT_MAX_CLIP_SECONDS,
@@ -309,7 +315,9 @@ def _render_profiles(
         detections = tracker.detect(media, span, sample_hz=sample_hz)
         transcript = storage.load_transcript(job_id)
         segments = () if transcript is None else transcript.segments
-        cues, timing, coverage = build_subtitle_cues(segments, span)
+        cues, timing, coverage = BuildSubtitleCuesHandler().handle(
+            BuildSubtitleCuesQuery(segments=segments, span=span)
+        )
     except DomainError as error:
         return tuple(
             _record(
@@ -482,7 +490,7 @@ def _croppable_frames(
     spending the one step model weights dominate.
 
     Refusing on the *first* unusable aspect rather than per aspect is the same
-    rule `resolve_render_profiles` applies to an unmeasured profile: an operator
+    rule `RenderProfilesHandler.handle` applies to an unmeasured profile: an operator
     who asked for four destinations and would get two files learns it now, not
     by counting files afterwards.
     """

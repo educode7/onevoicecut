@@ -32,6 +32,8 @@ cue construction is **total** over the eligible set: only then are "zero cues" a
 something an operator can act on.
 """
 
+from dataclasses import dataclass
+
 from onevoicecut.systems.pipeline.clips.domain.framing import TimeSpan
 from onevoicecut.systems.pipeline.clips.domain.rendering import (
     CaptionCoverage,
@@ -45,32 +47,53 @@ from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKi
 DEFAULT_MAX_CUE_CHARS = 42
 
 
-def build_subtitle_cues(
-    segments: tuple[TranscriptSegment, ...],
-    span: TimeSpan,
-    *,
-    max_cue_chars: int = DEFAULT_MAX_CUE_CHARS,
-) -> tuple[tuple[SubtitleCue, ...], SubtitleTimingSource, CaptionCoverage]:
+@dataclass(frozen=True, slots=True)
+class BuildSubtitleCuesQuery:
+    """One clip's segments, the span it renders, and how wide a cue may be.
+
+    All three travel because all three are read: the eligible set is the
+    segments filtered to the span, and `max_cue_chars` decides where each of
+    them is broken. Splitting the query would mean the caller had already made
+    a decision this derivation exists to make.
+    """
+
+    segments: tuple[TranscriptSegment, ...]
+    span: TimeSpan
+    max_cue_chars: int = DEFAULT_MAX_CUE_CHARS
+
+
+class BuildSubtitleCuesHandler:
     """Captions for one clip, plus the two things the clip must declare.
 
     Returns the cues, where their timing came from, and what the captions
     contain. All three are derived from the same eligible set, so a clip can
     never declare a coverage its captions contradict.
+
+    No constructor dependencies: everything the derivation reads arrives on the
+    query, which is what keeps it a read rather than a lookup.
     """
-    eligible = tuple(
-        segment for segment in segments if _is_eligible(segment, span)
-    )
 
-    if not eligible:
-        # Not a vacuous WORD_LEVEL, and not CONFIRMED_SPEECH over nothing.
-        return (), SubtitleTimingSource.SEGMENT_LEVEL, CaptionCoverage.NONE
+    def handle(self, query: BuildSubtitleCuesQuery) -> tuple[
+        tuple[SubtitleCue, ...], SubtitleTimingSource, CaptionCoverage
+    ]:
+        segments = query.segments
+        span = query.span
+        max_cue_chars = query.max_cue_chars
 
-    cues = tuple(
-        cue
-        for segment in eligible
-        for cue in _cues_for(segment, span, max_cue_chars)
-    )
-    return cues, _timing_of(eligible), _coverage_of(eligible)
+        eligible = tuple(
+            segment for segment in segments if _is_eligible(segment, span)
+        )
+
+        if not eligible:
+            # Not a vacuous WORD_LEVEL, and not CONFIRMED_SPEECH over nothing.
+            return (), SubtitleTimingSource.SEGMENT_LEVEL, CaptionCoverage.NONE
+
+        cues = tuple(
+            cue
+            for segment in eligible
+            for cue in _cues_for(segment, span, max_cue_chars)
+        )
+        return cues, _timing_of(eligible), _coverage_of(eligible)
 
 
 def _is_eligible(segment: TranscriptSegment, span: TimeSpan) -> bool:
