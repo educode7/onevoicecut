@@ -26,7 +26,7 @@ import json
 import pytest
 
 from onevoicecut.shared.domain.errors import ContextLengthExceeded
-from onevoicecut.usecases.generate_artifacts import (
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import (
     SEGMENT_SEPARATOR,
     MapWindow,
     _map_prompt,  # private on purpose: these tests are about prompt size exactly
@@ -197,7 +197,7 @@ def test_one_definition_of_the_token_estimate() -> None:
     """10.11 asked for a token-estimation helper to be extracted. It was already
     extracted in 10a-i — `estimate_tokens` is the only place `CHARS_PER_TOKEN` is
     used, and windowing, the fold budget and this retry path all call it."""
-    from onevoicecut.usecases import generate_artifacts
+    from onevoicecut.systems.pipeline.clips.application.use_cases.commands import generate_artifacts
 
     source = __import__("inspect").getsource(generate_artifacts)
 

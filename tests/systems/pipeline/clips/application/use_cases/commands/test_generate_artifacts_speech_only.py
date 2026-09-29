@@ -23,7 +23,7 @@ beats a full invented one.
 """
 
 from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind, TranscriptSegment
-from onevoicecut.usecases.generate_artifacts import (
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import (
     map_windows,
     speech_windows,
 )

@@ -27,8 +27,8 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.systems.pipeline.clips.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
-from onevoicecut.usecases import generate_artifacts
-from onevoicecut.usecases.generate_artifacts import (
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands import generate_artifacts
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import (
     MapWindow,
     ScriptTarget,
     _fold_prompt,

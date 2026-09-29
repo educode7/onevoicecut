@@ -29,7 +29,7 @@ from onevoicecut.shared.domain.errors import (
 from onevoicecut.systems.pipeline.clips.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
 from onevoicecut.shared.domain.ids import ClipId, JobId, make_clip_id, make_job_id
 from onevoicecut.systems.pipeline.clips.domain.rendering import ClipState, OutputSpec, RenderProfile, SafeArea
-from onevoicecut.usecases.generate_artifacts import ScriptTarget
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import ScriptTarget
 from onevoicecut.usecases.request_clip_export import request_clip_export
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 

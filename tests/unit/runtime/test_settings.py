@@ -35,7 +35,7 @@ from onevoicecut.shared.infrastructure.settings import Settings
 # composition root landed (slice 1d), so the boot-path tests patch them there.
 from onevoicecut import main as app_root
 from onevoicecut.runtime.app import build_dependencies, check_target_profiles
-from onevoicecut.usecases.generate_artifacts import SCRIPT_TARGETS, ScriptTarget
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import SCRIPT_TARGETS, ScriptTarget
 from onevoicecut.usecases.render_profiles import RENDER_PROFILES
 
 MEASURED = RenderProfile(
@@ -153,7 +153,7 @@ class TestTheShippedRegistries:
     ) -> None:
         """Drift pin for the inlined `DEFAULT_SCRIPT_TARGETS` literal.
 
-        1b.2 replaced the import from `usecases.generate_artifacts` with a
+        1b.2 replaced the import from the generate-artifacts command module with a
         hand-written string. If that string and the `SCRIPT_TARGETS` registry
         ever disagree -- a name dropped here, a profile renamed there -- the
         operator discovers it only after the transcription hours are spent.

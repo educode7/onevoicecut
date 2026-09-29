@@ -22,7 +22,7 @@ import pytest
 
 from onevoicecut.shared.domain.errors import GenerationFailed
 from onevoicecut.systems.pipeline.clips.domain.generation import ClipCandidate
-from onevoicecut.usecases.generate_artifacts import (
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import (
     DEFAULT_SCRIPT_TARGETS,
     ScriptTarget,
     resolve_script_targets,

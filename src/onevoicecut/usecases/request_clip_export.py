@@ -28,7 +28,7 @@ from onevoicecut.shared.domain.errors import (
 from onevoicecut.shared.domain.ids import ClipId, JobId
 from onevoicecut.systems.pipeline.clips.domain.rendering import ClipExport, ClipState, RenderProfile
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
-from onevoicecut.usecases.generate_artifacts import SCRIPT_TARGETS, ScriptTarget
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import SCRIPT_TARGETS, ScriptTarget
 from onevoicecut.usecases.render_profiles import RENDER_PROFILES, group_variants_by_profile
 
 

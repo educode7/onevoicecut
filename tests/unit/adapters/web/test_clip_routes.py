@@ -37,7 +37,7 @@ from onevoicecut.systems.pipeline.clips.domain.rendering import (
     SubtitleTimingSource,
 )
 from onevoicecut.systems.pipeline.clips.domain.framing import TrackingConfidence
-from onevoicecut.usecases.generate_artifacts import SCRIPT_TARGETS
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import SCRIPT_TARGETS
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.unit.adapters.web.conftest import (
     OPERATOR_A,

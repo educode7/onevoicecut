@@ -63,7 +63,7 @@ from onevoicecut.shared.infrastructure.settings import Settings, load_env_file
 from onevoicecut.systems.pipeline.jobs.presentation.controllers.v1.job_controller import (
     OWNER_REFUSAL_DETAIL,
 )
-from onevoicecut.usecases.generate_artifacts import SCRIPT_TARGETS, ScriptTarget
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import SCRIPT_TARGETS, ScriptTarget
 from onevoicecut.usecases.render_profiles import RENDER_PROFILES
 
 Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None]] | None

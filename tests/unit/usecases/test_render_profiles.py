@@ -20,7 +20,7 @@ import pytest
 from onevoicecut.shared.domain.errors import DomainError, RenderProfileInvalid
 from onevoicecut.systems.pipeline.clips.domain.generation import ScriptVariant
 from onevoicecut.systems.pipeline.clips.domain.rendering import OutputSpec, RenderProfile, SafeArea
-from onevoicecut.usecases.generate_artifacts import ScriptTarget
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import ScriptTarget
 from onevoicecut.usecases.render_profiles import (
     RENDER_PROFILES,
     group_variants_by_profile,

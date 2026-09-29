@@ -19,7 +19,7 @@ DEFAULT_MAX_UPLOAD_BYTES = 16 * 1024**3
 
 # Literal on purpose: the shared settings module must not import the clip
 # use case just to know the default destination list. The registry itself
-# stays in `usecases.generate_artifacts`; composition still cross-checks the
+# stays in `clips.application.use_cases.commands.generate_artifacts`; composition still cross-checks the
 # two (see `check_target_profiles`, relocated to `runtime/app.py`).
 DEFAULT_SCRIPT_TARGETS = "tiktok,instagram,youtube,facebook"
 

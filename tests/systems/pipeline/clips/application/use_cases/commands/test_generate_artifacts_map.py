@@ -27,7 +27,7 @@ the core and makes the estimate provider-neutral.
 import pytest
 
 from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind, TranscriptSegment
-from onevoicecut.usecases.generate_artifacts import (
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import (
     CHARS_PER_TOKEN,
     DEFAULT_MAP_OVERLAP_TOKENS,
     DEFAULT_MAP_WINDOW_TOKENS,

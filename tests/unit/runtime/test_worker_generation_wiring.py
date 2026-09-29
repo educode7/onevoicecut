@@ -322,7 +322,7 @@ class TestReadingTheConfiguration:
     def test_the_host_and_targets_have_defaults(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from onevoicecut.usecases.generate_artifacts import DEFAULT_SCRIPT_TARGETS
+        from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import DEFAULT_SCRIPT_TARGETS
 
         monkeypatch.setenv(LLM_MODEL_ENV, MODEL)
         monkeypatch.delenv(OLLAMA_HOST_ENV, raising=False)

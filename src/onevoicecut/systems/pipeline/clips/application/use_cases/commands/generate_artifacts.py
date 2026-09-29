@@ -768,21 +768,36 @@ MAX_REDUCE_OUTPUT_TOKENS = 512
 MAX_VARIANT_OUTPUT_TOKENS = 384
 
 
-def run_generation(
-    transcript: Transcript,
-    *,
-    generate: TextGenerationPort,
-    targets: tuple[ScriptTarget, ...],
-    max_candidates: int = DEFAULT_MAX_CLIP_CANDIDATES,
-    max_map_output_tokens: int = MAX_MAP_OUTPUT_TOKENS,
-    max_reduce_output_tokens: int = MAX_REDUCE_OUTPUT_TOKENS,
-    max_variant_output_tokens: int = MAX_VARIANT_OUTPUT_TOKENS,
-    window_tokens: int = DEFAULT_MAP_WINDOW_TOKENS,
-    overlap_tokens: int = DEFAULT_MAP_OVERLAP_TOKENS,
-) -> GenerationResult:
-    """The whole pipeline in one call: window, map, fold, rank, write scripts.
+@dataclass(frozen=True, slots=True)
+class GenerateArtifactsCommand:
+    """One transcript to run the pipeline over, and the bounds it runs within.
 
-    Exists so the worker's composition root calls one function instead of
+    `transcript` and `targets` are what the request *is*: what to summarise, and
+    where each clip's script is going. The token bounds travel here rather than
+    being fixed at construction because they are per-run policy — a test that
+    needs two windows out of a two-segment fixture shrinks the window on the
+    command instead of rebuilding the handler.
+
+    `generate` deliberately is not a field. It is the one dependency this use
+    case has, it does not change between runs, and on the handler it is resolved
+    once at the composition root — which is the half of the split the command
+    side exists to make obvious.
+    """
+
+    transcript: Transcript
+    targets: tuple[ScriptTarget, ...]
+    max_candidates: int = DEFAULT_MAX_CLIP_CANDIDATES
+    max_map_output_tokens: int = MAX_MAP_OUTPUT_TOKENS
+    max_reduce_output_tokens: int = MAX_REDUCE_OUTPUT_TOKENS
+    max_variant_output_tokens: int = MAX_VARIANT_OUTPUT_TOKENS
+    window_tokens: int = DEFAULT_MAP_WINDOW_TOKENS
+    overlap_tokens: int = DEFAULT_MAP_OVERLAP_TOKENS
+
+
+class GenerateArtifactsHandler:
+    """The whole pipeline in one dispatch: window, map, fold, rank, write scripts.
+
+    Exists so the worker's composition root dispatches one command instead of
     re-deriving the order — an order that is not free to rearrange, because
     every step consumes the previous one's checked output: ranking resolves
     moment ids against the *whole* transcript while the ids were validated
@@ -803,26 +818,41 @@ def run_generation(
     their meaning, and a test that needs two windows out of a two-segment
     fixture should shrink the window rather than fabricate a three-hour sermon.
     """
-    windows = speech_windows(
-        transcript.segments,
-        window_tokens=window_tokens,
-        overlap_tokens=overlap_tokens,
-    )
-    partials = run_map(
-        windows, generate=generate, max_output_tokens=max_map_output_tokens
-    )
-    summary = reduce_summaries(
-        partials, generate=generate, max_output_tokens=max_reduce_output_tokens
-    )
-    candidates = rank_clip_candidates(
-        partials, transcript.segments, max_candidates=max_candidates
-    )
-    scripted = write_script_variants(
-        candidates,
-        generate=generate,
-        targets=targets,
-        max_output_tokens=max_variant_output_tokens,
-    )
-    return GenerationResult(
-        job_id=transcript.job_id, summary=summary, clip_candidates=scripted
-    )
+
+    def __init__(self, generate: TextGenerationPort) -> None:
+        self._generate = generate
+
+    def handle(self, command: GenerateArtifactsCommand) -> GenerationResult:
+        transcript = command.transcript
+        generate = self._generate
+        targets = command.targets
+        max_candidates = command.max_candidates
+        max_map_output_tokens = command.max_map_output_tokens
+        max_reduce_output_tokens = command.max_reduce_output_tokens
+        max_variant_output_tokens = command.max_variant_output_tokens
+        window_tokens = command.window_tokens
+        overlap_tokens = command.overlap_tokens
+
+        windows = speech_windows(
+            transcript.segments,
+            window_tokens=window_tokens,
+            overlap_tokens=overlap_tokens,
+        )
+        partials = run_map(
+            windows, generate=generate, max_output_tokens=max_map_output_tokens
+        )
+        summary = reduce_summaries(
+            partials, generate=generate, max_output_tokens=max_reduce_output_tokens
+        )
+        candidates = rank_clip_candidates(
+            partials, transcript.segments, max_candidates=max_candidates
+        )
+        scripted = write_script_variants(
+            candidates,
+            generate=generate,
+            targets=targets,
+            max_output_tokens=max_variant_output_tokens,
+        )
+        return GenerationResult(
+            job_id=transcript.job_id, summary=summary, clip_candidates=scripted
+        )

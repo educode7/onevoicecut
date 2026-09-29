@@ -1,11 +1,12 @@
 """The orchestrator: five built pieces, chained in the only order that works.
 
 Each step already has its own test file; what is proven here is the chaining
-itself — that `run_generation` feeds each piece the previous one's output,
-spends the right token budget on the right phase, and carries the job id from
-the transcript into the artifact. And the one edge the worker can actually
-hit on real material: a transcript with no confirmed speech at all, which must
-come back an honest empty result rather than a crash or an invented summary.
+itself — that `GenerateArtifactsHandler.handle` feeds each piece the previous
+one's output, spends the right token budget on the right phase, and carries the
+job id from the transcript into the artifact. And the one edge the worker can
+actually hit on real material: a transcript with no confirmed speech at all,
+which must come back an honest empty result rather than a crash or an invented
+summary.
 """
 
 import json
@@ -14,17 +15,41 @@ import pytest
 
 from onevoicecut.shared.domain.errors import GenerationFailed
 from onevoicecut.shared.domain.ids import make_job_id
+from onevoicecut.systems.pipeline.clips.domain.generation import GenerationResult
 from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind, Transcript, TranscriptSegment
-from onevoicecut.usecases.generate_artifacts import (
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import (
+    DEFAULT_MAP_WINDOW_TOKENS,
     MAX_MAP_OUTPUT_TOKENS,
     MAX_REDUCE_OUTPUT_TOKENS,
     MAX_VARIANT_OUTPUT_TOKENS,
+    GenerateArtifactsCommand,
+    GenerateArtifactsHandler,
+    ScriptTarget,
     resolve_script_targets,
-    run_generation,
 )
 from tests.fakes.text_generation import FakeTextGenerationPort
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
+
+
+def _generate(
+    transcript: Transcript,
+    generate: FakeTextGenerationPort,
+    *,
+    targets: tuple[ScriptTarget, ...],
+    window_tokens: int = DEFAULT_MAP_WINDOW_TOKENS,
+) -> GenerationResult:
+    """Dispatch one command through its handler — the CQRS shape slice 4c wraps
+    `run_generation` in, kept in one place so the assertions below are about the
+    chain rather than about the dispatch."""
+    return GenerateArtifactsHandler(generate=generate).handle(
+        GenerateArtifactsCommand(
+            transcript=transcript,
+            targets=targets,
+            window_tokens=window_tokens,
+        )
+    )
+
 
 def _map_reply(summary: str, ids: list[int]) -> str:
     return json.dumps(
@@ -73,8 +98,8 @@ class TestTheChain:
         transcript = _transcript((_segment(0.0, 5.0), _segment(5.0, 9.0)))
         fake = FakeTextGenerationPort(replies=(MAP_REPLY, "el guion del clip"))
 
-        result = run_generation(
-            transcript, generate=fake, targets=resolve_script_targets("tiktok")
+        result = _generate(
+            transcript, fake, targets=resolve_script_targets("tiktok")
         )
 
         assert result.job_id == JOB_ID
@@ -100,9 +125,7 @@ class TestTheChain:
         transcript = _transcript((_segment(0.0, 5.0), _segment(5.0, 9.0)))
         fake = FakeTextGenerationPort(replies=(MAP_REPLY, "guion"))
 
-        run_generation(
-            transcript, generate=fake, targets=resolve_script_targets("tiktok")
-        )
+        _generate(transcript, fake, targets=resolve_script_targets("tiktok"))
 
         assert len(fake.calls) == 2
         assert "Resume" in fake.prompts[0]
@@ -115,9 +138,7 @@ class TestTheChain:
         transcript = _transcript((_segment(0.0, 5.0), _segment(5.0, 9.0)))
         fake = FakeTextGenerationPort(replies=(MAP_REPLY, "guion"))
 
-        run_generation(
-            transcript, generate=fake, targets=resolve_script_targets("tiktok")
-        )
+        _generate(transcript, fake, targets=resolve_script_targets("tiktok"))
 
         assert fake.calls[0].max_output_tokens == MAX_MAP_OUTPUT_TOKENS
         assert fake.calls[1].max_output_tokens == MAX_VARIANT_OUTPUT_TOKENS
@@ -137,9 +158,9 @@ class TestTheChain:
         )
         fake = FakeTextGenerationPort(replies=replies)
 
-        result = run_generation(
+        result = _generate(
             transcript,
-            generate=fake,
+            fake,
             targets=resolve_script_targets("tiktok"),
             window_tokens=12,
         )
@@ -156,9 +177,7 @@ class TestTheChain:
         fake = FakeTextGenerationPort(fail_with=GenerationFailed("provider down"))
 
         with pytest.raises(GenerationFailed):
-            run_generation(
-                transcript, generate=fake, targets=resolve_script_targets("tiktok")
-            )
+            _generate(transcript, fake, targets=resolve_script_targets("tiktok"))
 
 
 class TestTheZeroSpeechEdge:
@@ -173,9 +192,7 @@ class TestTheZeroSpeechEdge:
         )
         fake = FakeTextGenerationPort()
 
-        result = run_generation(
-            transcript, generate=fake, targets=resolve_script_targets("tiktok")
-        )
+        result = _generate(transcript, fake, targets=resolve_script_targets("tiktok"))
 
         assert result.summary == ""
         assert result.clip_candidates == ()
@@ -187,9 +204,7 @@ class TestTheZeroSpeechEdge:
         transcript = _transcript((_segment(0.0, 60.0, SegmentKind.UNCERTAIN),))
         fake = FakeTextGenerationPort()
 
-        result = run_generation(
-            transcript, generate=fake, targets=resolve_script_targets("tiktok")
-        )
+        result = _generate(transcript, fake, targets=resolve_script_targets("tiktok"))
 
         assert result.summary == ""
         assert result.clip_candidates == ()

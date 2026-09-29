@@ -35,10 +35,11 @@ from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionPort
 from onevoicecut.runtime.engine_resolver import EngineResolver, production_factories
 from onevoicecut.shared.infrastructure.settings import CHUNK_TIMEOUT_ENV_NAMES, load_env_file
-from onevoicecut.usecases.generate_artifacts import (
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import (
     DEFAULT_SCRIPT_TARGETS,
+    GenerateArtifactsCommand,
+    GenerateArtifactsHandler,
     resolve_script_targets,
-    run_generation,
 )
 from onevoicecut.systems.pipeline.transcripts.transcripts_module_api import (
     DEFAULT_CHUNK_TIMEOUT_S,
@@ -260,7 +261,12 @@ def _generate_artifacts(
             )
             return
         targets = resolve_script_targets(generation.script_targets)
-        artifacts = run_generation(transcript, generate=generator, targets=targets)
+        # Temporary composition wiring: 4e's `clips_module_api` is where this
+        # construction is supposed to live, until then the composition root
+        # makes the handler itself.
+        artifacts = GenerateArtifactsHandler(generate=generator).handle(
+            GenerateArtifactsCommand(transcript=transcript, targets=targets)
+        )
         storage.save_artifacts(job_id, artifacts)
     except DomainError as error:
         print(
