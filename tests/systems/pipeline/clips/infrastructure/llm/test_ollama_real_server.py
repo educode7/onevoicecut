@@ -24,11 +24,11 @@ from collections.abc import Iterator
 import httpx
 import pytest
 
-from onevoicecut.adapters.llm.ollama_generator import (
+from onevoicecut.systems.pipeline.clips.infrastructure.llm.ollama_generator import (
     DEFAULT_BASE_URL,
     OllamaTextGenerator,
 )
-from onevoicecut.adapters.llm.probe import model_is_pulled
+from onevoicecut.systems.pipeline.clips.infrastructure.llm.probe import model_is_pulled
 from onevoicecut.shared.domain.errors import GenerationFailed
 
 pytestmark = pytest.mark.localmodel

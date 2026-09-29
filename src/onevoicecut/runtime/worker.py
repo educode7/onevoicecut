@@ -115,13 +115,17 @@ def _ollama_generator(generation: GenerationSetup) -> TextGenerationPort:
     a composition root names the adapters this build has, it does not carry
     them, so swapping providers cannot change what importing this module costs.
     """
-    from onevoicecut.adapters.llm.ollama_generator import OllamaTextGenerator
+    from onevoicecut.systems.pipeline.clips.infrastructure.llm.ollama_generator import (
+        OllamaTextGenerator,
+    )
 
     return OllamaTextGenerator(generation.model, base_url=generation.base_url)
 
 
 def _ollama_probe(generation: GenerationSetup) -> bool:
-    from onevoicecut.adapters.llm.probe import model_is_pulled
+    from onevoicecut.systems.pipeline.clips.infrastructure.llm.probe import (
+        model_is_pulled,
+    )
 
     return model_is_pulled(generation.model, base_url=generation.base_url)
 

@@ -10,7 +10,7 @@ broken body — is the same honest `False`.
 
 import httpx
 
-from onevoicecut.adapters.llm.probe import model_is_pulled
+from onevoicecut.systems.pipeline.clips.infrastructure.llm.probe import model_is_pulled
 
 MODEL = "qwen2.5:7b-instruct"
 

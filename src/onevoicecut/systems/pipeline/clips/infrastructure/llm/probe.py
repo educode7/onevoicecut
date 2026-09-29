@@ -22,7 +22,10 @@ engine resolver refuses between engines.
 
 import httpx
 
-from onevoicecut.adapters.llm.ollama_generator import DEFAULT_BASE_URL, TAGS_PATH
+from onevoicecut.systems.pipeline.clips.infrastructure.llm.ollama_generator import (
+    DEFAULT_BASE_URL,
+    TAGS_PATH,
+)
 
 # The tags listing is a few kilobytes from a server on localhost. Ten seconds
 # is already far past "starting up", and a probe that hangs would hold a

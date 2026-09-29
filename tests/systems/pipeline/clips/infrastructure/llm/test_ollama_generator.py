@@ -18,7 +18,7 @@ from typing import Any
 import httpx
 import pytest
 
-from onevoicecut.adapters.llm.ollama_generator import (
+from onevoicecut.systems.pipeline.clips.infrastructure.llm.ollama_generator import (
     DEFAULT_BASE_URL,
     OllamaTextGenerator,
 )
