@@ -888,19 +888,74 @@ Closes: adapter relocation with zero behavior change; AB rules over the new tree
 Closes: clip operations under module presentation (paths still `/api` until 5a); AUTH-06/
 owner-only 403 generated checks green; AB-09 (presentation constructs nothing).
 
-- [ ] 4e.1 RED-by-move: relocate the three clip route/schema tests to
+- [x] 4e.1 RED-by-move: relocate the three clip route/schema tests to
       `tests/systems/pipeline/clips/presentation/` — import-fail RED; bodies unchanged
       (202 admission, profile-scoped 404 vs known-clip 404, per-profile GET). `[unit 4e]`
-- [ ] 4e.2 GREEN: create `systems/pipeline/clips/presentation/{routes,controllers}/v1/` +
+- [x] 4e.2 GREEN: create `systems/pipeline/clips/presentation/{routes,controllers}/v1/` +
       clip schemas; `clips_module_api.py`; `main.py` registers the clips router (relative
       paths, same `/api/jobs/{id}/clips...` shape as today). `[unit 4e]`
-- [ ] 4e.3 GREEN: drain the last content out of `adapters/web/` — package left **empty but
+- [x] 4e.3 GREEN: drain the last content out of `adapters/web/` — package left **empty but
       present**; deletion is Phase 5 (design: package deleted at Phase 5). Verify no live
       module imports it. `[unit 4e]`
-- [ ] 4e.4 Verify: suite + mypy; all eight operations served through module presentation at
+- [x] 4e.4 Verify: suite + mypy; all eight operations served through module presentation at
       the unversioned prefix; commit
       `refactor(fca): move clip HTTP surface into module presentation, drain adapters/web`.
       `[unit 4e]`
+
+  Landed as the single commit named above, `3313264`, **935 changed lines across 45 files**
+  against a 400-line policy and `review.budget_lines: 800` — **`size:exception` human-approved
+  2026-09-29**. Nothing minified: 287 of
+  the lines are the drained adapter's own deletions, and the three new presentation modules
+  (controller 165, routes 106, module API 60) are the authored half of the same seam. A split
+  at 4e.2/4e.3 would have produced ~490 and ~445 — each still over policy — so the split would
+  have bought two smaller exceptions rather than none.
+
+  * **4e.1 RED-by-move** — the "three clip route/schema tests" named above are the three
+    clip *operations*, not three files: `test_clip_routes.py` and
+    `test_clip_route_authorization_parity.py` are the whole set (grep of the tree disproved a
+    third). Both `git mv`'d with a new `presentation/__init__.py`; import re-points only
+    (`WebDependencies` → `onevoicecut.main`, clip schemas → `...clips.presentation.schemas.v1.clip_schemas`).
+    Verbatim tally **18 passed, 1 error** — `ModuleNotFoundError: No module named
+    'onevoicecut.systems.pipeline.clips.presentation'`. Honest caveat: `test_clip_routes.py`
+    alone passed, because `main.py` already re-exported `WebDependencies`; only the parity
+    test bit.
+  * **4e.2 GREEN** — `clip_schemas.py` is `adapters/web/schemas.py` renamed (91% similar,
+    docstring adapted); `clip_controller.py` preserves the route's order exactly (validate →
+    load → `require_owner` → state 409), reuses `validated_job_id` from the jobs controller
+    rather than restating it, and deliberately does **not** catch `JobNotOwned` — `main`'s
+    table maps it to the same 403, so there is one spelling of that refusal.
+    `clips_module_api.py` sits at the module root, not under `presentation/`, because it
+    constructs a handler (AB-09).
+  * **4e.3 GREEN** — `WebDependencies` + `MediaSourceFactory` + `ExtractorFactory` +
+    `filesystem_media_source` + `ffmpeg_extractor` moved into `main.py` (a composition root
+    may construct adapters; `shared/` may not, AB-08, and `runtime/` is the wrong direction
+    per design.md:144). The old `Authenticator` alias was a duplicate of
+    `shared/application/principal.py` and was dropped rather than moved. `adapters/web/`
+    retains only `__init__.py`, with a why-drained docstring. 25 test files re-pointed;
+    adjacent duplicate `from onevoicecut.main import` lines merged.
+  * **4e.4 verified** — full default run **2211 passed, 44 deselected, 0 skipped**; `mypy src
+    tests` clean over **380 source files**; `tests/test_architecture.py` green. No live module
+    imports `onevoicecut.adapters.web` (only its own `__init__.py`, docstrings, and the
+    deliberate `web_package` structural walk).
+
+  **Disclosed deviations**:
+  1. Both module APIs take `WebDependencies` under `from __future__ import annotations` +
+     `if TYPE_CHECKING:` — mypy forced the sequencing (`attr-defined` under
+     `no_implicit_reexport` while the class still lived in `adapters.web.app`), and it keeps
+     the module→root edge out of the runtime graph; the real edge is `main` calling the
+     module APIs, at call time.
+  2. **AB-09 plants**: the two existing plants are byte-unchanged (the 4d precedent for a
+     rule outliving the module it named) and **two new live plants** were added, one per
+     module, for `from onevoicecut.main import WebDependencies`; `"onevoicecut.main"` joined
+     both `JOBS_PRESENTATION` and `CLIPS_PRESENTATION` `forbidden_prefixes`. A bulk
+     re-point script hit the two plant *source strings* first and was reverted — recorded
+     here because otherwise the diff would look like a frozen plant was edited.
+  3. `test_upload_media_route.py`'s multipart walk gains a third root
+     (`clips/presentation`), the same structural-scan class disclosed as 2e's deviation 3;
+     its `import onevoicecut.adapters.web as web_package` stays on purpose, to keep walking
+     the drained package.
+  4. `runtime/` untouched (4f). Paths remain unversioned `/api/...` (5a). `adapters/web/`
+     package itself not deleted (5c.4).
 
 ---
 
