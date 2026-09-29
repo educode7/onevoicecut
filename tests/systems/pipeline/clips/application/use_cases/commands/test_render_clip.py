@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.ffmpeg.video_render import FfmpegVideoRenderer
+from onevoicecut.systems.pipeline.clips.infrastructure.ffmpeg.video_render import FfmpegVideoRenderer
 from onevoicecut.shared.domain.errors import ClipRangeInvalid
 from onevoicecut.systems.pipeline.clips.domain.framing import (
     CropKeyframe,

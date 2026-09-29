@@ -40,8 +40,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.extractor import FfmpegAudioExtractor
-from onevoicecut.adapters.ffmpeg.subtitles import render_ass
-from onevoicecut.adapters.ffmpeg.video_render import FfmpegVideoRenderer
+from onevoicecut.systems.pipeline.clips.infrastructure.ffmpeg.subtitles import render_ass
+from onevoicecut.systems.pipeline.clips.infrastructure.ffmpeg.video_render import FfmpegVideoRenderer
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     RENDER_DIRNAME,
     FilesystemTranscriptStorage,

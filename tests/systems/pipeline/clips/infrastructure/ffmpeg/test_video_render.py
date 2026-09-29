@@ -28,8 +28,8 @@ import pytest
 
 from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.argv import build_render_argv
 from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.sendcmd import build_sendcmd_script
-from onevoicecut.adapters.ffmpeg.subtitles import render_ass
-from onevoicecut.adapters.ffmpeg.video_render import FfmpegVideoRenderer
+from onevoicecut.systems.pipeline.clips.infrastructure.ffmpeg.subtitles import render_ass
+from onevoicecut.systems.pipeline.clips.infrastructure.ffmpeg.video_render import FfmpegVideoRenderer
 from onevoicecut.shared.domain.errors import (
     ClipRangeInvalid,
     DomainError,

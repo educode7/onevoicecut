@@ -23,7 +23,7 @@ import dataclasses
 
 import pytest
 
-from onevoicecut.adapters.ffmpeg.subtitles import (
+from onevoicecut.systems.pipeline.clips.infrastructure.ffmpeg.subtitles import (
     LINE_BREAK,
     escape_cue_text,
     render_ass,

@@ -40,8 +40,8 @@ from time import monotonic
 import pytest
 
 from onevoicecut.shared.infrastructure.ffmpeg.process import BinaryInvoker, real_process
-from onevoicecut.adapters.ffmpeg.subtitles import render_ass
-from onevoicecut.adapters.ffmpeg.video_render import FfmpegVideoRenderer
+from onevoicecut.systems.pipeline.clips.infrastructure.ffmpeg.subtitles import render_ass
+from onevoicecut.systems.pipeline.clips.infrastructure.ffmpeg.video_render import FfmpegVideoRenderer
 from onevoicecut.shared.domain.errors import RenderFailed
 from onevoicecut.systems.pipeline.clips.domain.framing import (
     CropKeyframe,
