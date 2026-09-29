@@ -64,7 +64,7 @@ from onevoicecut.systems.pipeline.jobs.presentation.controllers.v1.job_controlle
     OWNER_REFUSAL_DETAIL,
 )
 from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import SCRIPT_TARGETS, ScriptTarget
-from onevoicecut.usecases.render_profiles import RENDER_PROFILES
+from onevoicecut.systems.pipeline.clips.application.use_cases.queries.render_profiles import RENDER_PROFILES
 
 Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None]] | None
 
@@ -239,7 +239,7 @@ def check_target_profiles(
     job can start.
 
     **This asserts membership, not renderability, and the distinction is the
-    reason the function exists rather than a call to `resolve_render_profiles`.**
+    reason the function exists rather than a call to `RenderProfilesHandler.handle`.**
     That resolver also refuses a profile whose caption safe area nobody has
     measured — on purpose, because the fractions are a measurement against each
     destination's live interface rather than a value this project may invent. The

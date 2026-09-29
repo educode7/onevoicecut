@@ -29,7 +29,7 @@ from onevoicecut.shared.domain.ids import ClipId, JobId
 from onevoicecut.systems.pipeline.clips.domain.rendering import ClipExport, ClipState, RenderProfile
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import SCRIPT_TARGETS, ScriptTarget
-from onevoicecut.usecases.render_profiles import RENDER_PROFILES, group_variants_by_profile
+from onevoicecut.systems.pipeline.clips.application.use_cases.queries.render_profiles import RENDER_PROFILES, group_variants_by_profile
 
 
 def request_clip_export(
@@ -75,7 +75,7 @@ def request_clip_export(
         )
     candidate = candidates[candidate_index]
 
-    # Dedup, order preserved -- the same tolerance `resolve_render_profiles`
+    # Dedup, order preserved -- the same tolerance `RenderProfilesHandler.handle`
     # and `resolve_script_targets` already extend to a comma-separated list.
     wanted = tuple(dict.fromkeys(targets))
     available = {variant.target for variant in candidate.variants}

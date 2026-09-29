@@ -101,7 +101,11 @@ from onevoicecut.usecases.render_clip import (
     check_clip_range,
     render_clip,
 )
-from onevoicecut.usecases.render_profiles import RENDER_PROFILES, resolve_render_profiles
+from onevoicecut.systems.pipeline.clips.application.use_cases.queries.render_profiles import (
+    RENDER_PROFILES,
+    RenderProfilesHandler,
+    RenderProfilesQuery,
+)
 
 ExtractorFactory = Callable[[Path, JobId], AudioExtractorPort]
 
@@ -215,7 +219,9 @@ def render_pending_exports(
     exports: list[ClipExport] = []
     for export in pending:
         try:
-            profile = resolve_render_profiles(export.profile, registry=render_profiles)[0]
+            profile = RenderProfilesHandler(registry=render_profiles).handle(
+                RenderProfilesQuery(names=export.profile)
+            )[0]
         except DomainError as error:
             exports.append(
                 _record(
@@ -498,7 +504,7 @@ def _croppable_frames(
     spending the one step model weights dominate.
 
     Refusing on the *first* unusable aspect rather than per aspect is the same
-            rule `resolve_render_profiles` applies to an unmeasured profile: an operator
+    rule `RenderProfilesHandler.handle` applies to an unmeasured profile: an operator
     who asked for four destinations and would get two files learns it now, not
     by counting files afterwards.
     """

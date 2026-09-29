@@ -32,7 +32,7 @@ from onevoicecut.shared.domain.capabilities import DeclaredSupport
 from onevoicecut.systems.pipeline.jobs.domain.interfaces.media_source import MediaSourcePort
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import SCRIPT_TARGETS, ScriptTarget
-from onevoicecut.usecases.render_profiles import RENDER_PROFILES
+from onevoicecut.systems.pipeline.clips.application.use_cases.queries.render_profiles import RENDER_PROFILES
 
 
 MediaSourceFactory = Callable[[TranscriptStoragePort, JobId], MediaSourcePort]

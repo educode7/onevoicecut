@@ -15,16 +15,19 @@ measured against, silently wrong for every profile that inherited it. So an
 unmeasured profile is refused rather than given somebody else's margin.
 """
 
+from collections.abc import Mapping
+
 import pytest
 
 from onevoicecut.shared.domain.errors import DomainError, RenderProfileInvalid
 from onevoicecut.systems.pipeline.clips.domain.generation import ScriptVariant
 from onevoicecut.systems.pipeline.clips.domain.rendering import OutputSpec, RenderProfile, SafeArea
 from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import ScriptTarget
-from onevoicecut.usecases.render_profiles import (
+from onevoicecut.systems.pipeline.clips.application.use_cases.queries.render_profiles import (
     RENDER_PROFILES,
+    RenderProfilesHandler,
+    RenderProfilesQuery,
     group_variants_by_profile,
-    resolve_render_profiles,
 )
 
 MEASURED = RenderProfile(
@@ -51,10 +54,21 @@ UNMEASURED = RenderProfile(
 REGISTRY = {p.name: p for p in (MEASURED, SQUARE, UNMEASURED)}
 
 
+def _profiles(
+    names: str, *, registry: Mapping[str, RenderProfile] = RENDER_PROFILES
+) -> tuple[RenderProfile, ...]:
+    """Dispatch one `RenderProfilesQuery` through its handler -- the CQRS shape
+    slice 4c converts `resolve_render_profiles` to, kept in one place so the
+    assertions below stay about resolution rather than about dispatch."""
+    return RenderProfilesHandler(registry=registry).handle(
+        RenderProfilesQuery(names=names)
+    )
+
+
 class TestTheShippedRegistryIsMeasured:
     """The shipped `vertical` profile is the whole point of this change: it is
     what every real clip request resolves against, and it used to declare no
-    safe area — so `resolve_render_profiles` refused it by name and the render
+    safe area — so resolution refused it by name and the render
     pipeline never ran end to end. These two pin the measured intersection and
     the fact that resolution now succeeds against the *shipped* registry, not an
     injected one. The refusal proofs above deliberately keep using injected
@@ -75,25 +89,25 @@ class TestTheShippedRegistryIsMeasured:
         way production does. Before the safe area was populated this raised
         `RenderProfileInvalid`; the whole gap between a finished transcript and a
         rendered file was exactly this call refusing."""
-        resolved = resolve_render_profiles("vertical")
+        resolved = _profiles("vertical")
 
         assert resolved == (RENDER_PROFILES["vertical"],)
 
 
 class TestWhatResolvesCleanly:
     def test_one_name_resolves_to_its_profile(self) -> None:
-        assert resolve_render_profiles("vertical", registry=REGISTRY) == (MEASURED,)
+        assert _profiles("vertical", registry=REGISTRY) == (MEASURED,)
 
     def test_several_names_resolve_in_the_order_asked(self) -> None:
         """Order is the caller's, not the registry's, for the same reason
         `resolve_script_targets` preserves it: the operator wrote the list."""
-        resolved = resolve_render_profiles("square,vertical", registry=REGISTRY)
+        resolved = _profiles("square,vertical", registry=REGISTRY)
 
         assert resolved == (SQUARE, MEASURED)
 
     def test_whitespace_around_a_name_is_tolerated(self) -> None:
         """Same comma-separated shape the operator token map already uses."""
-        assert resolve_render_profiles(" vertical , square ", registry=REGISTRY) == (
+        assert _profiles(" vertical , square ", registry=REGISTRY) == (
             MEASURED,
             SQUARE,
         )
@@ -103,7 +117,7 @@ class TestWhatResolvesCleanly:
         one profile must share a file, and a resolver that returned it twice
         would put two byte-identical renders in the job directory with nothing
         to tell them apart."""
-        assert resolve_render_profiles("vertical,vertical", registry=REGISTRY) == (
+        assert _profiles("vertical,vertical", registry=REGISTRY) == (
             MEASURED,
         )
 
@@ -114,7 +128,7 @@ class TestTheThreeRefusals:
         exist and silently got another one would have no way to tell — the
         artifact looks fine, which is this change's whole failure shape."""
         with pytest.raises(RenderProfileInvalid) as caught:
-            resolve_render_profiles("reels", registry=REGISTRY)
+            _profiles("reels", registry=REGISTRY)
 
         message = str(caught.value)
         assert "reels" in message
@@ -125,12 +139,12 @@ class TestTheThreeRefusals:
         should say so at the call rather than completing with an empty job
         directory."""
         with pytest.raises(RenderProfileInvalid):
-            resolve_render_profiles("", registry=REGISTRY)
+            _profiles("", registry=REGISTRY)
 
     def test_a_whitespace_only_selection_is_refused(self) -> None:
         assert_refused = pytest.raises(RenderProfileInvalid)
         with assert_refused:
-            resolve_render_profiles("  ,  ", registry=REGISTRY)
+            _profiles("  ,  ", registry=REGISTRY)
 
     def test_a_profile_with_no_measured_safe_area_is_refused_by_name(self) -> None:
         """The spec's own scenario. `None` records that nobody has measured this
@@ -138,7 +152,7 @@ class TestTheThreeRefusals:
         resolution is where that gap stops the job instead of becoming an
         inherited margin."""
         with pytest.raises(RenderProfileInvalid) as caught:
-            resolve_render_profiles("unmeasured", registry=REGISTRY)
+            _profiles("unmeasured", registry=REGISTRY)
 
         assert "unmeasured" in str(caught.value)
 
@@ -148,7 +162,7 @@ class TestTheThreeRefusals:
         the operator asked for three destinations and would get two files with
         nothing saying why."""
         with pytest.raises(RenderProfileInvalid):
-            resolve_render_profiles("vertical,unmeasured,square", registry=REGISTRY)
+            _profiles("vertical,unmeasured,square", registry=REGISTRY)
 
 
 class TestTheErrorType:
@@ -244,7 +258,7 @@ class TestGroupVariantsByProfile:
         assert grouped[0][0].name == "vertical"
 
     def test_order_is_first_seen_among_the_variants(self) -> None:
-        """The same rule `resolve_render_profiles` applies to an operator's
+        """The same rule `RenderProfilesHandler.handle` applies to an operator's
         comma list, reused here rather than re-implemented. `tiktok` before
         `facebook` deliberately disagrees with alphabetical order
         (`square` < `vertical`), so a caller that sorted instead of

@@ -185,7 +185,7 @@ class RenderProfile:
     the shape of a convenience. `None` is statable because "this destination
     exists and nobody has measured it yet" is a real state the registry must be
     able to hold — but it can never be reached by omission, and
-    `resolve_render_profiles` refuses it by name.
+    `RenderProfilesHandler.handle` refuses it by name.
 
     **No aspect field.** The pair the trajectory needs is already implied by the
     output spec; two fields that can disagree about one fact eventually will, and

@@ -7,7 +7,7 @@ out. So the two registries are read against each other while the server is
 booting, which is the last moment before a job can start.
 
 **The check is membership, not renderability, and the difference is the whole
-design.** `resolve_render_profiles` refuses a profile whose caption safe area
+design.** `RenderProfilesHandler.handle` refuses a profile whose caption safe area
 nobody has measured -- deliberately, because the fractions are a measurement
 against each destination's current interface rather than a value this project may
 invent. The shipped profile is now measured, but an unmeasured one stays a legal
@@ -36,7 +36,7 @@ from onevoicecut.shared.infrastructure.settings import Settings
 from onevoicecut import main as app_root
 from onevoicecut.runtime.app import build_dependencies, check_target_profiles
 from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import SCRIPT_TARGETS, ScriptTarget
-from onevoicecut.usecases.render_profiles import RENDER_PROFILES
+from onevoicecut.systems.pipeline.clips.application.use_cases.queries.render_profiles import RENDER_PROFILES
 
 MEASURED = RenderProfile(
     name="vertical",
@@ -119,7 +119,7 @@ class TestTheCheckItself:
         assert "youtube" in str(refusal.value)
 
     def test_an_unmeasured_profile_is_not_a_dangling_one(self) -> None:
-        """The trap this check is built around. `resolve_render_profiles`
+        """The trap this check is built around. `RenderProfilesHandler.handle`
         refuses an unmeasured profile, and an unmeasured profile stays a legal
         registry state (the shipped one is measured now; the next addition need
         not be) -- so a boot check that asked for renderability would refuse to

@@ -260,7 +260,7 @@ class TestTheProfileGeometry:
         assert tall == pytest.approx(short * (1920 / 1080), abs=1)
 
     def test_a_profile_with_no_measured_safe_area_cannot_be_rendered(self) -> None:
-        """`resolve_render_profiles` already refuses this, so reaching here
+        """`RenderProfilesHandler.handle` already refuses this, so reaching here
         means a caller built a profile directly. Refused a second time rather
         than defaulted, because a default margin is the one failure this axis
         exists to prevent and it would be introduced here."""

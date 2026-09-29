@@ -25,6 +25,7 @@ step, not a coding task.
 """
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 from onevoicecut.shared.domain.errors import RenderProfileInvalid
 from onevoicecut.systems.pipeline.clips.domain.generation import ScriptVariant
@@ -60,9 +61,23 @@ RENDER_PROFILES: Mapping[str, RenderProfile] = {
 }
 
 
-def resolve_render_profiles(
-    names: str, *, registry: Mapping[str, RenderProfile] = RENDER_PROFILES
-) -> tuple[RenderProfile, ...]:
+@dataclass(frozen=True, slots=True)
+class RenderProfilesQuery:
+    """Which destinations were asked for, in the order the operator wrote them.
+
+    `names` travels unsplit because the split *is* the answer: order, repetition
+    and the refusal of an unknown or unmeasured name are all decided from this
+    string, and a caller that had already split it would have made a decision
+    this read exists to make.
+
+    The registry does not travel — it is the dependency, not the identity, and
+    it lives on the handler.
+    """
+
+    names: str
+
+
+class RenderProfilesHandler:
     """Comma-separated names, the shape `resolve_script_targets` established.
 
     Order is the caller's, not the registry's: the operator wrote the list. A
@@ -76,41 +91,49 @@ def resolve_render_profiles(
     stated backwards: the operator asked for three destinations and would get
     two files with nothing saying why.
 
-    The registry is a parameter so a caller can resolve against a set other than
-    the shipped one — a test proving the unmeasured refusal would otherwise have
-    to pollute the shipped registry to reach it.
+    The registry is a constructor argument so a caller can resolve against a set
+    other than the shipped one — a test proving the unmeasured refusal would
+    otherwise have to pollute the shipped registry to reach it.
     """
-    wanted: list[str] = []
-    for name in names.split(","):
-        stripped = name.strip()
-        if stripped and stripped not in wanted:
-            wanted.append(stripped)
 
-    available = ", ".join(sorted(registry))
-    if not wanted:
-        raise RenderProfileInvalid(
-            "no render profiles are configured, so no clip would be rendered; "
-            f"available: {available}"
+    def __init__(self, *, registry: Mapping[str, RenderProfile] = RENDER_PROFILES) -> None:
+        self._registry = registry
+
+    def handle(self, query: RenderProfilesQuery) -> tuple[RenderProfile, ...]:
+        names = query.names
+        registry = self._registry
+
+        wanted: list[str] = []
+        for name in names.split(","):
+            stripped = name.strip()
+            if stripped and stripped not in wanted:
+                wanted.append(stripped)
+
+        available = ", ".join(sorted(registry))
+        if not wanted:
+            raise RenderProfileInvalid(
+                "no render profiles are configured, so no clip would be rendered; "
+                f"available: {available}"
+            )
+
+        unknown = sorted({name for name in wanted if name not in registry})
+        if unknown:
+            raise RenderProfileInvalid(
+                f"unknown render profile(s) {unknown}; available: {available}"
+            )
+
+        unmeasured = sorted(
+            name for name in wanted if registry[name].safe_area is None
         )
+        if unmeasured:
+            raise RenderProfileInvalid(
+                f"render profile(s) {unmeasured} declare no caption safe area, so "
+                f"caption placement for them is unknown; a margin is never inherited "
+                f"from another profile, so the whole selection is refused until each "
+                f"is measured against its destination"
+            )
 
-    unknown = sorted({name for name in wanted if name not in registry})
-    if unknown:
-        raise RenderProfileInvalid(
-            f"unknown render profile(s) {unknown}; available: {available}"
-        )
-
-    unmeasured = sorted(
-        name for name in wanted if registry[name].safe_area is None
-    )
-    if unmeasured:
-        raise RenderProfileInvalid(
-            f"render profile(s) {unmeasured} declare no caption safe area, so "
-            f"caption placement for them is unknown; a margin is never inherited "
-            f"from another profile, so the whole selection is refused until each "
-            f"is measured against its destination"
-        )
-
-    return tuple(registry[name] for name in wanted)
+        return tuple(registry[name] for name in wanted)
 
 
 def group_variants_by_profile(
@@ -122,8 +145,8 @@ def group_variants_by_profile(
     """A candidate's variants, grouped by the distinct profile they resolve to.
 
     Order is first-seen among the variants, the same rule
-    `resolve_render_profiles` already applies to an operator's comma list --
-    reused here rather than re-implemented, so one unmeasured profile still
+    `RenderProfilesHandler.handle` already applies to an operator's comma list
+    -- reused here rather than re-implemented, so one unmeasured profile still
     refuses the whole candidate rather than rendering the rest and silently
     dropping it.
 
@@ -153,7 +176,9 @@ def group_variants_by_profile(
             order.append(target.profile)
         by_profile_name[target.profile].append(variant)
 
-    profiles = resolve_render_profiles(",".join(order), registry=render_profiles)
+    profiles = RenderProfilesHandler(registry=render_profiles).handle(
+        RenderProfilesQuery(names=",".join(order))
+    )
     return tuple(
         (profile, tuple(by_profile_name[profile.name])) for profile in profiles
     )
