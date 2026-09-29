@@ -707,14 +707,72 @@ Behavior-frozen relocation.
 Closes: OQ3 clips half — all three narrow Protocols now exist; monolith still consumed by
 `runtime/` until 4f (deletion deferred, "nothing deleted until its replacement is green").
 
-- [ ] 4b.1 RED-by-move: relocate artifacts/exports/render-claim storage tests to
+- [x] 4b.1 RED-by-move: relocate artifacts/exports/render-claim storage tests to
       `tests/systems/pipeline/clips/infrastructure/storage/` — import-fail RED; rename-commit
       and claim-staleness assertions unchanged; structural assertion facade satisfies
       `ClipStore`. `[unit 4b]`
-- [ ] 4b.2 GREEN: create `systems/pipeline/clips/infrastructure/storage/clip_store.py` over
+      — moved `test_filesystem_job_artifacts.py` → `test_artifacts.py` (3 tests, whole file;
+      fixture retargeted from `FilesystemTranscriptStorage(tmp_path)` to the `core → jobs →
+      storage` chain a composition root builds, `decode_artifacts` re-imported from
+      `clip_store` rather than `adapters.storage.serialization`; assertion bodies verbatim).
+      Split `test_filesystem_transcript_storage.py`: 10 tests → `test_clip_store.py` (8 in
+      `TestClipExportsOnDisk`, the shared contract body, the no-network structural check) plus
+      the **new** structural assertion `test_the_facade_satisfies_the_clip_store` = 14 tests in
+      the new tree; disclosed as `A` new + `M` old, never as a rename. `test_the_adapter_
+      satisfies_the_port` stays adapter-side (`M`, still binding `TranscriptStoragePort` for
+      `runtime/` until 4f). Fixture retargets, all disclosed: the 8 `storage.create_job(...)`
+      arrange lines are deleted (the precondition now lives in the `jobs` fixture every writing
+      test requests), and `..._never_created_is_refused` builds
+      `FilesystemClipStore(StorageCore(tmp_path))` over an uncreated job — assertions
+      byte-identical; the no-network check retargets its subject from
+      `filesystem_transcript_storage` to `clip_store`, the module that now owns `_export_path`
+      (body unchanged). **No render-claim storage test exists to move**: `write_render_claim` /
+      `render_claim_is_fresh` are asserted only through the fake in `test_render_drain_once.py`
+      and `test_render_worker.py`, which stay put and are green in the RED run; likewise there
+      is no clip-export rename-commit assertion anywhere — commit-by-rename for exports rests on
+      `core.write_atomic`, pinned in `tests/shared/infrastructure/storage/test_atomic_write.py`.
+      RED observed **309 passed, 2 errors** (focused: clips tree + `unit/adapters/storage` +
+      `test_render_drain_once.py`), both errors the same
+      `ModuleNotFoundError: No module named 'onevoicecut.systems.pipeline.clips.infrastructure'`,
+      14 tests uncollectable.
+- [x] 4b.2 GREEN: create `systems/pipeline/clips/infrastructure/storage/clip_store.py` over
       `core`; composition roots build all three facades from one core. `[unit 4b]`
-- [ ] 4b.3 Verify: suite + mypy (render-drain liveness tests green — behavior frozen). Commit
+      — `FilesystemClipStore(core)` with the 7 `ClipStore` methods + `job_dir` (the moved
+      tests locate `artifacts.json` and `render/` through it, so `writable` needs no private
+      access), bodies verbatim from the monolith, plus `_export_path`.
+      **Codecs moved in** — `encode/decode_artifacts`, `encode/decode_clip_export` and their
+      `_job_id`/`_clip_id`/`_rendered_clip` helpers — because a codec taking `ClipExport` can
+      live neither in the domain-agnostic core (AB-08) nor in the adapter this facade starts
+      replacing; `serialization.py` re-exports them `X as X`, and since its other two halves
+      left in 2b and 3b it now defines **no codec at all**, so its docstring was rewritten to
+      say exactly that rather than describing codecs it no longer holds.
+      **Composition roots: honestly, none builds a facade today.** `StorageCore(data_dir)`
+      is constructed in `src` at exactly one place, `filesystem_transcript_storage.py:77`,
+      and `runtime/` keeps constructing the monolith until 4f — the same state 2b and 3b
+      recorded. The one-core-three-facades construction is therefore proved where it exists,
+      the `core → jobs → storage` fixture chain in the two moved test files (the
+      `test_transcript_store.py` pattern), rather than wired into a root that would build
+      facades nothing consumes yet. Wiring belongs to 4f and was not invented here.
+- [x] 4b.3 Verify: suite + mypy (render-drain liveness tests green — behavior frozen). Commit
       `refactor(fca): add clips ClipStore facade over storage core`. `[unit 4b]`
+      — GREEN focused **406 passed** (clips tree + `unit/adapters/storage` +
+      `test_render_drain_once.py` + `test_render_worker.py` + the arch suite, 0 errors, so
+      the claim-staleness and rename-free liveness assertions are green unchanged). Full
+      default suite **2194 passed, 44 deselected, 0 skipped** — 2193 baseline + 1, the
+      structural conformance test; zero skips means the ffmpeg surface was actually
+      exercised. `mypy src tests` clean over **362** files (+6 = 7 new, minus the deleted
+      `test_filesystem_job_artifacts.py`). Arch suite green: `clips/infrastructure` is
+      guarded by no rule group (the 3d deviation, unchanged), and `adapters → systems`
+      imports are already established by the 2b/3b re-export seams.
+      Diff for this unit: **707 insertions / 390 deletions = 1,097 lines, 10
+      files** — over the 800 budget and the 400 default, but it cannot shrink further: a
+      split at the seam would commit the RED-by-move tests green-alone, which is the one
+      thing the slice's RED *is* (the argument `3b.3` recorded), and tasks.md names a single
+      commit for the slice. `size:exception` is recommended rather than a silent split; for
+      scale, `3b` measured 846 and `2b` 957 on the same kind of move. Note for review: the
+      artifacts file is a genuine rename (`{unit/adapters => systems/...}/storage/
+      test_artifacts.py`, git 45/19), while `test_clip_store.py` (+266) is the new half of a
+      split and cannot be one — the old file survives with its port test.
 
 ---
 
