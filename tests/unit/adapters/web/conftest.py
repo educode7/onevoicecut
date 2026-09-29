@@ -12,7 +12,7 @@ sends a default operator's token unless a test says otherwise.
 
 from pathlib import Path
 
-from onevoicecut.adapters.web.app import WebDependencies
+from onevoicecut.main import WebDependencies
 from onevoicecut.shared.application.principal import build_authenticator
 from onevoicecut.shared.domain.ids import JobId, make_operator_id
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import AudioExtractorPort

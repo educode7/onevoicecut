@@ -15,9 +15,12 @@ its own store would be a controller that decides where the data lives.
 `main.py` imports this and registers what comes back under `/api/jobs`.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter
 
-from onevoicecut.adapters.web.app import WebDependencies
 from onevoicecut.systems.pipeline.jobs.application.use_cases.commands.admit_job import (
     AdmitJobHandler,
 )
@@ -39,6 +42,11 @@ from onevoicecut.systems.pipeline.jobs.presentation.controllers.v1.job_controlle
 from onevoicecut.systems.pipeline.jobs.presentation.routes.v1.job_routes import (
     build_router,
 )
+
+if TYPE_CHECKING:
+    # Type-only, so module wiring never reaches the composition root at import
+    # time — the dependency runs the other way, `main` calling this.
+    from onevoicecut.main import WebDependencies
 
 
 def build_jobs_router(deps: WebDependencies) -> APIRouter:

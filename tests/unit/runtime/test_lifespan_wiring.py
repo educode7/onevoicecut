@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI
 
-from onevoicecut.adapters.web.app import WebDependencies
+from onevoicecut.main import WebDependencies
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
 from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState

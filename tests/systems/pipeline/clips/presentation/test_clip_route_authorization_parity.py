@@ -26,7 +26,9 @@ the request -- no change to the routes themselves.
 import pytest
 from pydantic import ValidationError
 
-from onevoicecut.adapters.web.schemas import ClipExportRequest
+from onevoicecut.systems.pipeline.clips.presentation.schemas.v1.clip_schemas import (
+    ClipExportRequest,
+)
 from tests.unit.adapters.web.conftest import route_request_body
 from tests.unit.adapters.web.test_auth_gate import PROBE_JOB_ID, _registered_route_cases
 from tests.unit.adapters.web.test_mutation_ownership_matrix import _mutating_job_routes

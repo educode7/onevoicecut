@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
-from onevoicecut.adapters.web.app import WebDependencies
+from onevoicecut.main import WebDependencies
 from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState
 from onevoicecut.main import create_app, get_app

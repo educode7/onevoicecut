@@ -16,8 +16,7 @@ from typing import Any
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from onevoicecut.adapters.web.app import WebDependencies
-from onevoicecut.main import create_app
+from onevoicecut.main import WebDependencies, create_app
 from onevoicecut.systems.pipeline.clips.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
 from onevoicecut.shared.domain.ids import JobId, make_clip_id, make_job_id, make_media_id
 from onevoicecut.shared.domain.speaker import SpeakerMode

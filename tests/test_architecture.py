@@ -114,6 +114,10 @@ JOBS_PRESENTATION = RuleGroup(
         "onevoicecut.systems.pipeline.clips.infrastructure",
         "onevoicecut.adapters",
         "onevoicecut.runtime",
+        # The web composition root (4e). Same edge as the two above: a
+        # controller may not name the object a module API hands its route
+        # factory, so it cannot reach the root that constructs adapters either.
+        "onevoicecut.main",
     ),
 )
 
@@ -257,9 +261,10 @@ CLIPS_APPLICATION = RuleGroup(
 
 # AB-01/AB-09: presentation imports its own module's application plus FastAPI
 # and Pydantic — never an infrastructure package and never a concrete adapter,
-# both of which are constructed and bound at a composition root (AB-09). The
-# tree has no clips presentation yet (slice 4e builds it), so the group
-# registers now and is proved against plants rather than real code.
+# both of which are constructed and bound at a composition root (AB-09). Slice
+# 4e built the tree this group was registered against — the three clip
+# operations — so it now walks real code as well as the plants below, and it
+# refuses `onevoicecut.main` on the same reasoning as `jobs-presentation`.
 CLIPS_PRESENTATION = RuleGroup(
     name="clips-presentation",
     guarded_subtrees=("systems/pipeline/clips/presentation",),
@@ -269,6 +274,7 @@ CLIPS_PRESENTATION = RuleGroup(
         "onevoicecut.systems.pipeline.transcripts.infrastructure",
         "onevoicecut.adapters",
         "onevoicecut.runtime",
+        "onevoicecut.main",
     ),
 )
 
@@ -520,6 +526,18 @@ JOBS_PLANT_CASES: tuple[tuple[str, str, str, str], ...] = (
         "systems/pipeline/jobs/presentation/v1/controllers/upload.py",
         "from onevoicecut.adapters.web.app import WebDependencies\n",
         "onevoicecut.adapters.web.app",
+    ),
+    (
+        # 4e moved that composition object into `main.py` and drained the
+        # package the plant above names. The plant above stays, per the 4d
+        # precedent for a rule that outlives the module it was written against
+        # — the matcher still has to bite on it. This one is the live control:
+        # a presentation module may not reach the composition root at all,
+        # whether or not the object it would import still exists.
+        "ab-09-presentation-imports-web-composition-root",
+        "systems/pipeline/jobs/presentation/v1/controllers/upload.py",
+        "from onevoicecut.main import WebDependencies\n",
+        "onevoicecut.main",
     ),
     (
         "ab-09b-presentation-imports-own-infrastructure",
@@ -817,6 +835,17 @@ CLIPS_PLANT_CASES: tuple[tuple[str, str, str, str], ...] = (
         "systems/pipeline/clips/presentation/v1/controllers/clips.py",
         "from onevoicecut.adapters.web.app import WebDependencies\n",
         "onevoicecut.adapters.web.app",
+    ),
+    (
+        # 4e's live control: the composition object moved into `main.py`
+        # alongside the clip routes this module now owns, so the import a
+        # presentation module would be tempted to write names the root. The
+        # plant above stays per the 4d precedent for a rule that outlives the
+        # module it was written against; this is the one that bites today.
+        "ab-09-presentation-imports-web-composition-root",
+        "systems/pipeline/clips/presentation/v1/controllers/clips.py",
+        "from onevoicecut.main import WebDependencies\n",
+        "onevoicecut.main",
     ),
     (
         "ab-10-application-imports-runtime",

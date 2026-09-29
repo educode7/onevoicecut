@@ -1,13 +1,12 @@
-"""Request and response shapes for the HTTP boundary.
+"""Request and response shapes for the clips HTTP boundary.
 
 Separate from the domain entities on purpose. These describe what a browser may
-send and what it gets back; `JobRecord` describes what the system knows. Letting
+send and what it gets back; `ClipExport` describes what the system knows. Letting
 one be the other would make every domain field a public API and every API change
 a domain change.
 
-The jobs shapes moved out with their routes, into the module that owns them
-(`systems/pipeline/jobs/presentation/`); what remains here is the clip half,
-which moves when its routes do.
+The jobs shapes moved out with their routes in slice 2e; these are the clip half,
+which moved when its routes did.
 """
 
 from pydantic import BaseModel, ConfigDict

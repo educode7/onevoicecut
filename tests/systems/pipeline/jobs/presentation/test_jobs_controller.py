@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from onevoicecut.adapters.web.app import filesystem_media_source
+from onevoicecut.main import filesystem_media_source
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.shared.application.principal import Principal
 from onevoicecut.shared.domain.errors import JobNotFound

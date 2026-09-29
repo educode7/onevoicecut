@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
 from dataclasses import dataclass, field
@@ -35,8 +36,18 @@ from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local.declarati
 from onevoicecut.adapters.storage.filesystem_transcript_storage import (
     FilesystemTranscriptStorage,
 )
-from onevoicecut.adapters.web.app import WebDependencies
+from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.systems.pipeline.clips.domain.rendering import RenderProfile
+from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice
+from onevoicecut.systems.pipeline.jobs.infrastructure.media_source import (
+    FilesystemMediaSource,
+)
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import (
+    AudioExtractorPort,
+)
+from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.extractor import (
+    FfmpegAudioExtractor,
+)
 from onevoicecut.runtime.engine_resolver import declared_support
 from onevoicecut.runtime.supervisor import (
     LivenessProbe,
@@ -44,9 +55,11 @@ from onevoicecut.runtime.supervisor import (
     process_is_alive,
 )
 from onevoicecut.shared.application.principal import (
+    Authenticator,
     build_authenticator,
     parse_operator_tokens,
 )
+from onevoicecut.shared.domain.capabilities import DeclaredSupport
 from onevoicecut.shared.domain.errors import (
     ArtifactsNotAvailable,
     ClipCandidateNotFound,
@@ -58,8 +71,23 @@ from onevoicecut.shared.domain.errors import (
     UnsupportedContainer,
     UploadTooLarge,
 )
-from onevoicecut.shared.domain.ids import ClipId, JobId
-from onevoicecut.shared.infrastructure.settings import Settings, load_env_file
+from onevoicecut.shared.domain.ids import (
+    ClipId,
+    JobId,
+    MediaId,
+    OperatorId,
+    generate_clip_id,
+    generate_job_id,
+    generate_media_id,
+)
+from onevoicecut.shared.infrastructure.settings import (
+    DEFAULT_MAX_UPLOAD_BYTES,
+    Settings,
+    load_env_file,
+)
+from onevoicecut.systems.pipeline.jobs.domain.interfaces.media_source import (
+    MediaSourcePort,
+)
 from onevoicecut.systems.pipeline.jobs.presentation.controllers.v1.job_controller import (
     OWNER_REFUSAL_DETAIL,
 )
@@ -146,6 +174,75 @@ def handle_unexpected_error(request: Request, error: Exception) -> JSONResponse:
     return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
 
 
+MediaSourceFactory = Callable[[TranscriptStoragePort, JobId], MediaSourcePort]
+ExtractorFactory = Callable[[TranscriptStoragePort, JobId], AudioExtractorPort]
+
+
+def filesystem_media_source(
+    storage: TranscriptStoragePort, job_id: JobId
+) -> MediaSourcePort:
+    """One writer per upload, aimed where storage says the source belongs."""
+    return FilesystemMediaSource(storage.source_path(job_id))
+
+
+def ffmpeg_extractor(
+    storage: TranscriptStoragePort, job_id: JobId
+) -> AudioExtractorPort:
+    """The web process only ever calls `probe` on this.
+
+    Extraction and slicing are the worker's, and they happen in a different
+    process hours later. Sharing the adapter is not sharing the work.
+    """
+    return FfmpegAudioExtractor(storage.job_dir(job_id), job_id=job_id)
+
+
+@dataclass(frozen=True, slots=True)
+class WebDependencies:
+    """What a route closure may be handed, decided by the web composition root.
+
+    This lived in `adapters/web/app.py` until slice 4e drained that package.
+    It sits here for two reasons that are the same reason: it is the root's own
+    injectable surface — `build_dependencies` is what constructs it — and both
+    factories below *construct adapters*, which only a composition root may do.
+    It cannot sit in `shared/` because its field types name `systems.*` types
+    and the shared kernel must never import them (AB-08), nor in `runtime/`
+    because module wiring reaching into the separate-process roots is the
+    direction design Deviation 3 rules out.
+
+    Nothing here reads configuration at import time — that is what keeps the
+    application buildable without a real data directory.
+    """
+
+    storage: TranscriptStoragePort
+    # Required, deliberately, with no default: an app cannot be constructed
+    # without deciding who authenticates it. Deny-by-default is structural —
+    # the absence of auth is a build error, not a server that runs open.
+    authenticate: Authenticator
+    max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
+    now: Callable[[], float] = time.time
+    new_job_id: Callable[[], JobId] = field(default=generate_job_id)
+    new_media_id: Callable[[], MediaId] = field(default=generate_media_id)
+    new_clip_id: Callable[[], ClipId] = field(default=generate_clip_id)
+    # The same two registries `runtime/settings.py` cross-checks at boot,
+    # injectable here for the same reason `capabilities` is: the shipped
+    # profile's safe area is a measurement against the live 2026 destination
+    # interfaces and moves whenever an operator re-measures, so a test proving
+    # a clip request succeeds pins the registry it asserts against instead of
+    # inheriting whatever the shipped one currently holds.
+    render_profiles: Mapping[str, RenderProfile] = field(
+        default_factory=lambda: RENDER_PROFILES
+    )
+    script_targets: Mapping[str, ScriptTarget] = field(
+        default_factory=lambda: SCRIPT_TARGETS
+    )
+    media_source_for: MediaSourceFactory = field(default=filesystem_media_source)
+    extractor_for: ExtractorFactory = field(default=ffmpeg_extractor)
+    # No launcher, deliberately. Upload queues; the drain supervisor is the only
+    # code that starts a worker. A launcher reachable from a route handler is one
+    # refactor away from a second spawn decision point and the race it brings.
+    capabilities: Callable[[EngineChoice], DeclaredSupport] | None = None
+
+
 def create_app(deps: WebDependencies, *, lifespan: Lifespan = None) -> FastAPI:
     """`lifespan` is supplied by the caller, not built here.
 
@@ -159,20 +256,22 @@ def create_app(deps: WebDependencies, *, lifespan: Lifespan = None) -> FastAPI:
     the existing status-code tests still pass unchanged.
 
     Neither half of `/api/jobs` is decided here. The five jobs operations arrive
-    wired from `jobs_module_api` — the module decides which handlers its
-    controller runs against — and the three clip operations that still live in
-    the web adapter arrive as their own router; each carries its own `/api/jobs`
-    prefix, so the split is invisible on the wire and the route table every
-    generated gate reads stays honest about the paths actually served.
+    wired from `jobs_module_api` and the three clip operations from
+    `clips_module_api` — each module decides which handlers its controller runs
+    against — and each carries its own `/api/jobs` prefix, so the split is
+    invisible on the wire and the route table every generated gate reads stays
+    honest about the paths actually served.
     """
-    from onevoicecut.adapters.web.routers.jobs import build_clip_router
+    from onevoicecut.systems.pipeline.clips.clips_module_api import (
+        build_clips_router,
+    )
     from onevoicecut.systems.pipeline.jobs.jobs_module_api import build_jobs_router
 
     app = FastAPI(
         title="transcribe", docs_url=None, redoc_url=None, lifespan=lifespan
     )
     app.include_router(build_jobs_router(deps))
-    app.include_router(build_clip_router(deps))
+    app.include_router(build_clips_router(deps))
     app.add_exception_handler(DomainError, handle_domain_error)
     app.add_exception_handler(Exception, handle_unexpected_error)
     return app
