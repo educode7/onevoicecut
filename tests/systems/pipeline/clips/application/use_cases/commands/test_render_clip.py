@@ -34,8 +34,16 @@ from onevoicecut.shared.domain.ids import make_media_id
 from onevoicecut.shared.domain.media import MediaProbe, SourceMedia
 from onevoicecut.systems.pipeline.clips.domain.rendering import OutputSpec, SubtitleCue
 from onevoicecut.shared.domain.capabilities import RenderCapabilities, RenderSupport
-from onevoicecut.systems.pipeline.clips.domain.interfaces.video_render import RenderedFile, RenderRequest
-from onevoicecut.usecases.render_clip import DEFAULT_MAX_CLIP_SECONDS, render_clip
+from onevoicecut.systems.pipeline.clips.domain.interfaces.video_render import (
+    RenderedFile,
+    RenderRequest,
+    VideoRenderPort,
+)
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands.render_clip import (
+    DEFAULT_MAX_CLIP_SECONDS,
+    RenderClipCommand,
+    RenderClipHandler,
+)
 
 CLIP_ID = "01HQ3M8XKJ7VNPQR2ZYWB4TCFD"
 MEDIA_ID = make_media_id("01BX5ZZKBKACTAV9WEVGEMMVRZ")
@@ -125,6 +133,26 @@ def _request(media: SourceMedia, span: TimeSpan) -> RenderRequest:
     )
 
 
+def _render(
+    request: RenderRequest,
+    renderer: VideoRenderPort,
+    *,
+    probe: MediaProbe,
+    dest: Path,
+    max_clip_seconds: float = DEFAULT_MAX_CLIP_SECONDS,
+) -> RenderedFile:
+    """Dispatch through the CQRS handler: the port is the handler's dependency,
+    and everything this particular render is about travels on the command."""
+    return RenderClipHandler(renderer=renderer).handle(
+        RenderClipCommand(
+            request=request,
+            probe=probe,
+            dest=dest,
+            max_clip_seconds=max_clip_seconds,
+        )
+    )
+
+
 # Each pair is a span and the reason no renderer should ever see it.
 INVALID_SPANS = [
     pytest.param(TimeSpan(-5.0, 25.0), id="starts_before_the_source_does"),
@@ -145,7 +173,7 @@ class TestAnInvalidRangeIsRefused:
     ) -> None:
         renderer = RecordingRenderer()
         with pytest.raises(ClipRangeInvalid):
-            render_clip(
+            _render(
                 _request(media, span),
                 renderer=renderer,
                 probe=_probe(),
@@ -158,7 +186,7 @@ class TestAnInvalidRangeIsRefused:
     ) -> None:
         renderer = RecordingRenderer()
         with pytest.raises(ClipRangeInvalid):
-            render_clip(
+            _render(
                 _request(media, span),
                 renderer=renderer,
                 probe=_probe(),
@@ -181,7 +209,7 @@ class TestAnInvalidRangeIsRefused:
         runner = NeverSpawned()
         renderer = FfmpegVideoRenderer(job_dir, runner=runner)  # type: ignore[arg-type]
         with pytest.raises(ClipRangeInvalid):
-            render_clip(
+            _render(
                 _request(media, span),
                 renderer=renderer,
                 probe=_probe(),
@@ -196,7 +224,7 @@ class TestAnInvalidRangeIsRefused:
         """An operator reading "invalid range" learns nothing. The two numbers
         that decided it are the range and what it was compared to."""
         with pytest.raises(ClipRangeInvalid, match="7200"):
-            render_clip(
+            _render(
                 _request(media, TimeSpan(7190.0, 7250.0)),
                 renderer=RecordingRenderer(),
                 probe=_probe(),
@@ -211,7 +239,7 @@ class TestTheBoundsAreInclusiveWhereItMatters:
         """`<=`, not `<`. A ceiling that refused the value it names would make
         the configured number a lie by one second."""
         renderer = RecordingRenderer()
-        render_clip(
+        _render(
             _request(media, TimeSpan(60.0, 60.0 + DEFAULT_MAX_CLIP_SECONDS)),
             renderer=renderer,
             probe=_probe(),
@@ -226,7 +254,7 @@ class TestTheBoundsAreInclusiveWhereItMatters:
         """The last thirty seconds of a sermon are a clip candidate like any
         other, and the closing appeal is where they usually are."""
         renderer = RecordingRenderer()
-        render_clip(
+        _render(
             _request(media, TimeSpan(SOURCE_DURATION_S - 30.0, SOURCE_DURATION_S)),
             renderer=renderer,
             probe=_probe(),
@@ -239,7 +267,7 @@ class TestTheBoundsAreInclusiveWhereItMatters:
         self, job_dir: Path, media: SourceMedia
     ) -> None:
         renderer = RecordingRenderer()
-        render_clip(
+        _render(
             _request(media, TimeSpan(0.0, 30.0)),
             renderer=renderer,
             probe=_probe(),
@@ -257,7 +285,7 @@ class TestTheBoundIsConfigurable:
         hypothetical -- `RenderProfile.max_duration_s` exists for it."""
         renderer = RecordingRenderer()
         with pytest.raises(ClipRangeInvalid):
-            render_clip(
+            _render(
                 _request(media, TimeSpan(60.0, 150.0)),
                 renderer=renderer,
                 probe=_probe(),
@@ -279,14 +307,14 @@ class TestAValidRangeIsHandedOnUntouched:
         request = _request(media, TimeSpan(120.0, 150.0))
         dest = job_dir / "render" / f"{CLIP_ID}.mp4"
 
-        render_clip(request, renderer=renderer, probe=_probe(), dest=dest)
+        _render(request, renderer=renderer, probe=_probe(), dest=dest)
 
         assert renderer.calls == [(request, dest)]
 
     def test_the_renderers_own_answer_is_returned(
         self, job_dir: Path, media: SourceMedia
     ) -> None:
-        rendered = render_clip(
+        rendered = _render(
             _request(media, TimeSpan(120.0, 150.0)),
             renderer=RecordingRenderer(),
             probe=_probe(),

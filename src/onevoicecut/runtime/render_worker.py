@@ -96,10 +96,11 @@ from onevoicecut.systems.pipeline.clips.application.use_cases.queries.plan_traje
     PlanTrajectoryHandler,
     PlanTrajectoryQuery,
 )
-from onevoicecut.usecases.render_clip import (
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands.render_clip import (
     DEFAULT_MAX_CLIP_SECONDS,
+    RenderClipCommand,
+    RenderClipHandler,
     check_clip_range,
-    render_clip,
 )
 from onevoicecut.systems.pipeline.clips.application.use_cases.queries.render_profiles import (
     RENDER_PROFILES,
@@ -444,18 +445,19 @@ def _export_from_trajectory(
         render_ass(cues, profile=profile), encoding="utf-8", newline="\n"
     )
 
-    rendered = render_clip(
-        RenderRequest(
-            media=media,
-            span=span,
-            trajectory=trajectory,
-            cues=cues,
-            output=profile.output,
-        ),
-        renderer=renderer,
-        probe=probe,
-        dest=profile_dir / f"{clip_id}.mp4",
-        max_clip_seconds=max_clip_seconds,
+    rendered = RenderClipHandler(renderer=renderer).handle(
+        RenderClipCommand(
+            request=RenderRequest(
+                media=media,
+                span=span,
+                trajectory=trajectory,
+                cues=cues,
+                output=profile.output,
+            ),
+            probe=probe,
+            dest=profile_dir / f"{clip_id}.mp4",
+            max_clip_seconds=max_clip_seconds,
+        )
     )
 
     export = ClipExport(

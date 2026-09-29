@@ -27,6 +27,7 @@ accept -- and it is declared precisely so this layer, not the adapter, can
 enforce it.
 """
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from onevoicecut.shared.domain.errors import ClipRangeInvalid
@@ -44,29 +45,64 @@ from onevoicecut.systems.pipeline.clips.domain.interfaces.video_render import (
 DEFAULT_MAX_CLIP_SECONDS = 180.0
 
 
-def render_clip(
-    request: RenderRequest,
-    *,
-    renderer: VideoRenderPort,
-    probe: MediaProbe,
-    dest: Path,
-    max_clip_seconds: float = DEFAULT_MAX_CLIP_SECONDS,
-) -> RenderedFile:
-    """Refuse an impossible or ruinous range, then hand the request on unchanged.
+@dataclass(frozen=True, slots=True)
+class RenderClipCommand:
+    """One range to render, where it came from, and where it goes.
 
-    `0 <= start_s < end_s <= probe.duration_s` and
-    `end_s - start_s <= max_clip_seconds`. Both bounds are inclusive on the side
-    that names a real value: a ceiling that refused the number it advertises
-    would make the configured figure wrong by a second, and the closing appeal
-    of a sermon ends exactly at the end of the source.
+    `probe` travels here rather than being fixed at construction because it
+    describes *this* source: two clips off two jobs are dispatched to the same
+    handler against different probes, and a handler that cached one would check
+    every later range against the wrong duration. `dest` is on the same
+    reasoning — it names the file this dispatch is to produce, and the clip id
+    in it is minted per clip.
 
-    The ceiling is not optional. `RenderCapabilities` may declare `None` for
-    "this renderer states no bound of its own", but a guard that can be switched
-    off is not a guard, and this one is the whole of the render-resource-
-    exhaustion answer.
+    `max_clip_seconds` is policy, not data, but it travels here anyway: the
+    caller is the one entitled to choose it, so the caller says so per dispatch
+    instead of at construction. The default is design.md's own figure and no
+    deployment silently overrides it.
     """
-    check_clip_range(request.span, probe, max_clip_seconds=max_clip_seconds)
-    return renderer.render(request, dest)
+
+    request: RenderRequest
+    probe: MediaProbe
+    dest: Path
+    max_clip_seconds: float = DEFAULT_MAX_CLIP_SECONDS
+
+
+class RenderClipHandler:
+    """The guarded way into `VideoRenderPort`, one dispatch at a time.
+
+    The renderer is the only thing this handler holds: it is the port the use
+    case exists to reach, resolved once at the composition root. Everything the
+    render is *about* comes in on the command, so a handler can be shared
+    across clips without any one clip's source, range or destination leaking
+    into the next.
+    """
+
+    def __init__(self, renderer: VideoRenderPort) -> None:
+        self._renderer = renderer
+
+    def handle(self, command: RenderClipCommand) -> RenderedFile:
+        """Refuse an impossible or ruinous range, then hand the request on unchanged.
+
+        `0 <= start_s < end_s <= probe.duration_s` and
+        `end_s - start_s <= max_clip_seconds`. Both bounds are inclusive on the side
+        that names a real value: a ceiling that refused the number it advertises
+        would make the configured figure wrong by a second, and the closing appeal
+        of a sermon ends exactly at the end of the source.
+
+        The ceiling is not optional. `RenderCapabilities` may declare `None` for
+        "this renderer states no bound of its own", but a guard that can be switched
+        off is not a guard, and this one is the whole of the render-resource-
+        exhaustion answer.
+        """
+        request = command.request
+        probe = command.probe
+        dest = command.dest
+        max_clip_seconds = command.max_clip_seconds
+        renderer = self._renderer
+
+        check_clip_range(request.span, probe, max_clip_seconds=max_clip_seconds)
+        return renderer.render(request, dest)
 
 
 def check_clip_range(
