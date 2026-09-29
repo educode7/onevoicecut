@@ -155,12 +155,24 @@ def _mean(values: Iterable[float]) -> float:
     return sum(sample) / len(sample)
 
 
-def build_trajectory(
-    detections: tuple[SubjectDetection, ...],
-    frame: FrameSize,
-    span: TimeSpan,
-    policy: TrajectoryPolicy,
-) -> CropTrajectory:
+@dataclass(frozen=True, slots=True)
+class PlanTrajectoryQuery:
+    """What to plan a crop over: the detections, the frame, and the policy.
+
+    `span` travels although stage 6 never reads it — design.md fixes it into
+    this signature and slice 13 seeks with it, so dropping it here would make
+    the query narrower than the port contract it answers. It is carried, not
+    consumed, and the handler's docstring says so rather than a comment doing
+    the work of a reader.
+    """
+
+    detections: tuple[SubjectDetection, ...]
+    frame: FrameSize
+    span: TimeSpan
+    policy: TrajectoryPolicy
+
+
+class PlanTrajectoryHandler:
     """The whole pipeline, stages 1 to 6, for one clip.
 
     **Every sampled point becomes exactly one keyframe.** A trajectory with fewer
@@ -175,33 +187,42 @@ def build_trajectory(
     Re-clamping would be the same class of error as re-evening a clamped value -
     an operation that looks defensive and can only move a correct answer.
 
-    `span` is accepted because design.md fixes this signature and slice 13 seeks
-    with it. Nothing here reads it: detection times are already clip-local, so
-    re-offsetting them would be the second translation point the port docstring
+    `span` is on the query because design.md fixes this signature and slice 13
+    seeks with it. Nothing here reads it: detection times are already clip-local,
+    so re-offsetting them would be the second translation point the port docstring
     warns against.
+
+    No constructor dependencies: every input is derived from what the query
+    carries, which is what keeps this a read.
     """
-    crop_w, crop_h = crop_size_for(frame, policy)
-    tracked = _tracked_rects(detections, frame, policy, crop_w, crop_h)
-    fallback = _centred(frame, crop_w, crop_h)
 
-    keyframes: list[CropKeyframe] = [
-        CropKeyframe(
-            at_s=detection.at_s,
-            rect=tracked.get(index, fallback),
-            origin=KeyframeOrigin.TRACKED,
-        )
-        for index, detection in enumerate(detections)
-    ]
+    def handle(self, query: PlanTrajectoryQuery) -> CropTrajectory:
+        detections = query.detections
+        frame = query.frame
+        policy = query.policy
 
-    for start, end in _miss_runs(detections):
-        for index in range(start, end):
-            keyframes[index] = _fill(
-                detections, index, start, end, tracked, fallback, policy
+        crop_w, crop_h = crop_size_for(frame, policy)
+        tracked = _tracked_rects(detections, frame, policy, crop_w, crop_h)
+        fallback = _centred(frame, crop_w, crop_h)
+
+        keyframes: list[CropKeyframe] = [
+            CropKeyframe(
+                at_s=detection.at_s,
+                rect=tracked.get(index, fallback),
+                origin=KeyframeOrigin.TRACKED,
             )
+            for index, detection in enumerate(detections)
+        ]
 
-    return CropTrajectory(
-        keyframes=tuple(keyframes), tracking=_confidence(tuple(keyframes), policy)
-    )
+        for start, end in _miss_runs(detections):
+            for index in range(start, end):
+                keyframes[index] = _fill(
+                    detections, index, start, end, tracked, fallback, policy
+                )
+
+        return CropTrajectory(
+            keyframes=tuple(keyframes), tracking=_confidence(tuple(keyframes), policy)
+        )
 
 
 def _tracked_rects(

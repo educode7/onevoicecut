@@ -92,7 +92,10 @@ from onevoicecut.systems.pipeline.clips.application.use_cases.queries.build_subt
     BuildSubtitleCuesHandler,
     BuildSubtitleCuesQuery,
 )
-from onevoicecut.usecases.plan_trajectory import build_trajectory
+from onevoicecut.systems.pipeline.clips.application.use_cases.queries.plan_trajectory import (
+    PlanTrajectoryHandler,
+    PlanTrajectoryQuery,
+)
 from onevoicecut.usecases.render_clip import (
     DEFAULT_MAX_CLIP_SECONDS,
     check_clip_range,
@@ -346,8 +349,13 @@ def _render_profiles(
             aspect = aspect_of(target.profile)
             if aspect not in trajectories:
                 policy = TrajectoryPolicy(aspect_w=aspect[0], aspect_h=aspect[1])
-                trajectories[aspect] = build_trajectory(
-                    detections, frames[aspect], span, policy
+                trajectories[aspect] = PlanTrajectoryHandler().handle(
+                    PlanTrajectoryQuery(
+                        detections=detections,
+                        frame=frames[aspect],
+                        span=span,
+                        policy=policy,
+                    )
                 )
             export = _export_from_trajectory(
                 job_id,
@@ -490,7 +498,7 @@ def _croppable_frames(
     spending the one step model weights dominate.
 
     Refusing on the *first* unusable aspect rather than per aspect is the same
-    rule `RenderProfilesHandler.handle` applies to an unmeasured profile: an operator
+            rule `resolve_render_profiles` applies to an unmeasured profile: an operator
     who asked for four destinations and would get two files learns it now, not
     by counting files afterwards.
     """

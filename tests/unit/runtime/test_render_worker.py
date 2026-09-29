@@ -570,7 +570,7 @@ class TestDetectionIsInvariantAcrossProfiles:
     """[rev 5] `detect(media, span, sample_hz)` takes no aspect and no policy --
     it answers where a person was found in the source frame, which is the same
     answer whatever shape gets cropped around it. Aspect enters only at
-    `build_trajectory`. Re-detecting per profile would multiply the one cost
+    `PlanTrajectoryHandler.handle`. Re-detecting per profile would multiply the one cost
     this pipeline lets model weights dominate, to obtain an identical answer --
     this is the unit's sharpest cost assertion.
 
@@ -621,27 +621,27 @@ class TestDetectionIsInvariantAcrossProfiles:
 def _counting_build_trajectory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> list[TrajectoryPolicy]:
-    """Wraps the real `build_trajectory` so a test can observe how many times
-    -- and for which aspect -- it actually ran, without changing its answer.
-    `render_worker` binds the name at import time, so patching by dotted
-    string is what a caller going through the module's own name actually
-    sees; the module is not asked to re-export the name for this."""
-    from onevoicecut.usecases.plan_trajectory import (
-        build_trajectory as real_build_trajectory,
+    """Wraps the real `PlanTrajectoryHandler.handle` so a test can observe how
+    many times -- and for which aspect -- it actually ran, without changing its
+    answer. `render_worker` builds its own handler at the call site, so patching
+    the class method every dispatch goes through is what a caller going through
+    the module actually sees; the module is not asked to re-export a name for
+    this."""
+    from onevoicecut.systems.pipeline.clips.application.use_cases.queries.plan_trajectory import (
+        PlanTrajectoryHandler,
+        PlanTrajectoryQuery,
     )
 
+    real_handle = PlanTrajectoryHandler.handle
     policies_seen: list[TrajectoryPolicy] = []
 
     def spy(
-        detections: tuple[SubjectDetection, ...],
-        frame: FrameSize,
-        span: TimeSpan,
-        policy: TrajectoryPolicy,
+        self: PlanTrajectoryHandler, query: PlanTrajectoryQuery
     ) -> CropTrajectory:
-        policies_seen.append(policy)
-        return real_build_trajectory(detections, frame, span, policy)
+        policies_seen.append(query.policy)
+        return real_handle(self, query)
 
-    monkeypatch.setattr("onevoicecut.runtime.render_worker.build_trajectory", spy)
+    monkeypatch.setattr(PlanTrajectoryHandler, "handle", spy)
     return policies_seen
 
 

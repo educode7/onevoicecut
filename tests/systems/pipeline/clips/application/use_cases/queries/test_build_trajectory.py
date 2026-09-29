@@ -32,6 +32,7 @@ from pathlib import Path
 import pytest
 
 from onevoicecut.systems.pipeline.clips.domain.framing import (
+    CropTrajectory,
     KeyframeOrigin,
     TimeSpan,
     TrackingConfidence,
@@ -40,8 +41,11 @@ from onevoicecut.systems.pipeline.clips.domain.framing import (
 )
 from onevoicecut.shared.domain.media import FrameSize
 from onevoicecut.systems.pipeline.clips.domain.interfaces.subject_tracker import BoundingBox, SubjectDetection
-from onevoicecut.usecases import plan_trajectory
-from onevoicecut.usecases.plan_trajectory import build_trajectory
+from onevoicecut.systems.pipeline.clips.application.use_cases.queries import plan_trajectory
+from onevoicecut.systems.pipeline.clips.application.use_cases.queries.plan_trajectory import (
+    PlanTrajectoryHandler,
+    PlanTrajectoryQuery,
+)
 
 FRAME = FrameSize(width=1920, height=1080)
 POLICY = TrajectoryPolicy()
@@ -77,20 +81,36 @@ def _miss(index: int) -> SubjectDetection:
     return SubjectDetection(at_s=_at(index), box=None, confidence=None)
 
 
+def _trajectory(
+    detections: tuple[SubjectDetection, ...],
+    frame: FrameSize,
+    span: TimeSpan,
+    policy: TrajectoryPolicy,
+) -> CropTrajectory:
+    """Dispatch one `PlanTrajectoryQuery` through its handler — the CQRS shape
+    slice 4c converts `build_trajectory` to, kept in one place so the assertions
+    below stay about the trajectory rather than about dispatch."""
+    return PlanTrajectoryHandler().handle(
+        PlanTrajectoryQuery(
+            detections=detections, frame=frame, span=span, policy=policy
+        )
+    )
+
+
 def _origins(detections: tuple[SubjectDetection, ...]) -> list[KeyframeOrigin]:
-    return [k.origin for k in build_trajectory(detections, FRAME, SPAN, POLICY).keyframes]
+    return [k.origin for k in _trajectory(detections, FRAME, SPAN, POLICY).keyframes]
 
 
 class TestStageFiveClampsIntoTheFrame:
     def test_a_subject_at_the_left_edge_does_not_push_the_crop_out(self) -> None:
         """A centred crop around x=0 would start at a negative offset. The rect
         has to stay inside the picture that exists."""
-        trajectory = build_trajectory((_hit(0, 0.0),), FRAME, SPAN, POLICY)
+        trajectory = _trajectory((_hit(0, 0.0),), FRAME, SPAN, POLICY)
 
         assert trajectory.keyframes[0].rect.x == 0
 
     def test_a_subject_at_the_right_edge_does_not_push_the_crop_out(self) -> None:
-        trajectory = build_trajectory(
+        trajectory = _trajectory(
             (_hit(0, float(FRAME.width)),), FRAME, SPAN, POLICY
         )
 
@@ -101,12 +121,12 @@ class TestStageFiveClampsIntoTheFrame:
         comes through untouched, or the crop follows the frame instead of the
         preacher."""
         middle = FRAME.width / 2
-        trajectory = build_trajectory((_hit(0, middle),), FRAME, SPAN, POLICY)
+        trajectory = _trajectory((_hit(0, middle),), FRAME, SPAN, POLICY)
 
         assert trajectory.keyframes[0].rect.x == int(middle - CROP_W / 2)
 
     def test_the_crop_size_is_the_one_computed_for_the_clip(self) -> None:
-        trajectory = build_trajectory((_hit(0, 500.0),), FRAME, SPAN, POLICY)
+        trajectory = _trajectory((_hit(0, 500.0),), FRAME, SPAN, POLICY)
 
         assert (trajectory.keyframes[0].rect.width, trajectory.keyframes[0].rect.height) == (
             CROP_W,
@@ -120,7 +140,7 @@ class TestStageFiveClampsIntoTheFrame:
         could ignore the vertical axis at all."""
         assert CROP_H == FRAME.height
 
-        trajectory = build_trajectory((_hit(0, 500.0),), FRAME, SPAN, POLICY)
+        trajectory = _trajectory((_hit(0, 500.0),), FRAME, SPAN, POLICY)
 
         assert trajectory.keyframes[0].rect.y == 0
 
@@ -135,7 +155,7 @@ class TestStageFiveClampsIntoTheFrame:
         crop_w, crop_h = crop_size_for(tall, POLICY)
         assert crop_h < tall.height  # the branch this test exists for
 
-        trajectory = build_trajectory((_hit(0, 500.0),), tall, SPAN, POLICY)
+        trajectory = _trajectory((_hit(0, 500.0),), tall, SPAN, POLICY)
 
         assert trajectory.keyframes[0].rect.y == (tall.height - crop_h) // 2
 
@@ -157,7 +177,7 @@ class TestStageSixBridgesAGapItCanSee:
         """Monotone between the two tracked rects, and strictly inside them. A
         fill that jumped to one endpoint would satisfy "interpolated" as a label
         while showing a cut."""
-        rects = [k.rect.x for k in build_trajectory(self._bounded_gap(), FRAME, SPAN, POLICY).keyframes]
+        rects = [k.rect.x for k in _trajectory(self._bounded_gap(), FRAME, SPAN, POLICY).keyframes]
 
         assert rects == sorted(rects)
         assert rects[0] < rects[1] < rects[2] < rects[3]
@@ -208,7 +228,7 @@ class TestStageSixFallsBackWhenItCannotSee:
         }
 
     def test_a_fallback_rect_is_centred(self) -> None:
-        trajectory = build_trajectory((_miss(0),), FRAME, SPAN, POLICY)
+        trajectory = _trajectory((_miss(0),), FRAME, SPAN, POLICY)
 
         assert trajectory.keyframes[0].rect.x == CENTRED_X
 
@@ -226,7 +246,7 @@ class TestProvenanceIsCompleteAndHonest:
         and an unanswered moment has no origin to report."""
         detections = (_hit(0, 400.0), _miss(1), _hit(2, 800.0), _miss(3), _miss(4))
 
-        trajectory = build_trajectory(detections, FRAME, SPAN, POLICY)
+        trajectory = _trajectory(detections, FRAME, SPAN, POLICY)
 
         assert len(trajectory.keyframes) == len(detections)
 
@@ -244,7 +264,7 @@ class TestProvenanceIsCompleteAndHonest:
         follows the preacher a beat late for the whole clip."""
         detections = (_hit(0, 400.0), _miss(1), _hit(2, 800.0))
 
-        trajectory = build_trajectory(detections, FRAME, SPAN, POLICY)
+        trajectory = _trajectory(detections, FRAME, SPAN, POLICY)
 
         assert [k.at_s for k in trajectory.keyframes] == [d.at_s for d in detections]
 
@@ -254,7 +274,7 @@ class TestConfidenceIsReportedBeforeRendering:
         detections = (_hit(0, 400.0), *(_miss(i) for i in range(1, 9)))
 
         assert (
-            build_trajectory(detections, FRAME, SPAN, POLICY).tracking
+            _trajectory(detections, FRAME, SPAN, POLICY).tracking
             is TrackingConfidence.LOW_CONFIDENCE
         )
 
@@ -262,7 +282,7 @@ class TestConfidenceIsReportedBeforeRendering:
         detections = tuple(_hit(i, 400.0 + i * 8) for i in range(8))
 
         assert (
-            build_trajectory(detections, FRAME, SPAN, POLICY).tracking
+            _trajectory(detections, FRAME, SPAN, POLICY).tracking
             is TrackingConfidence.WELL_TRACKED
         )
 
@@ -280,7 +300,7 @@ class TestConfidenceIsReportedBeforeRendering:
         detections = (_hit(0, 400.0), _miss(1), _miss(2), _miss(3), _hit(4, 420.0))
 
         assert (
-            build_trajectory(detections, FRAME, SPAN, POLICY).tracking
+            _trajectory(detections, FRAME, SPAN, POLICY).tracking
             is TrackingConfidence.WELL_TRACKED
         )
 
@@ -292,7 +312,7 @@ class TestConfidenceIsReportedBeforeRendering:
         detections = (_miss(0), _miss(1), _hit(2, 400.0), _hit(3, 400.0))
 
         assert (
-            build_trajectory(detections, FRAME, SPAN, POLICY).tracking
+            _trajectory(detections, FRAME, SPAN, POLICY).tracking
             is TrackingConfidence.WELL_TRACKED
         )
 
@@ -302,7 +322,7 @@ class TestConfidenceIsReportedBeforeRendering:
         the "looks like success" failure in its purest form — and the ratio has
         no denominator to compute from either."""
         assert (
-            build_trajectory((), FRAME, SPAN, POLICY).tracking
+            _trajectory((), FRAME, SPAN, POLICY).tracking
             is TrackingConfidence.LOW_CONFIDENCE
         )
 
@@ -318,11 +338,11 @@ class TestConfidenceIsReportedBeforeRendering:
         strict = TrajectoryPolicy(max_fallback_ratio=0.1)
 
         assert (
-            build_trajectory(detections, FRAME, SPAN, POLICY).tracking
+            _trajectory(detections, FRAME, SPAN, POLICY).tracking
             is TrackingConfidence.WELL_TRACKED
         )
         assert (
-            build_trajectory(detections, FRAME, SPAN, strict).tracking
+            _trajectory(detections, FRAME, SPAN, strict).tracking
             is TrackingConfidence.LOW_CONFIDENCE
         )
 
@@ -349,7 +369,7 @@ class TestNothingLeavesTheFrame:
             _hit(i, centre_x) if hit else _miss(i) for i, hit in enumerate(pattern)
         )
 
-        for keyframe in build_trajectory(detections, FRAME, SPAN, POLICY).keyframes:
+        for keyframe in _trajectory(detections, FRAME, SPAN, POLICY).keyframes:
             assert 0 <= keyframe.rect.x <= FRAME.width - keyframe.rect.width
             assert 0 <= keyframe.rect.y <= FRAME.height - keyframe.rect.height
 
