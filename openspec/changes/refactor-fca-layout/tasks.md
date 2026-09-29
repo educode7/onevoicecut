@@ -782,16 +782,27 @@ Closes: behavior preservation for generation/render/export/purge commands and th
 derivation queries (`render_profiles`, `plan_trajectory`, `build_subtitle_cues` — reads, per
 the CQRS classification note).
 
-- [ ] 4c.1 RED: handler-shape tests (moved assertions, import-fail RED) for
+- [x] 4c.1 RED: handler-shape tests (moved assertions, import-fail RED) for
       `GenerateArtifactsHandler`, `RequestClipExportHandler`, `RenderClipHandler`,
       `PurgeJobArtifactsHandler` commands and `RenderProfilesQuery`, `PlanTrajectoryQuery`,
       `BuildSubtitleCuesQuery` queries under
       `systems/pipeline/clips/application/use_cases/{commands,queries}/`. `[unit 4c]`
-- [ ] 4c.2 GREEN: convert the seven use cases — wrap-and-rename, bodies verbatim; callers
+- [x] 4c.2 GREEN: convert the seven use cases — wrap-and-rename, bodies verbatim; callers
       (still-drained-yet clip routes in `adapters/web`, render worker wiring prepared for 4f)
       rewired through temporary composition wiring until 4e's `clips_module_api`. `[unit 4c]`
-- [ ] 4c.3 Verify: suite + mypy; commit
+- [x] 4c.3 Verify: suite + mypy; commit
       `refactor(fca): convert clips use cases to Command/Handler files`. `[unit 4c]`
+
+  Landed as six green-alone units, not the single commit named above: the combined diff
+  measured 1,388 native lines against the 400-line review budget, so it was split at each
+  use case's own seam — `c925715` (generate_artifacts), `71b32f3` (build_subtitle_cues),
+  `7681c52` (plan_trajectory), `ff549a1` (render_profiles), `f54dca1`
+  (request_clip_export + purge), `3fffbaa` (render_clip + the commands shape test).
+  `ff549a1`'s message claims "Closes 4c.2" while only the three queries had landed;
+  `3fffbaa` is the commit that actually closes it. Verified at `3fffbaa`: the named
+  command selects 322 passed, the full run 2209 passed / 44 deselected / **0 skipped**,
+  mypy clean over 370 source files, and no reference to any of the seven converted
+  modules survives under `src/` or `tests/`.
 
 ---
 
