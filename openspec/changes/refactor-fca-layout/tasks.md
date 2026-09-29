@@ -811,18 +811,75 @@ the CQRS classification note).
 Closes: adapter relocation with zero behavior change; AB rules over the new tree already live
 (4a).
 
-- [ ] 4d.1 RED-by-move: relocate vision/llm/video-render/subtitles adapter tests to
+- [x] 4d.1 RED-by-move: relocate vision/llm/video-render/subtitles adapter tests to
       `tests/systems/pipeline/clips/infrastructure/...` — import-fail RED; bodies unchanged;
       capability-probe (`REQUIRES_SETUP`) tests unchanged; markers preserved. `[unit 4d]`
-- [ ] 4d.2 GREEN: relocate `adapters/llm/` to `systems/pipeline/clips/infrastructure/llm/`;
+- [x] 4d.2 GREEN: relocate `adapters/llm/` to `systems/pipeline/clips/infrastructure/llm/`;
       `adapters/vision/` and video-render + subtitles pieces of `adapters/ffmpeg/` to
       `systems/pipeline/clips/infrastructure/`; shared ffmpeg helpers (if 3d placed any in
       `shared/infrastructure/ffmpeg/`) imported from there. `[unit 4d]`
-- [ ] 4d.3 GREEN: `runtime/tracker_resolver.py` and any render-side resolver import lines
+- [x] 4d.3 GREEN: `runtime/tracker_resolver.py` and any render-side resolver import lines
       rewire — import lines only, **body frozen**. `[unit 4d]`
-- [ ] 4d.4 Verify: suite + mypy; commit
+- [x] 4d.4 Verify: suite + mypy; commit
       `refactor(fca): move vision, llm, and render adapters under clips infrastructure`.
       `[unit 4d]`
+
+  Landed as three green-alone commits, one per adapter seam, not the single commit named
+  above: `dd2632b` (vision, 35 lines), `7bf694c` (llm, 21), `0d7330c` (video-render +
+  subtitles, 36) — 92 native lines against the 400-line budget, so the split bought seam
+  isolation rather than a smaller diff. Every RED was observed **per seam** (the three moves
+  were never in the tree together), not as one combined run; per-seam tallies, each a
+  `ModuleNotFoundError` naming the new package, with default flags aborting before they can
+  tally:
+  * vision **2 errors** — `...infrastructure.vision`; `--continue-on-collection-errors`
+    also reports exactly 2 errors, so nothing in that file collected.
+  * llm **3 errors** — `...infrastructure.llm`.
+  * video-render + subtitles **2 errors** — `...infrastructure.ffmpeg`; over the full in-play
+    scope, 874 passed / 31 deselected / 2 errors (the only run all three seams' tests were
+    in, since each seam went GREEN before the next began). The partial shape is by design:
+    the tests whose subject still resolved through the legacy `adapters.ffmpeg` package
+    stayed green (82 passed) until the source moved.
+  GREEN, seam by seam: vision 63 passed / 11 deselected, then safety net 922 / 31;
+  llm 41 / 2 (llm tree + `worker` generation wiring), then 1266 / 31 over
+  clips+adapters+contract+runtime; ffmpeg 54 in the new dir, 82 in the surviving argv/sendcmd
+  dir, 28 across both `render_clip` consumers, then 1318 / 31 over
+  clips+adapters+contract+runtime+integration. Final: full default run **2209 passed /
+  44 deselected / 0 skipped** — identical to the pre-slice baseline; `mypy src tests` clean
+  over **372** source files; `tests/test_architecture.py` 37 passed; markers unchanged
+  before and after (**localmodel 34/2253, paid 10/2253**); zero references to
+  `adapters.{llm,vision,ffmpeg}` survive outside `tests/test_architecture.py`'s
+  AST-written plant strings, which were deliberately not touched.
+
+  Home decisions for the ffmpeg pieces, each disclosed as the task asked (decide by what the
+  module's imports name): `subtitles.py` → `shared.domain.errors` +
+  `clips.domain.rendering.{RenderProfile,SubtitleCue}` → clips infrastructure;
+  `video_render.py` → clips framing/capabilities/interfaces → clips infrastructure, keeping
+  its `argv`/`sendcmd` imports from `systems/pipeline/transcripts/infrastructure/ffmpeg/`
+  (the cross-module edge 3d established; no rule yet guards `systems/*/infrastructure`).
+  `adapters/ffmpeg/` is now empty and was deleted as drained. `tests/unit/adapters/ffmpeg/`
+  keeps `test_argv_composition`, `test_render_argv` and `test_sendcmd` — 3d's "until 4d"
+  note resolves to those being transcripts-owned helpers, not this seam's subject.
+
+  Disclosed deviations from "bodies unchanged": `test_torchvision_tracker.py` needed three
+  non-import edits forced by the move — `parents[4]` → `parents[6]`, `VISION_DIR` retargeted
+  to the new `src` path, and one prose line saying `adapters/vision` now saying "the vision
+  package". No assertion changed. The clips-side ffmpeg test dir also carries a
+  byte-identical copy of `tests/unit/adapters/ffmpeg/conftest.py`
+  (`assume_binaries_present`) plus a zero-byte `__init__.py`, mirroring what 3d did on the
+  transcripts side; the copied docstring still names `test_availability.py`, which lives in
+  the *other* dir and has no counterpart here. `runtime/{tracker_resolver,worker,app,
+  render_worker}.py` changed on **import lines only**, bodies frozen.
+
+  One failure observed and then ruled out of scope: running
+  `tests/unit/runtime/test_env_file_loading.py` immediately before
+  `tests/integration/test_worker_entrypoint.py` makes
+  `test_a_build_with_no_engine_configured_says_so` return `EXIT_FAILED` instead of
+  `EXIT_UNUSABLE`, because the real resolver then loads model `small` and this machine has
+  no `cublas64_12.dll`. Pre-existing — reproduced with `adfb024`'s `worker.py` substituted,
+  and `worker.py` is the only slice-4d code either of those two files executes. The full
+  suite is immune because it collects `tests/integration` before `tests/unit`; only the
+  ad-hoc subset inverted that order.
+
 
 ---
 
