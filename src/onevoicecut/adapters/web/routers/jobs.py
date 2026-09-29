@@ -39,7 +39,10 @@ from onevoicecut.systems.pipeline.jobs.domain.jobs import JobRecord, JobState
 from onevoicecut.systems.pipeline.jobs.presentation.controllers.v1.job_controller import (
     validated_job_id,
 )
-from onevoicecut.usecases.request_clip_export import request_clip_export
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands.request_clip_export import (
+    RequestClipExportCommand,
+    RequestClipExportHandler,
+)
 from onevoicecut.systems.pipeline.jobs.domain.ownership import require_owner
 
 
@@ -125,14 +128,19 @@ def build_clip_router(deps: WebDependencies) -> APIRouter:
                 f"export from",
             )
 
-        clip_id, profiles = request_clip_export(
-            job.job_id,
-            body.candidate_index,
-            body.targets,
+        # Temporary composition wiring: 4e's `clips_module_api` is where the
+        # handler is supposed to be constructed, until then the route does it.
+        clip_id, profiles = RequestClipExportHandler(
             storage=deps.storage,
             new_clip_id=deps.new_clip_id,
             script_targets=deps.script_targets,
             render_profiles=deps.render_profiles,
+        ).handle(
+            RequestClipExportCommand(
+                job_id=job.job_id,
+                candidate_index=body.candidate_index,
+                targets=body.targets,
+            )
         )
 
         return ClipExportResponse(

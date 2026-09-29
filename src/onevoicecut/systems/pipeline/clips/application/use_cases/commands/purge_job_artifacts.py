@@ -36,7 +36,7 @@ class PurgeableArtifact(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class PurgeJobArtifacts:
+class PurgeJobArtifactsCommand:
     """A request, not an action. No use case consumes it yet.
 
     `keep` rather than `remove`: a policy that lists what to delete silently grows
@@ -53,3 +53,19 @@ class PurgeJobArtifacts:
     job_id: JobId
     operator: OperatorId
     keep: frozenset[PurgeableArtifact] = frozenset(PurgeableArtifact)
+
+
+class PurgeJobArtifactsHandler:
+    """The dispatch point the retention policy will attach to, which is none.
+
+    A command without a policy behind it still has a handler, because the shape
+    is what the eventual caller dispatches against: swapping an empty body for a
+    real one then changes this file alone, never a signature. The request is
+    accepted and unfulfilled on purpose — see the module docstring for why
+    deleting nothing is the honest answer today, and for the two artifact kinds
+    the answer is expected to be about.
+    """
+
+    def handle(self, command: PurgeJobArtifactsCommand) -> None:
+        """Deliberately does nothing; the policy behind it does not exist yet."""
+

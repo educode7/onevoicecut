@@ -25,7 +25,9 @@ from onevoicecut.shared.domain.errors import JobNotOwned
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_operator_id
 from onevoicecut.systems.pipeline.jobs.domain.jobs import JobState
 from onevoicecut.systems.pipeline.jobs.domain.ownership import require_owner
-from onevoicecut.usecases.purge_job_artifacts import PurgeJobArtifacts
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands.purge_job_artifacts import (
+    PurgeJobArtifactsCommand,
+)
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.unit.adapters.web.conftest import (
     TOKEN_A,
@@ -179,7 +181,7 @@ def test_the_purge_request_belongs_to_the_same_mutation_class() -> None:
     one, and no new authorization decision gets invented at that point.
     """
     job = an_owned_job()
-    request = PurgeJobArtifacts(job_id=job.job_id, operator=make_operator_id("diego"))
+    request = PurgeJobArtifactsCommand(job_id=job.job_id, operator=make_operator_id("diego"))
 
     with pytest.raises(JobNotOwned):
         require_owner(job, request.operator)

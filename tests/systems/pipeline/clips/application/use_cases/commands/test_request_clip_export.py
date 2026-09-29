@@ -30,7 +30,10 @@ from onevoicecut.systems.pipeline.clips.domain.generation import ClipCandidate, 
 from onevoicecut.shared.domain.ids import ClipId, JobId, make_clip_id, make_job_id
 from onevoicecut.systems.pipeline.clips.domain.rendering import ClipState, OutputSpec, RenderProfile, SafeArea
 from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import ScriptTarget
-from onevoicecut.usecases.request_clip_export import request_clip_export
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands.request_clip_export import (
+    RequestClipExportCommand,
+    RequestClipExportHandler,
+)
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 
 JOB_ID = make_job_id("01HQ3M8XKJ7VNPQR2ZYWB4TCFD")
@@ -99,14 +102,17 @@ def request(
     candidate_index: int = 0,
     targets: tuple[str, ...] = ("tiktok", "facebook"),
 ) -> tuple[ClipId, tuple[RenderProfile, ...]]:
-    return request_clip_export(
-        JOB_ID,
-        candidate_index,
-        targets,
+    return RequestClipExportHandler(
         storage=store,
         new_clip_id=new_clip_id_fixed(),
         script_targets=SCRIPT_TARGETS,
         render_profiles=RENDER_PROFILES,
+    ).handle(
+        RequestClipExportCommand(
+            job_id=JOB_ID,
+            candidate_index=candidate_index,
+            targets=targets,
+        )
     )
 
 
