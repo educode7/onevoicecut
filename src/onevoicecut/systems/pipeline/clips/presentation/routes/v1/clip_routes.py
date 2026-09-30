@@ -1,4 +1,4 @@
-"""The three clip operations, over paths that already carry `/api/jobs`.
+"""The three clip operations, over paths that already carry `/api/v1/jobs`.
 
 The prefix is declared here rather than passed by `main.py` when it registers
 the router. FastAPI 0.141.1 wraps a router included under an outer prefix in an
@@ -56,7 +56,7 @@ def build_router(
     """
     # Carried here rather than supplied by `include_router`: see the note above
     # and the identical one in the jobs module's `job_routes.py`.
-    router = APIRouter(prefix="/api/jobs", tags=["clips"])
+    router = APIRouter(prefix="/api/v1/jobs", tags=["clips"])
     # Written here rather than returned by the factory: only a literal
     # Annotated expression binds as a type annotation, so the factory builds
     # the resolver and this line binds it to this router's dependencies.

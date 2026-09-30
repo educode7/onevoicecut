@@ -24,7 +24,8 @@ from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, mak
 from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState
 from onevoicecut.runtime import app as app_module
-from onevoicecut.runtime.app import DrainConfig, build_app, get_app
+from onevoicecut.main import get_app
+from onevoicecut.runtime.app import DrainConfig, build_app
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.unit.adapters.web.conftest import fake_authenticate
 

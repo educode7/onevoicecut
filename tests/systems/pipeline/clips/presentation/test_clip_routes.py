@@ -132,7 +132,7 @@ async def request_clip(
     job_id: JobId = JOB_ID,
 ) -> Any:
     return await client.post(
-        f"/api/jobs/{job_id}/clips",
+        f"/api/v1/jobs/{job_id}/clips",
         json={"candidate_index": candidate_index, "targets": list(targets)},
     )
 
@@ -299,7 +299,7 @@ class TestReadingAClipsExports:
     ) -> None:
         storage.save_clip_export(a_pending_export())
 
-        response = await client.get(f"/api/jobs/{JOB_ID}/clips/{CLIP_ID}")
+        response = await client.get(f"/api/v1/jobs/{JOB_ID}/clips/{CLIP_ID}")
 
         assert response.status_code == 200
         (item,) = response.json()["exports"]
@@ -314,7 +314,7 @@ class TestReadingAClipsExports:
     ) -> None:
         storage.save_clip_export(a_done_export())
 
-        response = await client.get(f"/api/jobs/{JOB_ID}/clips/{CLIP_ID}")
+        response = await client.get(f"/api/v1/jobs/{JOB_ID}/clips/{CLIP_ID}")
 
         (item,) = response.json()["exports"]
         assert item["state"] == "done"
@@ -332,7 +332,7 @@ class TestReadingAClipsExports:
         storage.save_clip_export(a_pending_export(profile="vertical"))
         storage.save_clip_export(a_pending_export(profile="square"))
 
-        response = await client.get(f"/api/jobs/{JOB_ID}/clips/{CLIP_ID}")
+        response = await client.get(f"/api/v1/jobs/{JOB_ID}/clips/{CLIP_ID}")
 
         profiles = {item["profile"] for item in response.json()["exports"]}
         assert profiles == {"vertical", "square"}
@@ -343,17 +343,17 @@ class TestReadingAClipsExports:
         storage.save_clip_export(a_pending_export())
         storage.calls.clear()
 
-        await client.get(f"/api/jobs/{JOB_ID}/clips/{CLIP_ID}")
+        await client.get(f"/api/v1/jobs/{JOB_ID}/clips/{CLIP_ID}")
 
         assert storage.calls == []
 
     async def test_an_unknown_clip_is_a_404(self, client: AsyncClient) -> None:
-        response = await client.get(f"/api/jobs/{JOB_ID}/clips/{OTHER_CLIP_ID}")
+        response = await client.get(f"/api/v1/jobs/{JOB_ID}/clips/{OTHER_CLIP_ID}")
 
         assert response.status_code == 404
 
     async def test_a_malformed_clip_id_is_a_404_too(self, client: AsyncClient) -> None:
-        response = await client.get(f"/api/jobs/{JOB_ID}/clips/not-a-ulid")
+        response = await client.get(f"/api/v1/jobs/{JOB_ID}/clips/not-a-ulid")
 
         assert response.status_code == 404
 
@@ -365,7 +365,7 @@ class TestReadingOneProfilesExport:
         storage.save_clip_export(a_pending_export(profile="vertical"))
         storage.save_clip_export(a_pending_export(profile="square"))
 
-        response = await client.get(f"/api/jobs/{JOB_ID}/clips/{CLIP_ID}/square")
+        response = await client.get(f"/api/v1/jobs/{JOB_ID}/clips/{CLIP_ID}/square")
 
         assert response.status_code == 200
         assert response.json()["profile"] == "square"
@@ -377,12 +377,12 @@ class TestReadingOneProfilesExport:
         never be treated as identifying a single rendered file."""
         storage.save_clip_export(a_pending_export(profile="vertical"))
 
-        response = await client.get(f"/api/jobs/{JOB_ID}/clips/{CLIP_ID}/square")
+        response = await client.get(f"/api/v1/jobs/{JOB_ID}/clips/{CLIP_ID}/square")
 
         assert response.status_code == 404
 
     async def test_an_unknown_clip_is_a_404(self, client: AsyncClient) -> None:
-        response = await client.get(f"/api/jobs/{JOB_ID}/clips/{OTHER_CLIP_ID}/vertical")
+        response = await client.get(f"/api/v1/jobs/{JOB_ID}/clips/{OTHER_CLIP_ID}/vertical")
 
         assert response.status_code == 404
 
@@ -392,6 +392,6 @@ class TestReadingOneProfilesExport:
         storage.save_clip_export(a_pending_export())
         storage.calls.clear()
 
-        await client.get(f"/api/jobs/{JOB_ID}/clips/{CLIP_ID}/vertical")
+        await client.get(f"/api/v1/jobs/{JOB_ID}/clips/{CLIP_ID}/vertical")
 
         assert storage.calls == []

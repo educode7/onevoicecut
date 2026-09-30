@@ -109,7 +109,7 @@ async def client(storage: FakeTranscriptStoragePort) -> AsyncIterator[AsyncClien
 
 
 async def status_of(client: AsyncClient, job_id: JobId = JOB_ID) -> dict[str, Any]:
-    response = await client.get(f"/api/jobs/{job_id}")
+    response = await client.get(f"/api/v1/jobs/{job_id}")
     assert response.status_code == 200
     payload: dict[str, Any] = response.json()
     return payload
@@ -216,13 +216,13 @@ async def test_polling_writes_nothing(
 
 
 async def test_an_unknown_job_is_a_404(client: AsyncClient) -> None:
-    response = await client.get("/api/jobs/01HQ3M8XKJ7VNPQR2ZYWB4TCFF")
+    response = await client.get("/api/v1/jobs/01HQ3M8XKJ7VNPQR2ZYWB4TCFF")
 
     assert response.status_code == 404
 
 
 async def test_a_malformed_id_is_a_404_too(client: AsyncClient) -> None:
     """Same answer as unknown, so the store never reveals which ids exist."""
-    response = await client.get("/api/jobs/not-a-ulid")
+    response = await client.get("/api/v1/jobs/not-a-ulid")
 
     assert response.status_code == 404

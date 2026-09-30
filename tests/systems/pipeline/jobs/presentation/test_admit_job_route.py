@@ -46,7 +46,7 @@ async def client(storage: FakeTranscriptStoragePort) -> AsyncIterator[AsyncClien
 
 
 async def test_admitting_a_job_returns_its_id(client: AsyncClient) -> None:
-    response = await client.post("/api/jobs", json={"engine": "local"})
+    response = await client.post("/api/v1/jobs", json={"engine": "local"})
 
     assert response.status_code == 201
     assert _ULID_PATTERN.match(response.json()["job_id"])
@@ -56,7 +56,7 @@ async def test_the_admitted_job_is_persisted_as_pending(
     client: AsyncClient, storage: FakeTranscriptStoragePort
 ) -> None:
     """PENDING and not EXTRACTING: nothing has been uploaded yet, let alone read."""
-    response = await client.post("/api/jobs", json={"engine": "local"})
+    response = await client.post("/api/v1/jobs", json={"engine": "local"})
 
     job = storage.load_job(response.json()["job_id"])
     assert job.state is JobState.PENDING
@@ -68,7 +68,7 @@ async def test_the_speaker_mode_defaults_to_a_single_voice(
 ) -> None:
     """Talking-head is the normal case; diarization is opt-in per job and is never
     inferred from the audio."""
-    response = await client.post("/api/jobs", json={"engine": "local"})
+    response = await client.post("/api/v1/jobs", json={"engine": "local"})
 
     assert storage.load_job(response.json()["job_id"]).speaker_mode is SpeakerMode.SINGLE
 
@@ -77,7 +77,7 @@ async def test_an_interview_job_records_that_choice(
     client: AsyncClient, storage: FakeTranscriptStoragePort
 ) -> None:
     response = await client.post(
-        "/api/jobs", json={"engine": "cloud", "speaker_mode": "multi"}
+        "/api/v1/jobs", json={"engine": "cloud", "speaker_mode": "multi"}
     )
 
     job = storage.load_job(response.json()["job_id"])
@@ -89,7 +89,7 @@ async def test_the_engine_must_be_chosen_explicitly(client: AsyncClient) -> None
     """There is no global default engine. The choice is content-dependent —
     private material goes local — so an omitted engine is a question, not a
     field to fill in with a guess."""
-    response = await client.post("/api/jobs", json={})
+    response = await client.post("/api/v1/jobs", json={})
 
     assert response.status_code == 422
 
@@ -98,14 +98,14 @@ async def test_the_engine_must_be_chosen_explicitly(client: AsyncClient) -> None
 async def test_an_engine_that_is_not_offered_is_refused(
     client: AsyncClient, engine: str
 ) -> None:
-    response = await client.post("/api/jobs", json={"engine": engine})
+    response = await client.post("/api/v1/jobs", json={"engine": engine})
 
     assert response.status_code == 422
 
 
 async def test_an_unknown_speaker_mode_is_refused(client: AsyncClient) -> None:
     response = await client.post(
-        "/api/jobs", json={"engine": "local", "speaker_mode": "choir"}
+        "/api/v1/jobs", json={"engine": "local", "speaker_mode": "choir"}
     )
 
     assert response.status_code == 422
@@ -114,7 +114,7 @@ async def test_an_unknown_speaker_mode_is_refused(client: AsyncClient) -> None:
 async def test_a_rejected_request_creates_no_job(
     client: AsyncClient, storage: FakeTranscriptStoragePort
 ) -> None:
-    await client.post("/api/jobs", json={"engine": "gpu"})
+    await client.post("/api/v1/jobs", json={"engine": "gpu"})
 
     assert storage.list_jobs() == ()
 
@@ -122,8 +122,8 @@ async def test_a_rejected_request_creates_no_job(
 async def test_two_admissions_are_two_jobs(
     client: AsyncClient, storage: FakeTranscriptStoragePort
 ) -> None:
-    first = await client.post("/api/jobs", json={"engine": "local"})
-    second = await client.post("/api/jobs", json={"engine": "local"})
+    first = await client.post("/api/v1/jobs", json={"engine": "local"})
+    second = await client.post("/api/v1/jobs", json={"engine": "local"})
 
     assert first.json()["job_id"] != second.json()["job_id"]
     assert len(storage.list_jobs()) == 2
@@ -134,7 +134,7 @@ async def test_admission_starts_no_work(
 ) -> None:
     """The request returns before anything expensive happens — there is nothing to
     plan yet, and a multi-hour transcription must never sit inside a response."""
-    response = await client.post("/api/jobs", json={"engine": "local"})
+    response = await client.post("/api/v1/jobs", json={"engine": "local"})
     job_id = response.json()["job_id"]
 
     assert storage.load_chunk_plan(job_id) is None
@@ -145,7 +145,7 @@ async def test_admission_starts_no_work(
 async def test_the_admission_timestamps_come_from_the_injected_clock(
     client: AsyncClient, storage: FakeTranscriptStoragePort
 ) -> None:
-    response = await client.post("/api/jobs", json={"engine": "local"})
+    response = await client.post("/api/v1/jobs", json={"engine": "local"})
 
     job = storage.load_job(response.json()["job_id"])
     assert job.created_at == FIXED_NOW

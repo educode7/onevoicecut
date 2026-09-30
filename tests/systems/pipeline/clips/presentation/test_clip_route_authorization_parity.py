@@ -37,20 +37,20 @@ from tests.unit.adapters.web.test_mutation_ownership_matrix import _mutating_job
 def test_the_post_clips_route_is_seen_by_the_401_gate() -> None:
     cases = _registered_route_cases()
 
-    assert ("POST", f"/api/jobs/{PROBE_JOB_ID}/clips") in cases
+    assert ("POST", f"/api/v1/jobs/{PROBE_JOB_ID}/clips") in cases
 
 
 def test_both_get_clip_routes_are_seen_by_the_401_gate() -> None:
     cases = _registered_route_cases()
 
-    assert ("GET", f"/api/jobs/{PROBE_JOB_ID}/clips/{{clip_id}}") in cases
-    assert ("GET", f"/api/jobs/{PROBE_JOB_ID}/clips/{{clip_id}}/{{profile}}") in cases
+    assert ("GET", f"/api/v1/jobs/{PROBE_JOB_ID}/clips/{{clip_id}}") in cases
+    assert ("GET", f"/api/v1/jobs/{PROBE_JOB_ID}/clips/{{clip_id}}/{{profile}}") in cases
 
 
 def test_the_post_clips_route_is_seen_by_the_403_matrix() -> None:
     cases = _mutating_job_routes()
 
-    assert ("POST", "/api/jobs/{job_id}/clips") in cases
+    assert ("POST", "/api/v1/jobs/{job_id}/clips") in cases
 
 
 def test_neither_get_clip_route_is_in_the_403_matrix() -> None:
@@ -59,7 +59,7 @@ def test_neither_get_clip_route_is_in_the_403_matrix() -> None:
     cases = _mutating_job_routes()
 
     assert not any(
-        path.startswith("/api/jobs/{job_id}/clips") for method, path in cases if method == "GET"
+        path.startswith("/api/v1/jobs/{job_id}/clips") for method, path in cases if method == "GET"
     )
 
 
@@ -72,6 +72,6 @@ def test_a_body_shaped_for_the_admit_route_would_have_failed_before_auth() -> No
 
 
 def test_route_request_body_gives_the_clips_route_a_body_it_accepts() -> None:
-    _content, json_body = route_request_body("POST", f"/api/jobs/{PROBE_JOB_ID}/clips")
+    _content, json_body = route_request_body("POST", f"/api/v1/jobs/{PROBE_JOB_ID}/clips")
 
     ClipExportRequest.model_validate(json_body)

@@ -29,7 +29,7 @@ from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, mak
 from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState
 from onevoicecut.runtime import worker
-from onevoicecut.runtime.app import get_app
+from onevoicecut.main import get_app
 from onevoicecut.runtime.engine_resolver import EngineResolver
 from onevoicecut.shared.infrastructure.settings import load_env_file
 from onevoicecut.runtime.worker import LOCAL_MODEL_SIZE_ENV

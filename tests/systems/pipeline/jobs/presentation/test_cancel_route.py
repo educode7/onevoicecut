@@ -1,4 +1,4 @@
-"""`POST /api/jobs/{id}/cancel` — the HTTP face of the cancellation use case.
+"""`POST /api/v1/jobs/{id}/cancel` — the HTTP face of the cancellation use case.
 
 The use-case tests already pin *what* gets written in each state. What is only
 observable here is the shape of the answer: one status for every branch, the
@@ -50,7 +50,7 @@ async def client(storage: FakeTranscriptStoragePort) -> AsyncIterator[AsyncClien
 
 async def admitted(client: AsyncClient) -> JobId:
     response = await client.post(
-        "/api/jobs", json={"engine": "local"}, headers=auth_headers(TOKEN_A)
+        "/api/v1/jobs", json={"engine": "local"}, headers=auth_headers(TOKEN_A)
     )
     return make_job_id(response.json()["job_id"])
 
@@ -77,7 +77,7 @@ async def test_owner_cancelling_a_running_job_is_answered_immediately(
     job_id = await running(client, storage, JobState.TRANSCRIBING)
 
     response = await client.post(
-        f"/api/jobs/{job_id}/cancel", headers=auth_headers(TOKEN_A)
+        f"/api/v1/jobs/{job_id}/cancel", headers=auth_headers(TOKEN_A)
     )
 
     assert response.status_code == 200
@@ -96,7 +96,7 @@ async def test_the_reported_state_is_the_one_the_record_still_carries(
     job_id = await running(client, storage, JobState.STITCHING)
 
     response = await client.post(
-        f"/api/jobs/{job_id}/cancel", headers=auth_headers(TOKEN_A)
+        f"/api/v1/jobs/{job_id}/cancel", headers=auth_headers(TOKEN_A)
     )
 
     assert response.json()["state"] == "stitching"
@@ -110,7 +110,7 @@ async def test_cancelling_a_job_no_worker_owns_reports_it_cancelled(
     job_id = await admitted(client)
 
     response = await client.post(
-        f"/api/jobs/{job_id}/cancel", headers=auth_headers(TOKEN_A)
+        f"/api/v1/jobs/{job_id}/cancel", headers=auth_headers(TOKEN_A)
     )
 
     assert response.status_code == 200
@@ -130,7 +130,7 @@ async def test_cancelling_a_finished_job_succeeds_and_touches_nothing(
     job_id = await running(client, storage, JobState.COMPLETED)
 
     response = await client.post(
-        f"/api/jobs/{job_id}/cancel", headers=auth_headers(TOKEN_A)
+        f"/api/v1/jobs/{job_id}/cancel", headers=auth_headers(TOKEN_A)
     )
 
     assert response.status_code == 200
@@ -150,7 +150,7 @@ async def test_non_owner_cancellation_is_denied_with_nothing_touched(
     record_before = storage.load_job(job_id)
 
     response = await client.post(
-        f"/api/jobs/{job_id}/cancel", headers=auth_headers(TOKEN_B)
+        f"/api/v1/jobs/{job_id}/cancel", headers=auth_headers(TOKEN_B)
     )
 
     assert response.status_code == 403
@@ -167,7 +167,7 @@ async def test_an_ownerless_legacy_job_is_cancellable_by_nobody(
     storage.update_job(replace(storage.load_job(job_id), owner=None))
 
     response = await client.post(
-        f"/api/jobs/{job_id}/cancel", headers=auth_headers(TOKEN_A)
+        f"/api/v1/jobs/{job_id}/cancel", headers=auth_headers(TOKEN_A)
     )
 
     assert response.status_code == 403
@@ -185,7 +185,7 @@ async def test_malformed_and_unknown_ids_are_indistinguishable(
 ) -> None:
     """CXL-08: both answer 404, so the route never reveals which ids exist."""
     response = await client.post(
-        f"/api/jobs/{job_id}/cancel", headers=auth_headers(TOKEN_A)
+        f"/api/v1/jobs/{job_id}/cancel", headers=auth_headers(TOKEN_A)
     )
 
     assert response.status_code == 404
@@ -197,7 +197,7 @@ async def test_an_unauthenticated_cancellation_is_refused_before_anything_else(
     """AUTH-02 on the newest mutating route — the gate is not opt-in."""
     job_id = await running(client, storage, JobState.TRANSCRIBING)
 
-    response = await client.post(f"/api/jobs/{job_id}/cancel")
+    response = await client.post(f"/api/v1/jobs/{job_id}/cancel")
 
     assert response.status_code == 401
     assert response.headers["www-authenticate"] == "Bearer"
@@ -225,7 +225,7 @@ async def test_the_load_bearing_precedence_401_beats_404_beats_403(
     job_id = "not-a-ulid" if target == "malformed" else foreign_id
     headers = {} if token is None else auth_headers(token)
 
-    response = await client.post(f"/api/jobs/{job_id}/cancel", headers=headers)
+    response = await client.post(f"/api/v1/jobs/{job_id}/cancel", headers=headers)
 
     assert response.status_code == expected
     assert storage.load_job(foreign_id).state is JobState.TRANSCRIBING

@@ -287,7 +287,7 @@ LLM generation is no longer on that list: the Ollama adapter and the worker wiri
 `run_generation` in the use case chains the five built pieces — window, map, fold, rank, script —
 and the worker calls it after `transcribe_job` returns COMPLETED and only then, when
 `ONEVOICECUT_LLM_MODEL` is set and the preflight probe sees the model on the Ollama server. That
-machine writes `artifacts.json` beside the transcript, and `POST /api/jobs/{id}/clips` reaches the
+machine writes `artifacts.json` beside the transcript, and `POST /api/v1/jobs/{id}/clips` reaches the
 render half instead of answering 409 `ArtifactsNotAvailable`. A machine without either still gets a
 COMPLETED job with its transcript and no artifacts: a probe negative is a logged skip naming
 `ollama pull`, and any domain error from generation is one line on stderr — a dead Ollama must
@@ -348,11 +348,11 @@ $env:ONEVOICECUT_LOCAL_DEVICE = "cpu"         # "auto" is the default; see the c
 $env:ONEVOICECUT_LLM_MODEL = "qwen2.5:7b-instruct"  # no default: unset registers no generator at all
 $env:ONEVOICECUT_OLLAMA_HOST = "http://127.0.0.1:11434"  # the default; Ollama is a system service
 $env:PYTHONPATH = "src"
-.venv\Scripts\python.exe -m uvicorn onevoicecut.runtime.app:get_app --factory
+.venv\Scripts\python.exe -m uvicorn onevoicecut.main:get_app --factory
 ```
 
-`POST /api/jobs` → `PUT /api/jobs/{id}/media` → the record goes **QUEUED** → the drain supervisor starts
-a worker within one five-second sweep → `GET /api/jobs/{id}` reports chunk progress → `transcript.txt`
+`POST /api/v1/jobs` → `PUT /api/v1/jobs/{id}/media` → the record goes **QUEUED** → the drain supervisor starts
+a worker within one five-second sweep → `GET /api/v1/jobs/{id}` reports chunk progress → `transcript.txt`
 lands in the job directory, and with the two LLM variables set and Ollama serving that model,
 `artifacts.json` lands beside it once generation finishes.
 
@@ -404,14 +404,14 @@ because two separate programs enforce the per-chunk timeout, and a spelling that
 would be a setting silently applying to one and not the other.
 
 Eight HTTP operations across seven paths, **all of them authenticated** — a bearer token parsed from
-`ONEVOICECUT_OPERATOR_TOKENS`, fail-closed at boot. The five job-level ones: `POST /api/jobs` (admit,
-201), `GET /api/jobs` (shared listing with owner attribution and a server-side `?mine=true` filter),
-`GET /api/jobs/{id}` (chunk-level progress; read-only, and a test enforces that it writes nothing),
-`PUT /api/jobs/{id}/media` (raw-body streaming upload, 204) and `POST /api/jobs/{id}/cancel`. Then
-three for clips: `POST /api/jobs/{id}/clips` (202 — writes one `PENDING` export per distinct profile
-and renders nothing), `GET /api/jobs/{id}/clips/{clip_id}` (every profile's export, never just one: a
+`ONEVOICECUT_OPERATOR_TOKENS`, fail-closed at boot. The five job-level ones: `POST /api/v1/jobs` (admit,
+201), `GET /api/v1/jobs` (shared listing with owner attribution and a server-side `?mine=true` filter),
+`GET /api/v1/jobs/{id}` (chunk-level progress; read-only, and a test enforces that it writes nothing),
+`PUT /api/v1/jobs/{id}/media` (raw-body streaming upload, 204) and `POST /api/v1/jobs/{id}/cancel`. Then
+three for clips: `POST /api/v1/jobs/{id}/clips` (202 — writes one `PENDING` export per distinct profile
+and renders nothing), `GET /api/v1/jobs/{id}/clips/{clip_id}` (every profile's export, never just one: a
 single-object response would have to pick a profile to report and be wrong about the rest) and
-`GET /api/jobs/{id}/clips/{clip_id}/{profile}` (exactly one — a clip id alone never identifies a
+`GET /api/v1/jobs/{id}/clips/{clip_id}/{profile}` (exactly one — a clip id alone never identifies a
 single rendered file, so an unknown profile on a known clip is a distinct 404 from an unknown clip).
 
 Three authorization invariants, each enforced by a test rather than by review:

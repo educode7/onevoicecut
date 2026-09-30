@@ -98,12 +98,12 @@ async def ingest(client: AsyncClient, sermon: bytes, data_dir: Path) -> JobId:
     The separation is the point of the capacity gate: the web process's last act
     is a QUEUED record, and starting the work is somebody else's decision.
     """
-    admitted = await client.post("/api/jobs", json={"engine": "local"})
+    admitted = await client.post("/api/v1/jobs", json={"engine": "local"})
     assert admitted.status_code == 201
     job_id = make_job_id(admitted.json()["job_id"])
 
     uploaded = await client.put(
-        f"/api/jobs/{job_id}/media",
+        f"/api/v1/jobs/{job_id}/media",
         content=sermon,
         headers={"x-filename": quote("predicación del domingo.mp4")},
     )
@@ -118,7 +118,7 @@ async def ingest(client: AsyncClient, sermon: bytes, data_dir: Path) -> JobId:
 
 
 async def status_of(client: AsyncClient, job_id: JobId) -> dict[str, Any]:
-    response = await client.get(f"/api/jobs/{job_id}")
+    response = await client.get(f"/api/v1/jobs/{job_id}")
     assert response.status_code == 200
     payload: dict[str, Any] = response.json()
     return payload

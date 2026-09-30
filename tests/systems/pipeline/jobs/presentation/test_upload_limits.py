@@ -90,7 +90,7 @@ async def guarded_client(
 
 
 async def admitted(client: AsyncClient) -> JobId:
-    response = await client.post("/api/jobs", json={"engine": "local"})
+    response = await client.post("/api/v1/jobs", json={"engine": "local"})
     return make_job_id(response.json()["job_id"])
 
 
@@ -103,7 +103,7 @@ async def test_an_honestly_oversized_upload_is_refused_before_it_is_read(
     job_id = await admitted(guarded_client)
 
     response = await guarded_client.put(
-        f"/api/jobs/{job_id}/media", content=b"x" * (LIMIT + 1)
+        f"/api/v1/jobs/{job_id}/media", content=b"x" * (LIMIT + 1)
     )
 
     assert response.status_code == 413
@@ -115,7 +115,7 @@ async def test_an_upload_exactly_at_the_limit_is_accepted(
     """The boundary belongs on the allowed side: a limit of N means N is fine."""
     job_id = await admitted(client)
 
-    response = await client.put(f"/api/jobs/{job_id}/media", content=b"x" * LIMIT)
+    response = await client.put(f"/api/v1/jobs/{job_id}/media", content=b"x" * LIMIT)
 
     assert response.status_code == 204
     assert storage.load_media(job_id).size_bytes == LIMIT
@@ -134,7 +134,7 @@ async def test_a_lying_content_length_is_still_caught(
     job_id = await admitted(client)
 
     response = await client.put(
-        f"/api/jobs/{job_id}/media",
+        f"/api/v1/jobs/{job_id}/media",
         content=oversized_body(),
         headers={"content-length": "10"},
     )
@@ -154,7 +154,7 @@ async def test_a_body_with_no_declared_length_is_still_limited(
 
     job_id = await admitted(client)
 
-    response = await client.put(f"/api/jobs/{job_id}/media", content=endless())
+    response = await client.put(f"/api/v1/jobs/{job_id}/media", content=endless())
 
     assert response.status_code == 413
 
@@ -171,7 +171,7 @@ async def test_a_refused_upload_leaves_nothing_on_disk(
 
     job_id = await admitted(client)
 
-    await client.put(f"/api/jobs/{job_id}/media", content=oversized_body())
+    await client.put(f"/api/v1/jobs/{job_id}/media", content=oversized_body())
 
     assert not storage.source_path(job_id).exists()
     assert list(storage.job_dir(job_id).glob("*.part")) == []
@@ -184,7 +184,7 @@ async def test_a_refused_upload_records_no_media(
     upload that never completed would point it at a file that is not there."""
     job_id = await admitted(client)
 
-    await client.put(f"/api/jobs/{job_id}/media", content=b"x" * (LIMIT + 1))
+    await client.put(f"/api/v1/jobs/{job_id}/media", content=b"x" * (LIMIT + 1))
 
     with pytest.raises(Exception):
         storage.load_media(job_id)
@@ -203,7 +203,7 @@ async def test_a_malformed_content_length_does_not_bypass_the_limit(
     job_id = await admitted(client)
 
     response = await client.put(
-        f"/api/jobs/{job_id}/media",
+        f"/api/v1/jobs/{job_id}/media",
         content=oversized_body(),
         headers={"content-length": "not-a-number"},
     )

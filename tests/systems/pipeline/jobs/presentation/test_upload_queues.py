@@ -88,7 +88,7 @@ async def client(
 
 
 async def admitted(client: AsyncClient) -> JobId:
-    response = await client.post("/api/jobs", json={"engine": "local"})
+    response = await client.post("/api/v1/jobs", json={"engine": "local"})
     return make_job_id(response.json()["job_id"])
 
 
@@ -103,7 +103,7 @@ class TestASuccessfulUploadQueues:
         """
         job_id = await admitted(client)
 
-        response = await client.put(f"/api/jobs/{job_id}/media", content=b"media")
+        response = await client.put(f"/api/v1/jobs/{job_id}/media", content=b"media")
 
         assert response.status_code == 204
         assert storage.load_job(job_id).state is JobState.QUEUED
@@ -117,7 +117,7 @@ class TestASuccessfulUploadQueues:
         job_id = await admitted(client)
         storage.calls.clear()
 
-        await client.put(f"/api/jobs/{job_id}/media", content=b"media")
+        await client.put(f"/api/v1/jobs/{job_id}/media", content=b"media")
 
         assert storage.calls == ["save_media", "update_job:queued"]
 
@@ -129,7 +129,7 @@ class TestASuccessfulUploadQueues:
         job_id = await admitted(client)
         storage.calls.clear()
 
-        await client.put(f"/api/jobs/{job_id}/media", content=b"media")
+        await client.put(f"/api/v1/jobs/{job_id}/media", content=b"media")
 
         assert [c for c in storage.calls if c.startswith("update_job")] == [
             "update_job:queued"
@@ -142,7 +142,7 @@ class TestASuccessfulUploadQueues:
         job_id = await admitted(client)
         owner_before = storage.load_job(job_id).owner
 
-        await client.put(f"/api/jobs/{job_id}/media", content=b"media")
+        await client.put(f"/api/v1/jobs/{job_id}/media", content=b"media")
 
         assert storage.load_job(job_id).owner == owner_before
 
@@ -153,7 +153,7 @@ class TestASuccessfulUploadQueues:
         rule: QUEUED means no worker exists, by construction."""
         job_id = await admitted(client)
 
-        await client.put(f"/api/jobs/{job_id}/media", content=b"media")
+        await client.put(f"/api/v1/jobs/{job_id}/media", content=b"media")
 
         assert storage.load_job(job_id).worker_pid is None
 
@@ -176,7 +176,7 @@ class TestWhatMustNotQueue:
     ) -> None:
         job_id = await admitted(client)
 
-        await client.put(f"/api/jobs/{job_id}/media", content=b"x" * (LIMIT + 1))
+        await client.put(f"/api/v1/jobs/{job_id}/media", content=b"x" * (LIMIT + 1))
 
         assert storage.load_job(job_id).state is JobState.PENDING
 
@@ -187,7 +187,7 @@ class TestWhatMustNotQueue:
             storage, launched, probe_error=UnsupportedContainer("not media")
         ) as client:
             job_id = await admitted(client)
-            await client.put(f"/api/jobs/{job_id}/media", content=b"plain text")
+            await client.put(f"/api/v1/jobs/{job_id}/media", content=b"plain text")
 
         assert storage.load_job(job_id).state is JobState.PENDING
 
@@ -199,7 +199,7 @@ class TestWhatMustNotQueue:
         silent = MediaProbe(duration_s=3600.0, container="mov,mp4,m4a", has_audio=False)
         async with client_for(storage, launched, probe_result=silent) as client:
             job_id = await admitted(client)
-            await client.put(f"/api/jobs/{job_id}/media", content=b"video only")
+            await client.put(f"/api/v1/jobs/{job_id}/media", content=b"video only")
 
         assert storage.load_job(job_id).state is JobState.PENDING
 
@@ -207,7 +207,7 @@ class TestWhatMustNotQueue:
         self, client: AsyncClient, storage: FakeTranscriptStoragePort
     ) -> None:
         await client.put(
-            "/api/jobs/01HQ3M8XKJ7VNPQR2ZYWB4TCFF/media", content=b"media"
+            "/api/v1/jobs/01HQ3M8XKJ7VNPQR2ZYWB4TCFF/media", content=b"media"
         )
 
         assert storage.list_jobs() == ()

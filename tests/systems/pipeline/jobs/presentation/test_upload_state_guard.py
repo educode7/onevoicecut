@@ -60,7 +60,7 @@ async def client(
 
 async def admitted(client: AsyncClient) -> JobId:
     response = await client.post(
-        "/api/jobs", json={"engine": "local"}, headers=auth_headers(TOKEN_A)
+        "/api/v1/jobs", json={"engine": "local"}, headers=auth_headers(TOKEN_A)
     )
     return make_job_id(response.json()["job_id"])
 
@@ -103,7 +103,7 @@ async def test_upload_to_a_job_that_left_pending_is_refused_early(
     parked(storage, job_id, state)
 
     response = await client.put(
-        f"/api/jobs/{job_id}/media",
+        f"/api/v1/jobs/{job_id}/media",
         content=b"bytes that must never land",
         headers=auth_headers(TOKEN_A),
     )
@@ -123,7 +123,7 @@ async def test_the_refusal_names_the_state_that_caused_it(
     parked(storage, job_id, JobState.CANCELLED)
 
     response = await client.put(
-        f"/api/jobs/{job_id}/media", content=b"x", headers=auth_headers(TOKEN_A)
+        f"/api/v1/jobs/{job_id}/media", content=b"x", headers=auth_headers(TOKEN_A)
     )
 
     assert "cancelled" in response.json()["detail"]
@@ -148,7 +148,7 @@ async def test_a_job_cancelled_mid_stream_has_its_bytes_discarded(
         yield b"second half of the sermon"
 
     response = await client.put(
-        f"/api/jobs/{job_id}/media",
+        f"/api/v1/jobs/{job_id}/media",
         content=cancelled_halfway(),
         headers=auth_headers(TOKEN_A),
     )
@@ -173,7 +173,7 @@ async def test_a_job_cancelled_mid_stream_records_no_media(
         yield b"second half"
 
     await client.put(
-        f"/api/jobs/{job_id}/media",
+        f"/api/v1/jobs/{job_id}/media",
         content=cancelled_halfway(),
         headers=auth_headers(TOKEN_A),
     )
@@ -193,7 +193,7 @@ async def test_the_ordinary_pending_upload_still_works(
     job_id = await admitted(client)
 
     response = await client.put(
-        f"/api/jobs/{job_id}/media",
+        f"/api/v1/jobs/{job_id}/media",
         content=b"hola mundo",
         headers=auth_headers(TOKEN_A),
     )
@@ -216,7 +216,7 @@ async def test_ownership_is_still_decided_before_the_state(
     parked(storage, job_id, JobState.CANCELLED)
 
     response = await client.put(
-        f"/api/jobs/{job_id}/media",
+        f"/api/v1/jobs/{job_id}/media",
         content=b"x",
         headers={"authorization": "Bearer test-token-for-operator-b"},
     )

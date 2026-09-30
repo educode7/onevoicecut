@@ -1,6 +1,6 @@
 """Reading one job: the record, its derived progress, and nothing written.
 
-`GET /api/jobs/{id}` is the poll an operator leaves open for the length of a
+`GET /api/v1/jobs/{id}` is the poll an operator leaves open for the length of a
 three-hour sermon, so the query behind it owes two properties that the HTTP
 tests cannot see from outside: the progress it reports must be *the* domain
 derivation over what is on disk rather than a second computation beside it, and

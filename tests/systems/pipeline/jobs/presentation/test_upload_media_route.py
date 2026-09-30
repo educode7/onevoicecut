@@ -58,14 +58,14 @@ async def client(storage: FakeTranscriptStoragePort) -> AsyncIterator[AsyncClien
 
 async def admitted(client: AsyncClient) -> JobId:
     """Going through `make_job_id` also checks the route returned a usable id."""
-    response = await client.post("/api/jobs", json={"engine": "local"})
+    response = await client.post("/api/v1/jobs", json={"engine": "local"})
     return make_job_id(response.json()["job_id"])
 
 
 async def test_an_upload_is_accepted(client: AsyncClient) -> None:
     job_id = await admitted(client)
 
-    response = await client.put(f"/api/jobs/{job_id}/media", content=b"hola mundo")
+    response = await client.put(f"/api/v1/jobs/{job_id}/media", content=b"hola mundo")
 
     assert response.status_code == 204
 
@@ -75,7 +75,7 @@ async def test_the_bytes_land_where_storage_says(
 ) -> None:
     job_id = await admitted(client)
 
-    await client.put(f"/api/jobs/{job_id}/media", content=b"hola mundo")
+    await client.put(f"/api/v1/jobs/{job_id}/media", content=b"hola mundo")
 
     assert storage.source_path(job_id).read_bytes() == b"hola mundo"
 
@@ -87,7 +87,7 @@ async def test_the_media_record_is_persisted_for_the_worker(
     from this. Without it the upload would be bytes nobody can attribute."""
     job_id = await admitted(client)
 
-    await client.put(f"/api/jobs/{job_id}/media", content=b"hola mundo")
+    await client.put(f"/api/v1/jobs/{job_id}/media", content=b"hola mundo")
 
     media = storage.load_media(job_id)
     assert media.size_bytes == 10
@@ -102,7 +102,7 @@ async def test_an_accented_filename_survives_the_header(
     job_id = await admitted(client)
 
     await client.put(
-        f"/api/jobs/{job_id}/media",
+        f"/api/v1/jobs/{job_id}/media",
         content=b"x",
         headers={"x-filename": quote("predicación del domingo.mp4")},
     )
@@ -120,7 +120,7 @@ async def test_a_plain_ascii_filename_needs_no_encoding(
     job_id = await admitted(client)
 
     await client.put(
-        f"/api/jobs/{job_id}/media", content=b"x", headers={"x-filename": "sermon.mp4"}
+        f"/api/v1/jobs/{job_id}/media", content=b"x", headers={"x-filename": "sermon.mp4"}
     )
 
     assert storage.load_media(job_id).original_filename == "sermon.mp4"
@@ -134,7 +134,7 @@ async def test_a_hostile_filename_does_not_move_the_file(
     job_id = await admitted(client)
 
     await client.put(
-        f"/api/jobs/{job_id}/media",
+        f"/api/v1/jobs/{job_id}/media",
         content=b"x",
         headers={"x-filename": "../../etc/passwd"},
     )
@@ -145,7 +145,7 @@ async def test_a_hostile_filename_does_not_move_the_file(
 
 async def test_uploading_to_an_unknown_job_is_a_404(client: AsyncClient) -> None:
     response = await client.put(
-        "/api/jobs/01HQ3M8XKJ7VNPQR2ZYWB4TCFD/media", content=b"x"
+        "/api/v1/jobs/01HQ3M8XKJ7VNPQR2ZYWB4TCFD/media", content=b"x"
     )
 
     assert response.status_code == 404
@@ -154,7 +154,7 @@ async def test_uploading_to_an_unknown_job_is_a_404(client: AsyncClient) -> None
 async def test_a_job_id_that_is_not_a_ulid_is_a_404(client: AsyncClient) -> None:
     """It refers to no job, and answering differently would tell a caller which
     ids exist."""
-    response = await client.put("/api/jobs/not-an-id/media", content=b"x")
+    response = await client.put("/api/v1/jobs/not-an-id/media", content=b"x")
 
     assert response.status_code == 404
 
@@ -162,7 +162,7 @@ async def test_a_job_id_that_is_not_a_ulid_is_a_404(client: AsyncClient) -> None
 async def test_an_upload_past_the_limit_is_refused(client: AsyncClient) -> None:
     job_id = await admitted(client)
 
-    response = await client.put(f"/api/jobs/{job_id}/media", content=b"x" * 5000)
+    response = await client.put(f"/api/v1/jobs/{job_id}/media", content=b"x" * 5000)
 
     assert response.status_code == 413
 
@@ -175,7 +175,7 @@ async def test_uploading_starts_no_transcription(
     nothing is planned or transcribed by the time it returns."""
     job_id = await admitted(client)
 
-    await client.put(f"/api/jobs/{job_id}/media", content=b"hola")
+    await client.put(f"/api/v1/jobs/{job_id}/media", content=b"hola")
 
     assert storage.load_job(job_id).state is JobState.QUEUED
     assert storage.load_chunk_plan(job_id) is None
@@ -196,7 +196,7 @@ async def test_a_chunked_body_arrives_intact(
 
     job_id = await admitted(client)
 
-    response = await client.put(f"/api/jobs/{job_id}/media", content=body())
+    response = await client.put(f"/api/v1/jobs/{job_id}/media", content=body())
 
     assert response.status_code == 204
     assert storage.source_path(job_id).read_bytes() == b"".join(parts)

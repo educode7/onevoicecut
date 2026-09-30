@@ -8,7 +8,7 @@ question rather than a domain one:
 - a malformed job id answers 404, through `validated_job_id` — the one function
   the jobs controller owns. Shared rather than restated, so there is one rule
   about what a job id looks like and one answer for a malformed id and an
-  unknown one, on both halves of the `/api/jobs` prefix;
+  unknown one, on both halves of the `/api/v1/jobs` prefix;
 - a malformed clip id answers 404 as well, for the same reason: no route may
   reveal which clip ids exist;
 - a job that is not `COMPLETED` answers 409 here, because which HTTP shape a

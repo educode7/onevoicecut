@@ -253,10 +253,10 @@ def create_app(deps: WebDependencies, *, lifespan: Lifespan = None) -> FastAPI:
     built it, which is what lets routes drop their local translations and
     the existing status-code tests still pass unchanged.
 
-    Neither half of `/api/jobs` is decided here. The five jobs operations arrive
+    Neither half of `/api/v1/jobs` is decided here. The five jobs operations arrive
     wired from `jobs_module_api` and the three clip operations from
     `clips_module_api` — each module decides which handlers its controller runs
-    against — and each carries its own `/api/jobs` prefix, so the split is
+    against — and each carries its own `/api/v1/jobs` prefix, so the split is
     invisible on the wire and the route table every generated gate reads stays
     honest about the paths actually served.
     """
@@ -494,7 +494,7 @@ def build_app(
 def get_app() -> FastAPI:
     """Built on call, not at import.
 
-    `uvicorn onevoicecut.runtime.app:get_app --factory` reads the environment when
+    `uvicorn onevoicecut.main:get_app --factory` reads the environment when
     it starts the server; a module-level app would read it whenever anything
     imported this module, including a test collecting it.
     """

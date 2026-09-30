@@ -67,7 +67,7 @@ async def client(
 
 
 async def admitted(client: AsyncClient) -> JobId:
-    response = await client.post("/api/jobs", json={"engine": "local"})
+    response = await client.post("/api/v1/jobs", json={"engine": "local"})
     return make_job_id(response.json()["job_id"])
 
 
@@ -79,7 +79,7 @@ async def test_the_recorded_container_comes_from_the_probe(
     job_id = await admitted(client)
 
     await client.put(
-        f"/api/jobs/{job_id}/media",
+        f"/api/v1/jobs/{job_id}/media",
         content=b"pretend-media",
         headers={"x-filename": "sermon.avi"},
     )
@@ -98,7 +98,7 @@ async def test_a_file_that_is_not_media_is_refused(
         job_id = await admitted(client)
 
         response = await client.put(
-            f"/api/jobs/{job_id}/media",
+            f"/api/v1/jobs/{job_id}/media",
             content=b"this is plain text",
             headers={"x-filename": "sermon.mp4"},
         )
@@ -117,7 +117,7 @@ async def test_a_container_with_no_audio_is_refused(
     async with client_for(storage, probe_result=silent) as client:
         job_id = await admitted(client)
 
-        response = await client.put(f"/api/jobs/{job_id}/media", content=b"video only")
+        response = await client.put(f"/api/v1/jobs/{job_id}/media", content=b"video only")
 
     assert response.status_code == 415
 
@@ -132,7 +132,7 @@ async def test_a_refused_file_is_discarded(
     ) as client:
         job_id = await admitted(client)
 
-        await client.put(f"/api/jobs/{job_id}/media", content=b"plain text")
+        await client.put(f"/api/v1/jobs/{job_id}/media", content=b"plain text")
 
     assert not storage.source_path(job_id).exists()
 
@@ -147,7 +147,7 @@ async def test_a_refused_file_records_no_media(
     ) as client:
         job_id = await admitted(client)
 
-        await client.put(f"/api/jobs/{job_id}/media", content=b"plain text")
+        await client.put(f"/api/v1/jobs/{job_id}/media", content=b"plain text")
 
     with pytest.raises(Exception):
         storage.load_media(job_id)
@@ -165,7 +165,7 @@ async def test_a_refused_upload_leaves_the_job_admitted(
     ) as client:
         job_id = await admitted(client)
 
-        await client.put(f"/api/jobs/{job_id}/media", content=b"plain text")
+        await client.put(f"/api/v1/jobs/{job_id}/media", content=b"plain text")
 
     assert storage.load_job(job_id).state is JobState.PENDING
 
@@ -178,7 +178,7 @@ async def test_an_extensionless_filename_is_accepted_when_the_bytes_are_media(
     job_id = await admitted(client)
 
     response = await client.put(
-        f"/api/jobs/{job_id}/media",
+        f"/api/v1/jobs/{job_id}/media",
         content=b"pretend-media",
         headers={"x-filename": "predicacion-sin-extension"},
     )

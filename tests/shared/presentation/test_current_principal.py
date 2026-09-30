@@ -49,7 +49,7 @@ def _a_server(tmp_path: Path) -> FastAPI:
 
 
 def _route_principal_dependency(app: FastAPI) -> Any:
-    """The dependency the POST /api/jobs route itself declares for its
+    """The dependency the POST /api/v1/jobs route itself declares for its
     `principal` parameter.
 
     Read off the registered route rather than built from a factory call,
@@ -67,12 +67,12 @@ def _route_principal_dependency(app: FastAPI) -> Any:
             continue
         if (
             isinstance(candidate, APIRoute)
-            and candidate.path == "/api/jobs"
+            and candidate.path == "/api/v1/jobs"
             and "POST" in (candidate.methods or set())
         ):
             route = candidate
             break
-    assert route is not None, "POST /api/jobs is not in the route table"
+    assert route is not None, "POST /api/v1/jobs is not in the route table"
     dependency = next(
         dep for dep in route.dependant.dependencies if dep.name == "principal"
     )
@@ -148,7 +148,7 @@ async def test_the_application_receives_the_identity_and_never_the_token(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.post(
-            "/api/jobs",
+            "/api/v1/jobs",
             json={"engine": "local"},
             headers={"authorization": f"Bearer {TOKEN_A}"},
         )

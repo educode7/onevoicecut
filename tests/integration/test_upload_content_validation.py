@@ -51,7 +51,7 @@ async def client(
 
 
 async def admitted(client: AsyncClient) -> JobId:
-    response = await client.post("/api/jobs", json={"engine": "local"})
+    response = await client.post("/api/v1/jobs", json={"engine": "local"})
     return make_job_id(response.json()["job_id"])
 
 
@@ -77,7 +77,7 @@ async def test_a_text_file_named_mp4_is_refused(
     job_id = await admitted(client)
 
     response = await client.put(
-        f"/api/jobs/{job_id}/media",
+        f"/api/v1/jobs/{job_id}/media",
         content="esto no es un video".encode(),
         headers={"x-filename": "sermon.mp4"},
     )
@@ -102,7 +102,7 @@ async def test_real_media_is_accepted_and_its_container_recorded(
     job_id = await admitted(client)
 
     response = await client.put(
-        f"/api/jobs/{job_id}/media",
+        f"/api/v1/jobs/{job_id}/media",
         content=payload,
         # Percent-encoded because header values are ASCII — the same constraint
         # that shaped the route, exercised here against a real filename.
@@ -130,7 +130,7 @@ async def test_a_video_with_no_audio_track_is_refused(
     )
     job_id = await admitted(client)
 
-    response = await client.put(f"/api/jobs/{job_id}/media", content=payload)
+    response = await client.put(f"/api/v1/jobs/{job_id}/media", content=payload)
 
     assert response.status_code == 415
     assert not storage.source_path(job_id).exists()

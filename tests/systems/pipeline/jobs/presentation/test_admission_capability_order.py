@@ -74,7 +74,7 @@ async def test_an_unsatisfiable_admission_refuses_before_any_storage_touch(
     no storage method called at all."""
     async with _client(storage, DiarizationSupport.UNSUPPORTED) as client:
         response = await client.post(
-            "/api/jobs",
+            "/api/v1/jobs",
             json={"engine": "local", "speaker_mode": "multi"},
             headers=auth_headers(TOKEN_A),
         )
@@ -92,7 +92,7 @@ async def test_a_satisfiable_admission_still_records_the_owner(
     and those still record the authenticated caller as owner."""
     async with _client(storage, DiarizationSupport.AVAILABLE) as client:
         response = await client.post(
-            "/api/jobs",
+            "/api/v1/jobs",
             json={"engine": "local", "speaker_mode": "multi"},
             headers=auth_headers(TOKEN_A),
         )

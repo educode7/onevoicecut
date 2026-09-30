@@ -39,7 +39,7 @@ async def _authenticated_admit_and_upload(client: AsyncClient) -> str:
     never pass because the cycle silently failed to run.
     """
     admit = await client.post(
-        "/api/jobs",
+        "/api/v1/jobs",
         json={"engine": "local"},
         headers={"authorization": f"Bearer {TOKEN_A}"},
     )
@@ -47,7 +47,7 @@ async def _authenticated_admit_and_upload(client: AsyncClient) -> str:
     job_id = str(admit.json()["job_id"])
 
     upload = await client.put(
-        f"/api/jobs/{job_id}/media",
+        f"/api/v1/jobs/{job_id}/media",
         content=b"hola mundo",
         headers={"authorization": f"Bearer {TOKEN_A}"},
     )

@@ -73,7 +73,7 @@ async def client(storage: FakeTranscriptStoragePort) -> AsyncIterator[AsyncClien
 async def test_an_id_that_is_not_a_ulid_never_reaches_a_job(
     client: AsyncClient, job_id: str
 ) -> None:
-    response = await client.put(f"/api/jobs/{job_id}/media", content=b"x")
+    response = await client.put(f"/api/v1/jobs/{job_id}/media", content=b"x")
 
     assert response.status_code in (404, 405, 307), (
         f"{job_id!r} produced {response.status_code}"
@@ -87,7 +87,7 @@ async def test_a_hostile_id_writes_nothing_at_all(
     """Rejected before the filesystem is touched, not after a path is resolved and
     found to be outside. Resolution-then-check is the ordering that has already
     created a directory somewhere by the time it answers."""
-    await client.put(f"/api/jobs/{job_id}/media", content=b"x")
+    await client.put(f"/api/v1/jobs/{job_id}/media", content=b"x")
 
     assert list(tmp_path.rglob("*")) == []
 
@@ -98,7 +98,7 @@ async def test_a_well_formed_but_unknown_id_is_also_a_404(
     """Same answer as a malformed one, on purpose: a different status would tell a
     caller which ids exist."""
     response = await client.put(
-        "/api/jobs/01HQ3M8XKJ7VNPQR2ZYWB4TCFD/media", content=b"x"
+        "/api/v1/jobs/01HQ3M8XKJ7VNPQR2ZYWB4TCFD/media", content=b"x"
     )
 
     assert response.status_code == 404
@@ -153,7 +153,7 @@ async def test_a_hostile_id_never_reaches_the_writer(tmp_path: Path) -> None:
         # `%2e%2e` survives routing and decodes to `..` in the path parameter —
         # the form that reaches a handler, unlike `../..`, which the router and
         # the client normalise away before anyone sees it.
-        response = await client.put("/api/jobs/%2e%2e/media", content=b"x")
+        response = await client.put("/api/v1/jobs/%2e%2e/media", content=b"x")
 
     assert reached == []
     assert response.status_code == 404
@@ -199,7 +199,7 @@ async def test_a_non_ulid_that_survives_routing_never_reaches_the_writer(
         base_url="http://test",
         headers=auth_headers(),
     ) as client:
-        response = await client.put("/api/jobs/not-a-ulid/media", content=b"x")
+        response = await client.put("/api/v1/jobs/not-a-ulid/media", content=b"x")
 
     assert reached == []
     assert response.status_code == 404

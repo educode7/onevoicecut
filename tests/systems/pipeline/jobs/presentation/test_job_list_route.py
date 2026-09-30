@@ -61,7 +61,7 @@ async def client(
 
 async def admit(client: AsyncClient, token: str) -> str:
     response = await client.post(
-        "/api/jobs", json={"engine": "local"}, headers=auth_headers(token)
+        "/api/v1/jobs", json={"engine": "local"}, headers=auth_headers(token)
     )
     assert response.status_code == 201
     job_id: str = response.json()["job_id"]
@@ -77,7 +77,7 @@ async def test_the_listing_returns_every_operators_jobs_attributed(
     a_id = await admit(http, TOKEN_A)
     b_id = await admit(http, TOKEN_B)
 
-    response = await http.get("/api/jobs", headers=auth_headers(TOKEN_A))
+    response = await http.get("/api/v1/jobs", headers=auth_headers(TOKEN_A))
 
     assert response.status_code == 200
     payload = response.json()
@@ -95,7 +95,7 @@ async def test_legacy_jobs_surface_with_null_owner(
     http, storage = client
     storage.create_job(a_legacy_record(LEGACY_JOB_ID))
 
-    response = await http.get("/api/jobs", headers=auth_headers(TOKEN_A))
+    response = await http.get("/api/v1/jobs", headers=auth_headers(TOKEN_A))
 
     assert response.status_code == 200
     items = {item["job_id"]: item for item in response.json()["jobs"]}
@@ -114,7 +114,7 @@ async def test_the_listing_hides_nothing(
 
     seen: list[set[str]] = []
     for token in (TOKEN_A, TOKEN_B):
-        response = await http.get("/api/jobs", headers=auth_headers(token))
+        response = await http.get("/api/v1/jobs", headers=auth_headers(token))
         assert response.status_code == 200
         seen.append({item["job_id"] for item in response.json()["jobs"]})
 
@@ -130,7 +130,7 @@ async def test_a_foreign_job_is_readable_with_attribution(
     http, _ = client
     a_id = await admit(http, TOKEN_A)
 
-    response = await http.get(f"/api/jobs/{a_id}", headers=auth_headers(TOKEN_B))
+    response = await http.get(f"/api/v1/jobs/{a_id}", headers=auth_headers(TOKEN_B))
 
     assert response.status_code == 200
     payload = response.json()
@@ -147,7 +147,7 @@ async def test_the_status_response_stays_backward_compatible(
     a_id = await admit(http, TOKEN_A)
 
     payload: dict[str, Any] = (
-        await http.get(f"/api/jobs/{a_id}", headers=auth_headers(TOKEN_A))
+        await http.get(f"/api/v1/jobs/{a_id}", headers=auth_headers(TOKEN_A))
     ).json()
 
     pre_change = {"job_id", "state", "engine", "speaker_mode", "error", "progress"}
@@ -167,7 +167,7 @@ async def test_the_mine_filter_returns_only_the_callers_jobs(
     storage.create_job(a_legacy_record(LEGACY_JOB_ID))
 
     response = await http.get(
-        "/api/jobs", params={"mine": "true"}, headers=auth_headers(TOKEN_A)
+        "/api/v1/jobs", params={"mine": "true"}, headers=auth_headers(TOKEN_A)
     )
 
     assert response.status_code == 200
@@ -190,7 +190,7 @@ async def test_a_client_supplied_operator_identity_is_never_honored(
     b_id = await admit(http, TOKEN_B)
 
     response = await http.get(
-        "/api/jobs",
+        "/api/v1/jobs",
         params={"mine": "true", "operator": str(OPERATOR_A)},
         headers=auth_headers(TOKEN_B),
     )
@@ -214,8 +214,8 @@ async def test_reading_writes_nothing(
     calls_before = list(storage.calls)
     files_before = sorted(tmp_path.rglob("*"))
 
-    status = await http.get(f"/api/jobs/{a_id}", headers=auth_headers(TOKEN_B))
-    listing = await http.get("/api/jobs", headers=auth_headers(TOKEN_B))
+    status = await http.get(f"/api/v1/jobs/{a_id}", headers=auth_headers(TOKEN_B))
+    listing = await http.get("/api/v1/jobs", headers=auth_headers(TOKEN_B))
 
     assert status.status_code == 200
     assert listing.status_code == 200

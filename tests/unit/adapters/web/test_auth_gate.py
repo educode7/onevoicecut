@@ -138,7 +138,7 @@ async def test_all_401_causes_are_byte_identical(
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
-        response = await client.post("/api/jobs", json={"engine": "local"}, headers=headers)
+        response = await client.post("/api/v1/jobs", json={"engine": "local"}, headers=headers)
 
     assert response.status_code == 401
     assert response.content == UNAUTHENTICATED_BODY
@@ -164,7 +164,7 @@ async def test_an_authenticated_request_still_passes(
     client, storage = gate
 
     response = await client.post(
-        "/api/jobs", json={"engine": "local"}, headers=auth_headers()
+        "/api/v1/jobs", json={"engine": "local"}, headers=auth_headers()
     )
 
     assert response.status_code == 201

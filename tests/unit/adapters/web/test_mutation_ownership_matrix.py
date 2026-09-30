@@ -103,7 +103,7 @@ async def client(storage: FakeTranscriptStoragePort) -> AsyncIterator[AsyncClien
 
 async def owned_by_a(client: AsyncClient) -> JobId:
     response = await client.post(
-        "/api/jobs", json={"engine": "local"}, headers=auth_headers(TOKEN_A)
+        "/api/v1/jobs", json={"engine": "local"}, headers=auth_headers(TOKEN_A)
     )
     return make_job_id(response.json()["job_id"])
 
@@ -197,7 +197,7 @@ async def test_the_matrix_is_not_a_wall_the_owner_still_mutates(
     job_id = await owned_by_a(client)
 
     response = await client.post(
-        f"/api/jobs/{job_id}/cancel", headers=auth_headers(TOKEN_A)
+        f"/api/v1/jobs/{job_id}/cancel", headers=auth_headers(TOKEN_A)
     )
 
     assert response.status_code == 200

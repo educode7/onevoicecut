@@ -47,7 +47,7 @@ async def test_a_client_supplied_operator_identity_has_no_effect(
     recorded owner is still B, the token-resolved caller. Discarded, not
     rejected: a 422 here would fail the scenario the same as honoring it."""
     response = await client.post(
-        "/api/jobs",
+        "/api/v1/jobs",
         json={"engine": "local", "operator": "a"},
         headers=auth_headers(TOKEN_B),
     )

@@ -12,7 +12,7 @@ This file is deliberately *not* under `presentation/`. It constructs a handler
 and presentation is the one layer that may not: a controller that could build
 its own store would be a controller that decides where the data lives.
 
-The three operations carry `/api/jobs` on their own router, so `main.py` adds
+The three operations carry `/api/v1/jobs` on their own router, so `main.py` adds
 no prefix when it registers them — see `routes/v1/clip_routes.py` for why the
 prefix cannot be supplied from outside.
 """

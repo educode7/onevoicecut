@@ -1,15 +1,17 @@
 """Worker spawning and process supervision for the web process.
 
-    PYTHONPATH=src uvicorn onevoicecut.runtime.app:get_app --factory
+    PYTHONPATH=src uvicorn onevoicecut.main:get_app --factory
 
 Configuration, adapters and the `DomainError` handler moved to `main.py` when
-the composition root landed (slice 1d); this module keeps the documented
-entrypoint and the names that used to live here importable from their old home
-until Phase 5, so existing tests and docs keep working unchanged. What stays
-defined here is what belongs to the two processes meeting: the launcher, the
-drain sweeps and the reconciliation they run. Everything below takes what it
-needs as an argument, which is why the whole system can be driven by tests
-without an environment.
+the composition root landed (slice 1d), and slice 5a moved the documented
+entrypoint there too: `get_app` is no longer re-exported here, so the
+documented command names `main` directly and nothing reaches the factory
+through an old home. The other names that used to live here stay importable
+from their old home for the tests and call sites that still look for them.
+What stays defined here is what belongs to the two processes meeting: the
+launcher, the drain sweeps and the reconciliation they run. Everything below
+takes what it needs as an argument, which is why the whole system can be
+driven by tests without an environment.
 """
 
 import asyncio
@@ -48,9 +50,10 @@ from onevoicecut.runtime.supervisor import worker_is_alive as worker_is_alive
 
 # Re-exported, not merely used: the web factory, the drain configs and the
 # interval constants moved to `main.py` when the composition root landed
-# (slice 1d). Existing tests — and the documented
-# `uvicorn onevoicecut.runtime.app:get_app` entrypoint, until Phase 5 —
-# import them from here, so each name stays importable from its old home.
+# (slice 1d). Existing tests import them from here, so each name stays
+# importable from its old home. `get_app` is deliberately absent: slice 5a
+# retires this module as a documented entrypoint, and a second route to the
+# factory is the thing that retirement exists to remove.
 # The intervals are sourced rather than re-declared: `DrainConfig` and this
 # module's `drain_supervisor` must not be free to drift apart on the cadence
 # they share, and two definitions of one number is how they would.
@@ -63,7 +66,6 @@ from onevoicecut.main import WATCHDOG_SWEEP_INTERVAL_S as WATCHDOG_SWEEP_INTERVA
 from onevoicecut.main import build_app as build_app
 from onevoicecut.main import build_dependencies as build_dependencies
 from onevoicecut.main import check_target_profiles as check_target_profiles
-from onevoicecut.main import get_app as get_app
 
 WORKER_MODULE = "onevoicecut.runtime.worker"
 RENDER_WORKER_MODULE = "onevoicecut.runtime.render_worker"

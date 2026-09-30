@@ -1,8 +1,10 @@
 """The five jobs operations, over relative paths.
 
-The prefix is not this module's business: `main.py` registers the router under
-`/api/jobs`, so the version flip is one argument at the composition root rather
-than an edit to five decorators.
+The router carries `/api/v1/jobs`, declared here rather than supplied by
+`main.py` when it registers the router — see the note beside `APIRouter`
+below. The prefix and its version segment live in that one argument rather
+than in five decorators, so moving the surface to another version is a
+single-line change.
 
 Routes stay thin on purpose: translate HTTP into a call, hand it to the
 controller, translate the result back. What still raises `HTTPException` here
@@ -70,9 +72,10 @@ def build_router(
     # an `_IncludedRouter` whose nested `APIRoute.path` keeps only the prefix this
     # router declared — so the generated gates (AUTH-06's 401, OWN-05's 403), which
     # read `route.path` to build their request URLs, would call `/{job_id}/cancel`
-    # and get a 404 from a route that is actually served at `/api/jobs/{job_id}/cancel`.
+    # and get a 404 from a route that is actually served at
+    # `/api/v1/jobs/{job_id}/cancel`.
     # Declaring it here is what makes the route table describe the paths the server serves.
-    router = APIRouter(prefix="/api/jobs", tags=["jobs"])
+    router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
     # Written here rather than returned by the factory: only a literal
     # Annotated expression binds as a type annotation, so the factory builds
     # the resolver and this line binds it to this router's dependencies.

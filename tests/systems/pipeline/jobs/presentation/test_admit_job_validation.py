@@ -89,7 +89,7 @@ async def test_diarization_unsupported_returns_422(
 ) -> None:
     """6.9: MULTI + UNSUPPORTED → 422 with remediation."""
     response = await unsupported_client.post(
-        "/api/jobs", json={"engine": "local", "speaker_mode": "multi"}
+        "/api/v1/jobs", json={"engine": "local", "speaker_mode": "multi"}
     )
 
     assert response.status_code == 422
@@ -103,7 +103,7 @@ async def test_diarization_unsupported_names_remediation(
 ) -> None:
     """6.9 (triangulation): error body suggests engine switch or mode drop."""
     response = await unsupported_client.post(
-        "/api/jobs", json={"engine": "local", "speaker_mode": "multi"}
+        "/api/v1/jobs", json={"engine": "local", "speaker_mode": "multi"}
     )
 
     body = response.json()["detail"]
@@ -116,7 +116,7 @@ async def test_compatible_combination_admitted(
 ) -> None:
     """6.9 (triangulation): MULTI + AVAILABLE succeeds over HTTP."""
     response = await supported_client.post(
-        "/api/jobs", json={"engine": "local", "speaker_mode": "multi"}
+        "/api/v1/jobs", json={"engine": "local", "speaker_mode": "multi"}
     )
 
     assert response.status_code == 201
@@ -129,7 +129,7 @@ async def test_single_mode_always_accepted(
 ) -> None:
     """6.9 (triangulation): SINGLE mode never rejected."""
     response = await unsupported_client.post(
-        "/api/jobs", json={"engine": "local", "speaker_mode": "single"}
+        "/api/v1/jobs", json={"engine": "local", "speaker_mode": "single"}
     )
 
     assert response.status_code == 201

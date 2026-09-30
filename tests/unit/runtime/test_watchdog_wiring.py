@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.main import WebDependencies
+from onevoicecut.main import WebDependencies, get_app
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
 from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState
@@ -213,7 +213,7 @@ class TestTheCompositionRoot:
         monkeypatch.setenv("ONEVOICECUT_OPERATOR_TOKENS", "maria:t0ken")
         monkeypatch.setattr(app_module, "build_app", spy)
 
-        app_module.get_app()
+        get_app()
 
         assert isinstance(captured["watchdog"], WatchdogConfig)
 
@@ -233,7 +233,7 @@ class TestTheCompositionRoot:
         monkeypatch.setenv("ONEVOICECUT_CHUNK_TIMEOUT_SECONDS", "742")
         monkeypatch.setattr(app_module, "build_app", spy)
 
-        app_module.get_app()
+        get_app()
 
         watchdog = captured["watchdog"]
         assert isinstance(watchdog, WatchdogConfig)

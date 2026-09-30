@@ -88,7 +88,7 @@ Run one file, or one test:
 $env:ONEVOICECUT_DATA_DIR = ".\data"
 $env:ONEVOICECUT_OPERATOR_TOKENS = "maria:<token>;jose:<token>"
 $env:PYTHONPATH = "src"
-.venv\Scripts\python.exe -m uvicorn onevoicecut.runtime.app:get_app --factory
+.venv\Scripts\python.exe -m uvicorn onevoicecut.main:get_app --factory
 ```
 
 ### Operator tokens
@@ -120,14 +120,14 @@ Every request needs `Authorization: Bearer <token>`. There is no anonymous route
 
 | Step | Request |
 | --- | --- |
-| Create a job | `POST /api/jobs` with `{"engine": "local"}` |
-| Upload the sermon | `PUT /api/jobs/{id}/media`, raw body, filename percent-encoded in `X-Filename` |
-| See the board | `GET /api/jobs` — every job with its owner; `?mine=true` narrows to yours |
-| Watch one | `GET /api/jobs/{id}` — chunk-level progress, ETA once a chunk has finished |
-| Stop one | `POST /api/jobs/{id}/cancel` |
+| Create a job | `POST /api/v1/jobs` with `{"engine": "local"}` |
+| Upload the sermon | `PUT /api/v1/jobs/{id}/media`, raw body, filename percent-encoded in `X-Filename` |
+| See the board | `GET /api/v1/jobs` — every job with its owner; `?mine=true` narrows to yours |
+| Watch one | `GET /api/v1/jobs/{id}` — chunk-level progress, ETA once a chunk has finished |
+| Stop one | `POST /api/v1/jobs/{id}/cancel` |
 
 ```powershell
-curl -H "Authorization: Bearer $token" http://localhost:8000/api/jobs
+curl -H "Authorization: Bearer $token" http://localhost:8000/api/v1/jobs
 ```
 
 Reading is shared, changing is not: **401** if the token is missing or unknown,

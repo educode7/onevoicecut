@@ -54,7 +54,7 @@ async def client(
 
 async def admitted(client: AsyncClient) -> JobId:
     response = await client.post(
-        "/api/jobs", json={"engine": "local"}, headers=auth_headers(TOKEN_A)
+        "/api/v1/jobs", json={"engine": "local"}, headers=auth_headers(TOKEN_A)
     )
     return make_job_id(response.json()["job_id"])
 
@@ -68,7 +68,7 @@ async def test_owner_upload_succeeds_with_the_mechanics_unchanged(
     job_id = await admitted(client)
 
     response = await client.put(
-        f"/api/jobs/{job_id}/media",
+        f"/api/v1/jobs/{job_id}/media",
         content=b"hola mundo",
         headers={**auth_headers(TOKEN_A), "x-filename": quote("predicación.mp4")},
     )
@@ -91,14 +91,14 @@ async def test_non_owner_upload_is_denied_with_nothing_touched(
     found — prior media intact, record unchanged, no partial file, no worker."""
     job_id = await admitted(client)
     await client.put(
-        f"/api/jobs/{job_id}/media",
+        f"/api/v1/jobs/{job_id}/media",
         content=b"first upload",
         headers=auth_headers(TOKEN_A),
     )
     record_before = storage.load_job(job_id)
 
     response = await client.put(
-        f"/api/jobs/{job_id}/media",
+        f"/api/v1/jobs/{job_id}/media",
         content=b"second upload",
         headers=auth_headers(TOKEN_B),
     )
@@ -119,7 +119,7 @@ async def test_a_known_foreign_id_is_denied_by_ownership_not_secrecy(
     job_id = await admitted(client)
 
     response = await client.put(
-        f"/api/jobs/{job_id}/media",
+        f"/api/v1/jobs/{job_id}/media",
         content=b"x",
         headers=auth_headers(TOKEN_B),
     )
@@ -136,7 +136,7 @@ async def test_an_ownerless_legacy_job_is_mutable_by_nobody_over_http(
     storage.update_job(replace(storage.load_job(job_id), owner=None))
 
     response = await client.put(
-        f"/api/jobs/{job_id}/media",
+        f"/api/v1/jobs/{job_id}/media",
         content=b"x",
         headers=auth_headers(TOKEN_A),
     )
@@ -150,7 +150,7 @@ async def test_a_malformed_id_is_a_404_before_any_filesystem_access(
     """OWN-09: authenticated, mutating, malformed — refused at the id check
     with the unknown-identifier outcome, before any filesystem access."""
     response = await client.put(
-        "/api/jobs/not-a-ulid/media",
+        "/api/v1/jobs/not-a-ulid/media",
         content=b"x",
         headers=auth_headers(TOKEN_A),
     )
@@ -182,7 +182,7 @@ async def test_the_load_bearing_precedence_401_beats_404_beats_403(
     job_id = "not-a-ulid" if target == "malformed" else foreign_id
     headers = {} if token is None else auth_headers(token)
 
-    response = await client.put(f"/api/jobs/{job_id}/media", content=b"x", headers=headers)
+    response = await client.put(f"/api/v1/jobs/{job_id}/media", content=b"x", headers=headers)
 
     assert response.status_code == expected
     assert storage.load_job(foreign_id).state is JobState.PENDING

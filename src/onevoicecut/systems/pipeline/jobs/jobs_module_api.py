@@ -12,7 +12,8 @@ This file is deliberately *not* under `presentation/`. It constructs handlers
 and presentation is the one layer that may not: a controller that could build
 its own store would be a controller that decides where the data lives.
 
-`main.py` imports this and registers what comes back under `/api/jobs`.
+`main.py` imports this and registers the router that comes back, which serves
+under `/api/v1/jobs`.
 """
 
 from __future__ import annotations

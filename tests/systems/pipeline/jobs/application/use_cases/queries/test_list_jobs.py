@@ -1,6 +1,6 @@
 """The shared board as a query: every job, attributed, hidden from nobody.
 
-`ListJobs` is the read model behind `GET /api/jobs`. Three properties belong to
+`ListJobs` is the read model behind `GET /api/v1/jobs`. Three properties belong to
 the query rather than to its route, because they have to survive the route
 being rewritten around it in slice 2e:
 

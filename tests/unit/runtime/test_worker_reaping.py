@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pytest
 
+from onevoicecut.main import get_app
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
 from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState
@@ -286,7 +287,7 @@ class TestTheDrainSweep:
         monkeypatch.setattr(app_module, "require_binaries", lambda: None)
         monkeypatch.setattr(app_module, "build_app", spy)
 
-        app_module.get_app()
+        get_app()
 
         drain = captured["drain"]
         assert isinstance(drain, DrainConfig)

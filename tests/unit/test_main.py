@@ -193,13 +193,13 @@ def test_the_real_entrypoint_keeps_401_before_404_before_403(
     # the three supervisors, none of which this test is about — and none of
     # which any route test in this suite has ever started either.
     client = TestClient(get_app())
-    unauthenticated = client.post(f"/api/jobs/{job_id}/cancel")
+    unauthenticated = client.post(f"/api/v1/jobs/{job_id}/cancel")
     unknown_id = client.post(
-        "/api/jobs/not-a-ulid/cancel",
+        "/api/v1/jobs/not-a-ulid/cancel",
         headers={"authorization": "Bearer tok-maria"},
     )
     foreign_job = client.post(
-        f"/api/jobs/{job_id}/cancel",
+        f"/api/v1/jobs/{job_id}/cancel",
         headers={"authorization": "Bearer tok-rita"},
     )
 
