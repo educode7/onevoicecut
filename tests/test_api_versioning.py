@@ -1,14 +1,19 @@
 """The HTTP surface is served under `/api/v1` and nowhere else.
 
-`api-versioning` AV-02, AV-03, AV-04 and AV-08. The version prefix is not a
-convention this file asserts by reading source: it is derived from the live
-route table, the same table the generated auth gates read, so a route added
-later joins every check here without being listed.
+`api-versioning` AV-02, AV-03, AV-04, AV-06, AV-07 and AV-08. The version
+prefix is not a convention this file asserts by reading source: it is derived
+from the live route table, the same table the generated auth gates read, so a
+route added later joins every check here without being listed.
 
 AV-08's plant proves the derivation by construction — a route registered
 without authentication handling has to be *found* by the walk before the 401
 gate can fail on it, and a check built from a literal list would silently
 never see it.
+
+AV-06 and AV-07 are the strict-request-body requirement: an unknown JSON key is
+a 422 with no side effect, on the two operations in the surface that accept a
+JSON body at all. The raw-body upload is deliberately absent — it carries no
+JSON schema to be strict about.
 """
 
 import re
@@ -27,6 +32,7 @@ from onevoicecut.shared.domain.ids import JobId
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.unit.adapters.web.conftest import (
     accepting_extractor,
+    auth_headers,
     fake_authenticate,
     route_request_body,
 )
@@ -155,6 +161,77 @@ def test_av04_served_versions_equal_the_active_registry(tmp_path: Path) -> None:
     assert served == active, (
         f"served versions {sorted(served)} != active versions {sorted(active)}"
     )
+
+
+async def test_av06_an_unknown_json_key_on_admission_is_refused(
+    tmp_path: Path,
+) -> None:
+    """AV-06: an unknown key on `POST /api/v1/jobs` is a 422 with nothing
+    admitted.
+
+    The assertion that matters most is `storage.calls == []`: a 422 alone would
+    only prove the answer, while an empty call log proves the handler's first
+    line never ran. `speakerMode` is the camelCase typo `AdmitJobRequest`'s own
+    comment names — the client is told rather than silently given the default.
+    """
+    storage = FakeTranscriptStoragePort(tmp_path)
+    app = create_app(
+        WebDependencies(
+            storage=storage,
+            authenticate=fake_authenticate,
+            extractor_for=accepting_extractor,
+        )
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers=auth_headers(),
+    ) as client:
+        response = await client.post(
+            "/api/v1/jobs", json={"engine": "local", "speakerMode": "multi"}
+        )
+
+    assert response.status_code == 422
+    assert storage.calls == []
+    assert storage.list_jobs() == ()
+    assert list(tmp_path.rglob("*")) == []
+
+
+async def test_av07_an_unknown_json_key_on_clip_export_is_refused(
+    tmp_path: Path,
+) -> None:
+    """AV-07: the same refusal on `POST /api/v1/jobs/{id}/clips`.
+
+    The job named here does not exist, which is what makes 422 rather than 404
+    the proof: a body that passed validation would reach the handler, load the
+    record and answer 404. So 422 shows validation ran first — and an untouched
+    store shows no export was written.
+
+    `profile` is the unknown key on purpose: `ClipExportRequest` takes
+    *networks* under `targets`, and a caller reaching for the profile name is
+    exactly the mistake the refusal exists to surface.
+    """
+    storage = FakeTranscriptStoragePort(tmp_path)
+    app = create_app(
+        WebDependencies(
+            storage=storage,
+            authenticate=fake_authenticate,
+            extractor_for=accepting_extractor,
+        )
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers=auth_headers(),
+    ) as client:
+        response = await client.post(
+            f"/api/v1/jobs/{PROBE_JOB_ID}/clips",
+            json={"candidate_index": 0, "targets": ["tiktok"], "profile": "vertical"},
+        )
+
+    assert response.status_code == 422
+    assert storage.calls == []
+    assert list(tmp_path.rglob("*")) == []
 
 
 async def test_av08_an_unauthenticated_route_is_caught_by_the_derived_gate(

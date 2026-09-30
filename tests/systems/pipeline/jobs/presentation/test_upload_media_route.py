@@ -17,7 +17,6 @@ from urllib.parse import quote
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-import onevoicecut.adapters.web as web_package
 import onevoicecut.systems.pipeline.clips as clips_package
 import onevoicecut.systems.pipeline.jobs as jobs_package
 from onevoicecut.main import WebDependencies, create_app
@@ -208,13 +207,14 @@ def test_no_multipart_path_exists_anywhere_in_the_web_adapter() -> None:
     only defence that holds is that the machinery is not imported at all — a
     request-level test cannot prove an absence.
 
-    Every home of the HTTP surface is walked: the package that once composed
-    it (drained in 4e, still walked so the day something reappears there it is
-    caught), and both modules that now own it. Scanning any fewer would leave
-    the moment an operation moves — which is exactly when this test would start
-    passing without looking at the code it is about."""
+    Every home of the HTTP surface is walked: both modules that own it. The
+    package that used to compose it (`adapters/web`) was drained in 4e and
+    deleted in 5c, so there is no third root left to name — and nothing to
+    scan there would catch anything a scan of the two owners misses. Scanning
+    any fewer than every home that remains would leave the moment an operation
+    moves, which is exactly when this test would start passing without looking
+    at the code it is about."""
     roots = [
-        Path(web_package.__file__).parent,
         Path(jobs_package.__file__).parent / "presentation",
         Path(clips_package.__file__).parent / "presentation",
     ]
