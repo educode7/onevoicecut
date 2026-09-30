@@ -1,15 +1,19 @@
 """Turns the architecture boundary into a failing test.
 
-Legacy hexagonal rules — `domain`, `usecases`, and `ports` must not import
-`onevoicecut.adapters` or `onevoicecut.runtime` — stay in force until those
-packages no longer exist. Rules are data (`RuleGroup`) held in `RULE_GROUPS`,
-the AB-11 registration seam: a migration slice appends its module's group in
-the same commit that moves the module, so coverage grows with the tree and no
-present code is ever structurally unenforced (AB-12).
+Rules are data (`RuleGroup`) held in `RULE_GROUPS`, the AB-11 registration
+seam: a migration slice appends its module's group in the same commit that
+moves the module, so coverage grows with the tree and no present code is ever
+structurally unenforced (AB-12). The legacy hexagonal group is gone with the
+packages it guarded — `domain/`, `usecases/` and `ports/` no longer exist —
+and `AB12_PLANTS` pins the registry to one plant apiece, so a group cannot be
+registered without a plant or left planted after its group retires.
 
-Static AST parsing rather than `importlib`: an import statement is a violation
-the moment it is written in source text, whether or not the imported package is
-importable.
+Two sweeps, deliberately separate. `_collect_violations` answers "does the
+shipped tree violate a registered group", and `_composition_root_violations`
+answers the whole-tree half the groups cannot express: only a composition root
+may name the wiring. Both parse source with AST rather than `importlib`,
+because an import statement is a violation the moment it is written in text,
+whether or not the imported package exists.
 """
 
 import ast
@@ -31,12 +35,6 @@ class RuleGroup:
     guarded_subtrees: tuple[str, ...]
     forbidden_prefixes: tuple[str, ...]
 
-
-LEGACY_HEXAGONAL = RuleGroup(
-    name="legacy-hexagonal",
-    guarded_subtrees=("domain", "usecases", "ports"),
-    forbidden_prefixes=("onevoicecut.adapters", "onevoicecut.runtime"),
-)
 
 # AB-08: the shared kernel is domain-agnostic — no file under `shared/` may
 # import any `onevoicecut.systems.*` module package.
@@ -279,9 +277,10 @@ CLIPS_PRESENTATION = RuleGroup(
 )
 
 # AB-11 registration seam: migration slices append their module's RuleGroup
-# here, in the slice that migrates the module.
+# here, in the slice that migrates the module. `legacy-hexagonal` was retired
+# by 6a, once `domain/`, `usecases/` and `ports/` no longer existed to guard —
+# AB-11's own condition, met rather than waived.
 RULE_GROUPS: list[RuleGroup] = [
-    LEGACY_HEXAGONAL,
     SHARED_KERNEL,
     SHARED_DOMAIN_LAYER,
     JOBS_DOMAIN,
@@ -351,26 +350,88 @@ def check_tree(root: Path) -> dict[str, set[str]]:
     return _collect_violations(root, RULE_GROUPS)
 
 
-def test_domain_usecases_ports_never_import_adapters_or_runtime() -> None:
+def test_the_shipped_tree_violates_no_registered_rule_group() -> None:
     violations = _collect_violations(SRC_ROOT, RULE_GROUPS)
-    assert not violations, f"Hexagonal boundary violated: {violations}"
+    assert not violations, f"Architecture boundary violated: {violations}"
 
 
-def test_registry_covers_mid_migration_tree_on_both_sides(tmp_path: Path) -> None:
-    """AB-11: a registered systems/ scaffold subtree and a legacy subtree are
-    both enforced by the same run — the dual-coverage mechanism migration
-    slices rely on while domain/usecases/ports still exist."""
+# AB-09/AB-10 over the whole tree rather than subtree by subtree: the wiring —
+# `main`, `runtime`, `adapters` — may be named only by a composition root. The
+# registered groups above already refuse those prefixes from the layers they
+# guard, so what this one adds is the half nothing guards: `shared/`, the
+# application layers' reach for `onevoicecut.main`, `transcripts/presentation`
+# (which has no router and no `main` entry in its group), and any subtree a
+# future slice adds before its own group exists.
+COMPOSITION_ROOT_PREFIXES = (
+    "onevoicecut.main",
+    "onevoicecut.runtime",
+    "onevoicecut.adapters",
+)
+
+
+def _is_composition_root(relative: Path) -> bool:
+    """The three forms the boundary names: `main.py`, a `*_module_api.py`,
+    and everything under `runtime/`."""
+    if relative.as_posix() == "main.py" or relative.name.endswith("_module_api.py"):
+        return True
+    return bool(relative.parts) and relative.parts[0] == "runtime"
+
+
+def _composition_root_violations(root: Path) -> dict[str, set[str]]:
+    violations: dict[str, set[str]] = {}
+    for path in root.rglob("*.py"):
+        if _is_composition_root(path.relative_to(root)):
+            continue
+        if forbidden := _forbidden_imports(path, COMPOSITION_ROOT_PREFIXES):
+            violations[str(path)] = forbidden
+    return violations
+
+
+def test_wiring_is_named_only_by_composition_roots() -> None:
+    violations = _composition_root_violations(SRC_ROOT)
+    assert not violations, f"wiring named outside a composition root: {violations}"
+
+
+def test_a_non_root_may_not_name_the_wiring_but_a_root_may(tmp_path: Path) -> None:
+    """Positive and negative control in one run: the plant is caught and the
+    three root forms the allow-list names are not — an allow-list proved only
+    by refusing everything would be a different rule than the one stated."""
+    outsider = tmp_path / "shared" / "kernel.py"
+    outsider.parent.mkdir(parents=True)
+    outsider.write_text(
+        "import onevoicecut.runtime.supervisor\n", encoding="utf-8"
+    )
+    web_root = tmp_path / "main.py"
+    web_root.write_text("import onevoicecut.runtime.supervisor\n", encoding="utf-8")
+    module_root = (
+        tmp_path / "systems" / "pipeline" / "jobs" / "jobs_module_api.py"
+    )
+    module_root.parent.mkdir(parents=True)
+    module_root.write_text(
+        "import onevoicecut.runtime.supervisor\n", encoding="utf-8"
+    )
+    process_root = tmp_path / "runtime" / "app.py"
+    process_root.parent.mkdir(parents=True)
+    process_root.write_text(
+        "from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor\n",
+        encoding="utf-8",
+    )
+
+    violations = _composition_root_violations(tmp_path)
+
+    assert set(violations) == {str(outsider)}, violations
+    assert violations[str(outsider)] == {"onevoicecut.runtime.supervisor"}
+
+
+def test_registry_covers_a_registered_scaffold_subtree(tmp_path: Path) -> None:
+    """AB-11: a registered systems/ scaffold subtree is enforced by the same
+    run that walks the shipped tree — the mechanism every migration slice has
+    relied on while moving a module across."""
     scaffold_dir = tmp_path / "systems" / "pipeline" / "jobs" / "domain"
     scaffold_dir.mkdir(parents=True)
     scaffold_plant = scaffold_dir / "planted.py"
     scaffold_plant.write_text(
         "import onevoicecut.adapters.ffmpeg\n", encoding="utf-8"
-    )
-    legacy_dir = tmp_path / "domain"
-    legacy_dir.mkdir()
-    legacy_plant = legacy_dir / "planted.py"
-    legacy_plant.write_text(
-        "import onevoicecut.runtime.supervisor\n", encoding="utf-8"
     )
 
     scaffold_group = RuleGroup(
@@ -385,11 +446,6 @@ def test_registry_covers_mid_migration_tree_on_both_sides(tmp_path: Path) -> Non
             f"registered scaffold plant not caught: {violations}"
         )
         assert violations[str(scaffold_plant)] == {"onevoicecut.adapters.ffmpeg"}
-        assert str(legacy_plant) in violations, (
-            f"legacy plant not caught while a scaffold group was registered: "
-            f"{violations}"
-        )
-        assert violations[str(legacy_plant)] == {"onevoicecut.runtime.supervisor"}
     finally:
         RULE_GROUPS.remove(scaffold_group)
 
@@ -425,11 +481,10 @@ def test_registered_subtree_scan_flags_plants_but_not_compliant_imports(
         RULE_GROUPS.remove(scaffold_group)
 
 
-def test_shared_rules_are_registered_and_both_sides_bite(tmp_path: Path) -> None:
-    """AB-08/AB-03 (shared side) and AB-11 (both sides): the shared kernel
-    rules are live in `RULE_GROUPS`, a `systems` plant under `shared/` fails,
-    a shared-outer-layer plant under `shared/domain/` fails, and a legacy
-    plant still fails in the same run while `domain/`/`ports/` exist."""
+def test_shared_rules_are_registered_and_bite(tmp_path: Path) -> None:
+    """AB-08/AB-03 (shared side) and AB-11: the shared kernel rules are live in
+    `RULE_GROUPS`, a `systems` plant under `shared/` fails, and a
+    shared-outer-layer plant under `shared/domain/` fails in the same run."""
     shared_file = tmp_path / "shared" / "kernel.py"
     shared_file.parent.mkdir(parents=True)
     shared_file.write_text(
@@ -440,11 +495,6 @@ def test_shared_rules_are_registered_and_both_sides_bite(tmp_path: Path) -> None
     shared_domain_file.write_text(
         "from onevoicecut.shared.infrastructure.settings import Settings\n",
         encoding="utf-8",
-    )
-    legacy_file = tmp_path / "domain" / "planted.py"
-    legacy_file.parent.mkdir(parents=True, exist_ok=True)
-    legacy_file.write_text(
-        "import onevoicecut.runtime.supervisor\n", encoding="utf-8"
     )
 
     registered = {group.name for group in RULE_GROUPS}
@@ -458,9 +508,99 @@ def test_shared_rules_are_registered_and_both_sides_bite(tmp_path: Path) -> None
     assert violations.get(str(shared_domain_file)) == {
         "onevoicecut.shared.infrastructure.settings"
     }, violations
-    assert violations.get(str(legacy_file)) == {
-        "onevoicecut.runtime.supervisor"
-    }, violations
+
+
+# AB-12: the sweep, keyed by the name of the group each plant belongs to. The
+# assertion below ties this dict to `RULE_GROUPS` as a set, so neither half can
+# drift alone — a group appended without a plant, or a plant left behind after
+# its group retires, fails the run rather than sitting there quietly enforced
+# by nobody. Exactly one per group, not "at least one": two plants would let a
+# broken second plant hide behind a working first.
+AB12_PLANTS: dict[str, tuple[str, str]] = {
+    "shared-kernel": (
+        "shared/planted.py",
+        "import onevoicecut.systems.pipeline.jobs.domain\n",
+    ),
+    "shared-domain-layer": (
+        "shared/domain/planted.py",
+        "from onevoicecut.shared.infrastructure.settings import Settings\n",
+    ),
+    "jobs-domain": ("systems/pipeline/jobs/domain/planted.py", "import fastapi\n"),
+    "jobs-application": (
+        "systems/pipeline/jobs/application/planted.py",
+        "import onevoicecut.runtime.supervisor\n",
+    ),
+    "jobs-presentation": (
+        "systems/pipeline/jobs/presentation/planted.py",
+        "from onevoicecut.main import WebDependencies\n",
+    ),
+    "jobs-domain-isolation": (
+        "systems/pipeline/clips/domain/planted.py",
+        "from onevoicecut.systems.pipeline.jobs.domain.jobs import JobRecord\n",
+    ),
+    "transcripts-domain": (
+        "systems/pipeline/transcripts/domain/planted.py",
+        "import pydantic\n",
+    ),
+    "transcripts-application": (
+        "systems/pipeline/transcripts/application/planted.py",
+        "import onevoicecut.systems.pipeline.jobs.infrastructure\n",
+    ),
+    "transcripts-presentation": (
+        "systems/pipeline/transcripts/presentation/planted.py",
+        "from onevoicecut.adapters.ffmpeg.extractor import FfmpegAudioExtractor\n",
+    ),
+    "clips-domain": ("systems/pipeline/clips/domain/planted.py", "import sqlalchemy\n"),
+    "clips-application": (
+        "systems/pipeline/clips/application/planted.py",
+        "import onevoicecut.runtime.render_worker\n",
+    ),
+    "clips-presentation": (
+        "systems/pipeline/clips/presentation/planted.py",
+        "from onevoicecut.main import WebDependencies\n",
+    ),
+}
+
+
+def test_every_registered_rule_group_has_exactly_one_plant() -> None:
+    """AB-11/AB-12: the sweep and the registry are the same set.
+
+    A group that exists with no plant is registered and unproven — the exact
+    window AB-11 exists to close. A plant whose group has been retired is the
+    other direction: a rule nobody enforces, described as if enforced."""
+    registered = [group.name for group in RULE_GROUPS]
+    missing = sorted(set(registered) - set(AB12_PLANTS))
+    stale = sorted(set(AB12_PLANTS) - set(registered))
+    assert not missing and not stale and len(AB12_PLANTS) == len(registered), (
+        f"registered groups without a plant: {missing}; "
+        f"plants without a registered group: {stale}; "
+        f"{len(registered)} groups, {len(AB12_PLANTS)} plants"
+    )
+
+
+@pytest.mark.parametrize("group_name", sorted(AB12_PLANTS))
+def test_the_full_sweep_fails_naming_the_planted_file(
+    tmp_path: Path, group_name: str
+) -> None:
+    """AB-12 end to end: the sweep's own plant fails the run naming its file,
+    and the forbidden import reported is one *this* group forbids — a neighbour
+    group happening to bite on the same path would prove nothing about the
+    group the parametrization names."""
+    relative_path, source = AB12_PLANTS[group_name]
+    plant = tmp_path / relative_path
+    plant.parent.mkdir(parents=True, exist_ok=True)
+    plant.write_text(source, encoding="utf-8")
+
+    violations = check_tree(tmp_path)
+    found = violations.get(str(plant), set())
+    group = next(g for g in RULE_GROUPS if g.name == group_name)
+
+    assert found, f"{group_name} plant at {relative_path} not caught: {violations}"
+    assert any(
+        name == prefix or name.startswith(prefix + ".")
+        for name in found
+        for prefix in group.forbidden_prefixes
+    ), f"{group_name} did not contribute to {sorted(found)}"
 
 
 # Slice 2a — the jobs module's rule groups (AB-01, AB-02, AB-04, AB-05, AB-06,
@@ -590,32 +730,6 @@ def test_jobs_plant_fails_naming_its_file(
     assert violations[str(plant)] == {expected}
 
 
-def test_jobs_and_legacy_plants_fail_in_the_same_run(tmp_path: Path) -> None:
-    """AB-11 both sides in one run: while `domain/`, `usecases/` and `ports/`
-    still exist, a legacy plant is caught alongside a jobs plant — registering
-    the new group may not cost coverage of code that is still there."""
-    legacy_plant = tmp_path / "usecases" / "admit_job.py"
-    legacy_plant.parent.mkdir(parents=True, exist_ok=True)
-    legacy_plant.write_text(
-        "import onevoicecut.runtime.supervisor\n", encoding="utf-8"
-    )
-    jobs_plant = tmp_path / "systems" / "pipeline" / "jobs" / "domain" / "jobs.py"
-    jobs_plant.parent.mkdir(parents=True, exist_ok=True)
-    jobs_plant.write_text("import pydantic\n", encoding="utf-8")
-
-    violations = check_tree(tmp_path)
-
-    assert str(legacy_plant) in violations, (
-        f"legacy plant not caught while the jobs rules were registered: "
-        f"{violations}"
-    )
-    assert violations[str(legacy_plant)] == {"onevoicecut.runtime.supervisor"}
-    assert str(jobs_plant) in violations, (
-        f"jobs plant not caught: {violations}"
-    )
-    assert violations[str(jobs_plant)] == {"pydantic"}
-
-
 # Slice 3a — the transcripts module's rule groups (AB-01, AB-02, AB-04, AB-05,
 # AB-06, AB-07, AB-09, AB-10). The names below are the registration seam the
 # tests assert: the slice that migrates `systems/pipeline/transcripts` appends
@@ -731,37 +845,6 @@ def test_transcripts_plant_fails_naming_its_file(
         f"planted violation at {relative_path} not caught: {violations}"
     )
     assert violations[str(plant)] == {expected}
-
-
-def test_transcripts_and_legacy_plants_fail_in_the_same_run(tmp_path: Path) -> None:
-    """AB-11 both sides in one run: while `domain/`, `usecases/` and `ports/`
-    still exist, a legacy plant is caught alongside a transcripts plant —
-    registering the new groups may not cost coverage of code that is still
-    there."""
-    legacy_plant = tmp_path / "ports" / "transcription.py"
-    legacy_plant.parent.mkdir(parents=True, exist_ok=True)
-    legacy_plant.write_text(
-        "import onevoicecut.adapters.ffmpeg.extractor\n", encoding="utf-8"
-    )
-    transcripts_plant = (
-        tmp_path / "systems" / "pipeline" / "transcripts" / "domain" / "chunking.py"
-    )
-    transcripts_plant.parent.mkdir(parents=True, exist_ok=True)
-    transcripts_plant.write_text("import pydantic\n", encoding="utf-8")
-
-    violations = check_tree(tmp_path)
-
-    assert str(legacy_plant) in violations, (
-        f"legacy plant not caught while the transcripts rules were registered: "
-        f"{violations}"
-    )
-    assert violations[str(legacy_plant)] == {
-        "onevoicecut.adapters.ffmpeg.extractor"
-    }
-    assert str(transcripts_plant) in violations, (
-        f"transcripts plant not caught: {violations}"
-    )
-    assert violations[str(transcripts_plant)] == {"pydantic"}
 
 
 # Slice 4a — the clips module's rule groups (AB-01, AB-02, AB-04, AB-05,
@@ -889,30 +972,3 @@ def test_clips_plant_fails_naming_its_file(
         f"planted violation at {relative_path} not caught: {violations}"
     )
     assert violations[str(plant)] == {expected}
-
-
-def test_clips_and_legacy_plants_fail_in_the_same_run(tmp_path: Path) -> None:
-    """AB-11 both sides in one run: while `domain/`, `usecases/` and `ports/`
-    still exist, a legacy plant is caught alongside a clips plant —
-    registering the new groups may not cost coverage of code that is still
-    there."""
-    legacy_plant = tmp_path / "domain" / "generation.py"
-    legacy_plant.parent.mkdir(parents=True, exist_ok=True)
-    legacy_plant.write_text(
-        "import onevoicecut.runtime.render_worker\n", encoding="utf-8"
-    )
-    clips_plant = tmp_path / "systems" / "pipeline" / "clips" / "domain" / "framing.py"
-    clips_plant.parent.mkdir(parents=True, exist_ok=True)
-    clips_plant.write_text("import pydantic\n", encoding="utf-8")
-
-    violations = check_tree(tmp_path)
-
-    assert str(legacy_plant) in violations, (
-        f"legacy plant not caught while the clips rules were registered: "
-        f"{violations}"
-    )
-    assert violations[str(legacy_plant)] == {"onevoicecut.runtime.render_worker"}
-    assert str(clips_plant) in violations, (
-        f"clips plant not caught: {violations}"
-    )
-    assert violations[str(clips_plant)] == {"pydantic"}
