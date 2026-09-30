@@ -1273,23 +1273,42 @@ Closes: `architecture-boundary` complete — every scenario AB-01…AB-12 enforc
 run; AB-12 final planted-violation sweep; AB-11's end-state clause (no present code
 unenforced).
 
-- [ ] 6a.1 Verify: legacy `domain/`, `usecases/`, `ports/`, and `adapters/` no longer exist
+- [x] 6a.1 Verify: legacy `domain/`, `usecases/`, `ports/`, and `adapters/` no longer exist
       (only `shared/`, `systems/`, `runtime/`, `main.py` remain) — the precondition for
       retiring legacy rules **without** reducing coverage of any existing code (AB-11).
-      `[unit 6a]`
-- [ ] 6a.2 RED: full AB-12 sweep — plant one violation per rule group across the migrated
+      `[unit 6a]` — observed: `src/onevoicecut/` = `runtime/`, `shared/`, `systems/`,
+      `main.py` (+ `__pycache__`); `domain`, `usecases`, `ports`, `adapters` all `exists=False`.
+- [x] 6a.2 RED: full AB-12 sweep — plant one violation per rule group across the migrated
       tree (AB-01 presentation-to-infrastructure, AB-02 application-to-presentation,
       AB-03/AB-04 domain layering and framework imports, AB-05 adapters/runtime imports,
       AB-06 cross-module infrastructure, AB-07 cross-module domain, AB-08 shared-imports-
       systems, AB-09 presentation adapter construction, AB-10 application-imports-runtime);
       each plant fails naming its file; removing all plants returns the run to green.
-      `[unit 6a]`
-- [ ] 6a.3 GREEN: finalize `tests/test_architecture.py` — all twelve AB rules live against
+      `[unit 6a]` — observed: baseline GREEN → **13/13 registered groups FAILED**, each
+      naming its planted file → all plants removed → GREEN, worktree clean. Plants were
+      written into the real `src/` tree one at a time (script outside the repo), so the
+      observation is against `check_tree(SRC_ROOT)`, not a fixture.
+- [x] 6a.3 GREEN: finalize `tests/test_architecture.py` — all twelve AB rules live against
       the shipped tree; legacy hexagonal rules retired only now that their packages are gone;
       composition-root allow-list = `main.py`, `*_module_api.py`, `runtime/`; wiring rule
-      (AB-09/AB-10) explicit. `[unit 6a]`
-- [ ] 6a.4 Verify: suite + mypy; commit
+      (AB-09/AB-10) explicit. `[unit 6a]` — observed: **51 tests** in the file. `LEGACY_HEXAGONAL`
+      removed from `RULE_GROUPS` (AB-11's condition, met); the three `*_and_legacy_plants_*`
+      tests deleted (each non-legacy half duplicated the module's own parametrized `ab-04`
+      case); `test_every_registered_rule_group_has_exactly_one_plant` ties `AB12_PLANTS`
+      (12 entries) to the registry **as a set**; `_composition_root_violations` walks the
+      whole tree against `COMPOSITION_ROOT_PREFIXES`. Two mutations observed, both
+      reverted: composition-root plant in `shared/planted.py` → FAIL naming the file;
+      re-registering `legacy-hexagonal` → FAIL, `registered groups without a plant:
+      ['legacy-hexagonal']; 13 groups, 12 plants`.
+- [x] 6a.4 Verify: suite + mypy; commit
       `test(architecture): enforce full FCA rule set (AB-01 through AB-12)`. `[unit 6a]`
+      — observed:
+      `pytest tests\test_architecture.py -q` → **51 passed**;
+      `pytest tests\test_architecture.py tests\test_fca_config.py -q` → **55 passed**;
+      full default run → **2244 passed, 44 deselected, 0 skipped** (2 warnings);
+      `mypy src tests` → **Success: no issues found in 373 source files**.
+      Message landed as `test(architecture): enforce the full AB-01..AB-12 rule set`
+      (`acee32e`) — same claim, different words from the line above.
 
 ---
 
