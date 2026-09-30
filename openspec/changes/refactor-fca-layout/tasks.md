@@ -1071,29 +1071,83 @@ is not done until the default suite is green with no unversioned path in shipped
 documentation. Route-table-generated 401/403 tests follow `app.routes` automatically — verify,
 never hand-edit their path lists.
 
-- [ ] 5a.1 RED: AV-02 — enumerate `app.routes`: every path begins `/api/v1/`, none under bare
+- [x] 5a.1 RED: AV-02 — enumerate `app.routes`: every path begins `/api/v1/`, none under bare
       `/api`. Fails pre-migration. `[unit 5a]`
-- [ ] 5a.2 RED: AV-03 — unauthenticated `POST /api/jobs` (and spot-checks of former
+- [x] 5a.2 RED: AV-03 — unauthenticated `POST /api/jobs` (and spot-checks of former
       unversioned paths) responds 404 with **no side effects**: no job admitted, no file
       written, no process spawned. Fails pre-migration (currently 201/401). `[unit 5a]`
-- [ ] 5a.3 RED: AV-04 — version prefixes in the route table equal the active versions in
+- [x] 5a.3 RED: AV-04 — version prefixes in the route table equal the active versions in
       `fca_config.yaml` (both `{v1}`). Fails pre-migration (routes unversioned). `[unit 5a]`
-- [ ] 5a.4 RED: AV-08 — plant a route registered without authentication handling on the app;
+- [x] 5a.4 RED: AV-08 — plant a route registered without authentication handling on the app;
       the generated check (derived from `app.routes`, not a literal list) fails the default run
       naming it. Proves AUTH-06's machinery survives the migration by construction. `[unit 5a]`
-- [ ] 5a.5 GREEN (atomic, one commit): flip router registration in `main.py` to prefix
+- [x] 5a.5 GREEN (atomic, one commit): flip router registration in `main.py` to prefix
       `/api/v1/jobs`; flip every `/api/` path literal across `tests/` (~100 occurrences) and
       every documented example in `README.md` / `CLAUDE.md` HTTP snippets; drop the
       `runtime/app.py:get_app` re-export and flip the documented uvicorn entrypoint to
       `onevoicecut.main:get_app` (design: re-export and docs die in the path-migration slice);
       generated auth tests follow automatically (verify only). AV-01 proven by the unchanged
       per-operation status-code tests running against the new literals. `[unit 5a]`
-- [ ] 5a.6 Verify: default suite green with no unversioned path remaining in shipped code,
+- [x] 5a.6 Verify: default suite green with no unversioned path remaining in shipped code,
       tests, or documentation (grep the tree for `"/api/` not followed by `v1`); mypy clean;
       commit `feat(api)!: serve all operations under /api/v1 atomically (no unversioned alias)`.
       **Budget note: ~600 estimated lines vs the 400 PR policy — flagged for the ask-on-risk
       decision; after one honest slicing pass this unit cannot split (atomicity is the
       requirement), so it carries a `size:exception` recommendation.** `[unit 5a]`
+
+> **Slice 5a notes — disclosure block, written with the commit (`c1b4ad2`).**
+>
+> **Budget note in 5a.6 above is stale.** `openspec/config.yaml` `review.budget_lines` is
+> **800** (raised from 400 on 2026-08-31; `rules.apply` line 43 says "Respect the 800-line
+> review budget"). Measured: **613 changed lines** (418 tracked + 195 new) across 41 files,
+> **inside budget → no `size:exception` and no split.** The "400 PR policy" sentence above is
+> left in place as written and superseded by this paragraph.
+>
+> **RED evidence (measured, not asserted).** `tests/test_api_versioning.py` written first, run
+> before any source edit: **8 failed, 1 passed** — 5a.1 (1), 5a.2 (6/6), 5a.3 (1) red;
+> `served versions [] != active versions ['v1']` is AV-04's exact failure. GREEN run: 9 passed.
+>
+> **5a.4 was NOT red, and is claimed as a survivorship pin rather than a TDD cycle.** It
+> passed before the migration: the route-table walk already descended `app.routes` and already
+> found a route planted after construction, and an unauthenticated request to it already
+> answered non-401. What it pins is that AUTH-06's derivation stays a live walk through the
+> migration — the property 5a.5 depends on when it says the generated gates follow
+> automatically. Calling it RED would claim an observation that did not happen.
+>
+> **The bulk flip rewrote the test that proves the old surface is gone — caught, then
+> guarded.** The script replaced `/api/jobs` repo-wide, which included AV-03's *own* retired
+> literals, turning "the unversioned path must 404" into "the live path must 404" (it then
+> failed `401 != 404`, so the tautology surfaced as a failure rather than a false green).
+> AV-03 now carries an explicit assertion that its literals do **not** start `/api/v1/`, so a
+> future migration cannot silently convert it into a tautology against the very surface it
+> exists to prove gone.
+>
+> **Generated gates were verified, never hand-edited.** `_registered_route_cases()` in
+> `test_auth_gate.py` and the OWN-05 403 matrix still derive from `app.routes`; only their
+> hardcoded *request* literals (e.g. `client.post("/api/jobs", ...)`) were flipped. The
+> derived `ROUTE_CASES` list was not touched — that is the "verify, never hand-edit" clause,
+> and it is why `test_auth_gate.py` needed no change beyond two request literals.
+>
+> **Three test call sites changed beyond imports** (`app_module.get_app()` → `get_app()` in
+> `test_watchdog_wiring.py` ×2, `test_worker_reaping.py` ×1), plus the two import lines that
+> carried them. This is mandated by the re-export removal in 5a.5, not incidental: each still
+> patches `app_module.build_app`, which is what `main.get_app` resolves at call time — the
+> design note at `main.py:501-504` says so explicitly. Every other test file changed on path
+> literals only.
+>
+> **Ollama's endpoints are excluded on purpose.** `GENERATE_PATH = "/api/generate"` and
+> `TAGS_PATH = "/api/tags"` are the model server's surface, not ours, and the 5a.6 grep
+> returns them as expected residuals alongside AV-03's deliberate retired literals and the
+> grep instruction in this file.
+>
+> **One stale docstring corrected while flipping.** `job_routes.py:3-5` claimed "the prefix is
+> not this module's business: `main.py` registers the router under `/api/jobs`" — false even
+> before this slice, since line 75 declares the prefix right there (with a long note on
+> FastAPI 0.141.1's outer-prefix bug). Rewritten to describe what the code does.
+>
+> **`proposal.md:143` and `tasks.md:205` still read `runtime.app:get_app`** — both are
+> historical records (the open design question, and completed task 1d.3's "lives until Phase
+> 5"), not usage examples, so neither was rewritten.
 
 ---
 
