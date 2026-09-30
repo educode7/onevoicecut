@@ -969,22 +969,22 @@ outside an `import`/module-header changes in `runtime/worker.py`, `runtime/rende
 `runtime/supervisor.py`, `runtime/engine_resolver.py`, `runtime/tracker_resolver.py`, or
 `runtime/app.py`.
 
-- [ ] 4f.1 Pre-check: capture the expected diff surface — the six runtime modules plus their
+- [x] 4f.1 Pre-check: capture the expected diff surface — the six runtime modules plus their
       test files' import lines if any; record `git diff --stat` intent in the commit message.
       No test bodies may change in `tests/unit/runtime/`. `[unit 4f]`
-- [ ] 4f.2 Rewire `runtime/worker.py` — import lines only: construct `core` + `JobStore` +
+- [x] 4f.2 Rewire `runtime/worker.py` — import lines only: construct `core` + `JobStore` +
       `TranscriptStore` facades at the entrypoint (its own composition root), consume
       jobs/transcripts module APIs for commands (`transcribe_job`, `resume_job` path,
       heartbeat/cancellation through `JobStore`). Bodies (single-writer, heartbeat cadence,
       chunk loop, timeout handling) frozen byte-for-byte. `[unit 4f]`
-- [ ] 4f.3 Rewire `runtime/render_worker.py` — import lines only: `ClipStore` facade +
+- [x] 4f.3 Rewire `runtime/render_worker.py` — import lines only: `ClipStore` facade +
       clips module API (`request_clip_export`/`render_clip` claim path). Bodies (one-shot
       claim, `render_timeout_for` import usage, cap counting) frozen. `[unit 4f]`
-- [ ] 4f.4 Rewire `runtime/supervisor.py`, `engine_resolver.py`, `tracker_resolver.py`,
+- [x] 4f.4 Rewire `runtime/supervisor.py`, `engine_resolver.py`, `tracker_resolver.py`,
       `app.py` import lines to the new homes (loops, drain cadences, watchdog, reconcile,
       reap classification all frozen; `app.py` keeps only supervisor-loop symbols — `get_app`
       re-export still stands until 5a). `[unit 4f]`
-- [ ] 4f.5 GREEN/verify (relocation honesty — **no new test written**): full default suite
+- [x] 4f.5 GREEN/verify (relocation honesty — **no new test written**): full default suite
       green **with runtime test bodies unchanged**; mypy strict clean; explicit body-freeze
       evidence: `git diff` over the six runtime files contains only import-line changes —
       recorded in the review receipt. Delete the drained `adapters/storage/` monolith and any
@@ -992,6 +992,72 @@ outside an `import`/module-header changes in `runtime/worker.py`, `runtime/rende
       else in `adapters/`). Commit
       `refactor(fca): rewire runtime composition roots to module APIs (bodies frozen)`.
       `[unit 4f]`
+
+  **RED-by-deletion observed** (no new test written, per 4f.5): `git rm` of the three
+  `adapters/storage/` files produced `ModuleNotFoundError: No module named
+  'onevoicecut.adapters.storage.filesystem_transcript_storage'` — 4 collection errors in
+  `tests/unit/adapters/storage/`. GREEN observed: full default suite `2211 passed, 44
+  deselected, 0 skipped` (identical to the pre-change baseline, 0 skips — ffmpeg bin prepended
+  so the integration tests really ran); mypy clean over 378 source files (380 − 3 deleted + 1
+  added).
+
+  **Body-freeze evidence.** `git diff` over the six named modules touches only the import
+  block of `worker.py` (2 hunks) and `render_worker.py` (2 hunks); `supervisor.py`,
+  `engine_resolver.py`, `tracker_resolver.py` and `app.py` have **no diff at all**. One
+  non-`import` line was removed — the three-line `# Temporary composition wiring:` comment
+  sitting inside `render_worker.py`'s import block, which said 4e's `clips_module_api` was
+  *not yet* where clips handlers are built; 4f.3 is the task that makes it false, so leaving
+  it would have been the dishonest option. It explains the import directly beneath it and is
+  part of the module header. `tests/unit/runtime/` diff is import lines only across all seven
+  files; no test body changed anywhere.
+
+  **Disclosures.**
+  1. **4f.4 is a verified no-op, not an omission.** `engine_resolver.py` and
+     `tracker_resolver.py` already had zero legacy imports (rewired by earlier slices). The
+     only legacy import left in `supervisor.py:54` and `app.py:35` is
+     `onevoicecut.ports.transcript_storage`, and `TranscriptStoragePort` has **no new home**:
+     it exists solely at `src/onevoicecut/ports/transcript_storage.py`, 8 `systems/` modules
+     import it from there, and tasks.md gives it no relocation task — `ports/` retires
+     wholesale at 6a.1. Moving it here would have invented a destination. `app.py` keeps its
+     `onevoicecut.main` re-exports (`get_app` et al.) untouched, as 4f.4 requires.
+  2. **The frozen call sites force a name.** `worker.py:169` and `render_worker.py:648` both
+     read `FilesystemTranscriptStorage(data_dir)`, and neither line may move. The monolith
+     they pointed at is deleted, so `runtime/storage.py` now defines that name as the union of
+     `FilesystemJobStore` + `FilesystemTranscriptStore` + `FilesystemClipStore` over one
+     `StorageCore` — the composition layer, "the only package allowed to construct adapters",
+     is where a cross-module composite belongs, and `main.py` already imported from
+     `runtime/`. It is 64 lines with **no behaviour**: no method is re-implemented.
+  3. **OWN-02 changed the design, not the test.** The first form was explicit per-method
+     delegation, and `test_every_record_mutation_goes_through_dataclasses_replace` failed on
+     it: its file-local AST scan saw `self._jobs.update_job(job)` as a record "not built by
+     `replace(...)`". A forwarding shim introduces a call site that looks exactly like the
+     mutation path the invariant polices. Rather than teaching the scanner to forgive
+     pass-throughs — which would open the hole it exists to close — the composite became
+     multiple inheritance, which adds **no `update_job` call site at all**. The test is
+     byte-unchanged.
+  4. **`job_dir` is the one method all three facades declare**, so it is the only MRO
+     decision. All three bodies are `return self._core.job_dir(job_id)`, and both the
+     `transcripts` and `clips` docstrings state that `jobs` owns admission, which is what
+     creates the directory — so `FilesystemJobStore` first in the bases is the semantically
+     correct winner, not merely the first-listed one. The three `__init__`s are called
+     explicitly rather than left to `super()` chaining, because none of them chain on and
+     spelling them out says "one shared core, three facades" without MRO reasoning.
+  5. **Test file locations did not move** — only import lines changed, matching 4e, which left
+     `tests/unit/adapters/ffmpeg/` in place after `src/onevoicecut/adapters/ffmpeg/` went.
+     The three codec tests re-pointed from the deleted `adapters.storage.serialization`
+     seam to the facade modules that actually define the codecs (OQ3); `JOB_RECORD` and
+     `HEARTBEAT` moved to their real home, `shared/infrastructure/storage/core.py`. Two
+     stale docstrings now overstate the monolith's retirement — left alone deliberately,
+     since editing a docstring is editing a test body.
+  6. **`adapters/web/` was not deleted.** 4f.5's "now-empty legacy adapter packages" would
+     cover it — 4e drained it to `__init__.py` alone — but 5c.4 owns that deletion
+     explicitly, and taking it would leave 5c with a checkbox it cannot close. Only
+     `adapters/storage/` went; `adapters/__init__.py` stays because `web/` is still inside it.
+  7. **Measured: 623 changed lines** (138 insertions, 485 deletions) over 27 files — of which
+     **194 authored** and **429 are the mandated monolith deletion** (370 + 58 + 1). Under
+     `review.budget_lines: 800` (raised from 400 on 2026-08-31; the 400 in older notes is
+     stale), so one cohesive unit with no split and no `size:exception`.
+
 
 ---
 
