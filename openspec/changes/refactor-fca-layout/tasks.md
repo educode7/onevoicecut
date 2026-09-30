@@ -1215,18 +1215,55 @@ the server-side `mine` filter.
 Closes: `api-versioning` AV-06, AV-07. Contract tightening landed explicitly, never smuggled
 into a relocation slice.
 
-- [ ] 5c.1 RED: AV-06 — authenticated `POST /api/v1/jobs` whose JSON body carries an unknown
+- [x] 5c.1 RED: AV-06 — authenticated `POST /api/v1/jobs` whose JSON body carries an unknown
       key responds 422 before any handler runs; no job created. `[unit 5c]`
-- [ ] 5c.2 RED: AV-07 — authenticated `POST /api/v1/jobs/{id}/clips` with an unknown JSON key
+- [x] 5c.2 RED: AV-07 — authenticated `POST /api/v1/jobs/{id}/clips` with an unknown JSON key
       responds 422; no clip export written. `[unit 5c]`
-- [ ] 5c.3 GREEN: declare `extra="forbid"` on every JSON request body schema in both modules'
+- [x] 5c.3 GREEN: declare `extra="forbid"` on every JSON request body schema in both modules'
       `presentation/schemas/v1/` (the raw-body media upload carries no JSON schema — out of
       scope); update any existing test that posted extra keys so the suite stays green.
       `[unit 5c]`
-- [ ] 5c.4 GREEN: delete the drained `src/onevoicecut/adapters/web/` package; confirm no
+- [x] 5c.4 GREEN: delete the drained `src/onevoicecut/adapters/web/` package; confirm no
       shipped module imports it (AST/grep + suite). `[unit 5c]`
-- [ ] 5c.5 Verify: suite + mypy; route-table 401/403 checks green on the final surface; commit
+- [x] 5c.5 Verify: suite + mypy; route-table 401/403 checks green on the final surface; commit
       `feat(api)!: forbid unknown JSON keys and remove drained adapters/web`. `[unit 5c]`
+
+> **Slice 5c disclosure (measured, 2026-09-29).** Both RED tests were written first and
+> **passed immediately**: `extra="forbid"` has been on `AdmitJobRequest` and
+> `ClipExportRequest` since before this change — it is inherited from
+> `adapters/web/schemas.py` at `9a737db~1`, so AV-06/AV-07's behaviour already held and
+> this slice's delta is the *pin*, not the tightening. The requirement is therefore proven
+> by **mutation**: with `extra="forbid"` removed from both request schemas the pair fails
+> **2 failed** — AV-06 `assert 201 == 422` (the unknown key was ignored and a job was
+> created) and AV-07 `assert 404 == 422` (the body passed validation, the handler loaded
+> an absent job and answered 404). Restored, both pass. Recorded as a mutation-pinned
+> cycle rather than claimed as a RED the tree could produce — the same disclosure class as
+> VIS-13 in 5b.
+>
+> 5c.3 was consequently verification, not an edit: a `BaseModel` sweep of `systems/` finds
+> 13 classes, exactly **two** of them JSON request bodies, and both already declare
+> `extra="forbid"`. **No existing test posted extra keys** expecting success — the suite
+> was green before the slice with the flag in force, so there was nothing to update.
+>
+> 5c.4's RED-by-deletion ran in two steps, both observed. `git rm` removed the tracked
+> `__init__.py` but left `__pycache__` on disk, so `import onevoicecut.adapters.web`
+> resolved as a *namespace* package and failed later with
+> `TypeError ... not 'NoneType'` off `web_package.__file__`. Deleting the directory
+> outright produced the honest failure — `ModuleNotFoundError` at collection, **1 error**.
+> The fix was the single reference: `test_upload_media_route.py`'s multipart walk dropped
+> the third root and its import (13 passed). AST scan plus text grep over `src/` + `tests/`
+> now find **no import reference**; the only surviving strings are the two AB-09 plants in
+> `test_architecture.py`, which are source text the rule must still bite on (AB-11: a
+> violation is one whether or not the package is importable) and were left byte-untouched.
+> `test_architecture.py` itself needed **no change** — its walker globs
+> `src/onevoicecut`, so one fewer package is one fewer file, and the plants never import
+> for real.
+>
+> 119 changed lines (92 + / 27 −) over 4 files — inside both the 400 policy and the 800
+> `review.budget_lines`; no `size:exception`. Suite **2235 passed / 44 deselected / 0
+> skipped**; mypy clean over **379** files (380 − the deleted `__init__.py`); route-table
+> 401/403 + AV + arch + the structural walk **90 passed**; `-k "forbid or unknown"`
+> **31 passed**. Commit `6f72eb6`.
 
 ---
 
