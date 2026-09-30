@@ -33,9 +33,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local.declarations import HF_TOKEN_ENV
-from onevoicecut.runtime.storage import FilesystemTranscriptStorage
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.runtime.storage import (
+    FilesystemTranscriptStorage,
+    StorageComposite,
+)
 from onevoicecut.systems.pipeline.clips.domain.rendering import RenderProfile
+from onevoicecut.systems.pipeline.jobs.domain.interfaces.job_store import JobStore
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice
 from onevoicecut.systems.pipeline.jobs.infrastructure.media_source import (
     FilesystemMediaSource,
@@ -172,19 +175,19 @@ def handle_unexpected_error(request: Request, error: Exception) -> JSONResponse:
     return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
 
 
-MediaSourceFactory = Callable[[TranscriptStoragePort, JobId], MediaSourcePort]
-ExtractorFactory = Callable[[TranscriptStoragePort, JobId], AudioExtractorPort]
+MediaSourceFactory = Callable[[JobStore, JobId], MediaSourcePort]
+ExtractorFactory = Callable[[JobStore, JobId], AudioExtractorPort]
 
 
 def filesystem_media_source(
-    storage: TranscriptStoragePort, job_id: JobId
+    storage: JobStore, job_id: JobId
 ) -> MediaSourcePort:
     """One writer per upload, aimed where storage says the source belongs."""
     return FilesystemMediaSource(storage.source_path(job_id))
 
 
 def ffmpeg_extractor(
-    storage: TranscriptStoragePort, job_id: JobId
+    storage: JobStore, job_id: JobId
 ) -> AudioExtractorPort:
     """The web process only ever calls `probe` on this.
 
@@ -211,7 +214,7 @@ class WebDependencies:
     application buildable without a real data directory.
     """
 
-    storage: TranscriptStoragePort
+    storage: StorageComposite
     # Required, deliberately, with no default: an app cannot be constructed
     # without deciding who authenticates it. Deny-by-default is structural —
     # the absence of auth is a build error, not a server that runs open.

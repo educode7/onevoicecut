@@ -29,7 +29,7 @@ from onevoicecut.shared.domain.errors import (
 )
 from onevoicecut.shared.domain.ids import ClipId, JobId
 from onevoicecut.systems.pipeline.clips.domain.rendering import ClipExport, ClipState, RenderProfile
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.systems.pipeline.clips.domain.interfaces.clip_store import ClipStore
 from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import SCRIPT_TARGETS, ScriptTarget
 from onevoicecut.systems.pipeline.clips.application.use_cases.queries.render_profiles import RENDER_PROFILES, group_variants_by_profile
 
@@ -62,7 +62,7 @@ class RequestClipExportHandler:
     def __init__(
         self,
         *,
-        storage: TranscriptStoragePort,
+        storage: ClipStore,
         new_clip_id: Callable[[], ClipId],
         script_targets: Mapping[str, ScriptTarget] = SCRIPT_TARGETS,
         render_profiles: Mapping[str, RenderProfile] = RENDER_PROFILES,

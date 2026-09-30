@@ -18,7 +18,7 @@ from httpx import ASGITransport, AsyncClient
 from onevoicecut.main import WebDependencies, create_app
 from onevoicecut.shared.domain.ids import JobId, make_job_id
 from onevoicecut.systems.pipeline.jobs.domain.interfaces.media_source import MediaSourcePort
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.systems.pipeline.jobs.domain.interfaces.job_store import JobStore
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.unit.adapters.web.conftest import (
     accepting_extractor,
@@ -71,7 +71,7 @@ async def client(storage: FakeTranscriptStoragePort) -> AsyncIterator[AsyncClien
 async def guarded_client(
     storage: FakeTranscriptStoragePort,
 ) -> AsyncIterator[AsyncClient]:
-    def refuse(_: TranscriptStoragePort, __: JobId) -> MediaSourcePort:
+    def refuse(_: JobStore, __: JobId) -> MediaSourcePort:
         return RefusingMediaSource()  # type: ignore[return-value]
 
     app = create_app(

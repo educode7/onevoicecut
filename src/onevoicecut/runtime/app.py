@@ -34,7 +34,7 @@ from onevoicecut.systems.pipeline.clips.infrastructure.ffmpeg.video_render impor
 from onevoicecut.shared.domain.ids import ClipId, JobId
 from onevoicecut.systems.pipeline.jobs.domain.jobs import WORKER_BOUND_STATES, JobRecord, JobState
 from onevoicecut.systems.pipeline.clips.domain.rendering import ClipExport, ClipState
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.runtime.storage import StorageComposite
 
 # Re-exported, not merely used: liveness moved to `supervisor.py` when the
 # watchdog wiring made `app.py` need the sweep and the sweep need the probe —
@@ -214,7 +214,7 @@ def spawn_render_worker(
 
 
 def reconcile_interrupted_jobs(
-    storage: TranscriptStoragePort,
+    storage: StorageComposite,
     *,
     now: Callable[[], float],
     is_alive: LivenessProbe = process_is_alive,
@@ -254,7 +254,7 @@ def reconcile_interrupted_jobs(
 
 
 def drain_once(
-    storage: TranscriptStoragePort,
+    storage: StorageComposite,
     *,
     max_concurrent_jobs: int,
     launch: Callable[[JobId], None],
@@ -347,7 +347,7 @@ def _group_clip_exports(
 
 
 def _render_group_is_live(
-    storage: TranscriptStoragePort,
+    storage: StorageComposite,
     key: tuple[JobId, ClipId],
     group: tuple[ClipExport, ...],
     *,
@@ -378,7 +378,7 @@ def _render_group_is_live(
 
 
 def _render_group_is_eligible(
-    storage: TranscriptStoragePort,
+    storage: StorageComposite,
     key: tuple[JobId, ClipId],
     group: tuple[ClipExport, ...],
     *,
@@ -398,7 +398,7 @@ def _render_group_is_eligible(
 
 
 def render_drain_once(
-    storage: TranscriptStoragePort,
+    storage: StorageComposite,
     *,
     max_concurrent_renders: int,
     launch: Callable[[JobId, ClipId], None],
@@ -476,7 +476,7 @@ def render_drain_once(
 
 
 async def render_drain_supervisor(
-    storage: TranscriptStoragePort,
+    storage: StorageComposite,
     *,
     max_concurrent_renders: int,
     launch: Callable[[JobId, ClipId], None],
@@ -513,7 +513,7 @@ async def render_drain_supervisor(
 
 
 async def drain_supervisor(
-    storage: TranscriptStoragePort,
+    storage: StorageComposite,
     *,
     max_concurrent_jobs: int,
     launch: Callable[[JobId], None],

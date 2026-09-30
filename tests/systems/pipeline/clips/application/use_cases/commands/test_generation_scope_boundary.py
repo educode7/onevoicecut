@@ -107,7 +107,7 @@ class TestTheModuleCannotRender:
     def test_it_writes_nothing_to_disk(self) -> None:
         """Generation hands its result back; storing it is the caller's job and
         the caller's port. A module that wrote its own output would put an
-        artifact on disk that no `TranscriptStoragePort` knows about."""
+        artifact on disk that no `ClipStore` knows about."""
         tree = ast.parse(MODULE.read_text(encoding="utf-8"))
         called = {
             node.func.id

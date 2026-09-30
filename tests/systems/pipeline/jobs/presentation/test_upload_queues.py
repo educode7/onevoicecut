@@ -29,7 +29,7 @@ from onevoicecut.shared.domain.ids import JobId, make_job_id
 from onevoicecut.systems.pipeline.jobs.domain.jobs import JobState
 from onevoicecut.shared.domain.media import MediaProbe
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import AudioExtractorPort
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.systems.pipeline.jobs.domain.interfaces.job_store import JobStore
 from tests.fakes.audio_extractor import FakeAudioExtractorPort
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.unit.adapters.web.conftest import (
@@ -59,7 +59,7 @@ def client_for(
     probe_error: Exception | None = None,
     probe_result: MediaProbe | None = None,
 ) -> AsyncClient:
-    def extractor(_: TranscriptStoragePort, job_id: JobId) -> AudioExtractorPort:
+    def extractor(_: JobStore, job_id: JobId) -> AudioExtractorPort:
         return FakeAudioExtractorPort(
             job_id, probe_error=probe_error, probe_result=probe_result
         )

@@ -42,7 +42,7 @@ from pathlib import Path
 from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.extractor import FfmpegAudioExtractor
 from onevoicecut.systems.pipeline.clips.infrastructure.ffmpeg.subtitles import render_ass
 from onevoicecut.systems.pipeline.clips.infrastructure.ffmpeg.video_render import FfmpegVideoRenderer
-from onevoicecut.runtime.storage import RENDER_DIRNAME, FilesystemTranscriptStorage
+from onevoicecut.runtime.storage import RENDER_DIRNAME, FilesystemTranscriptStorage, StorageComposite
 from onevoicecut.shared.domain.errors import (
     CorruptedRecord,
     DomainError,
@@ -79,7 +79,6 @@ from onevoicecut.systems.pipeline.clips.domain.rendering import (
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import AudioExtractorPort
 from onevoicecut.shared.domain.capabilities import DetectionSupport
 from onevoicecut.systems.pipeline.clips.domain.interfaces.subject_tracker import SubjectTrackerPort
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.systems.pipeline.clips.domain.interfaces.video_render import RenderRequest, VideoRenderPort
 from onevoicecut.runtime.tracker_resolver import resolve_tracker
 from onevoicecut.systems.pipeline.clips.clips_module_api import (
@@ -144,7 +143,7 @@ def render_pending_exports(
     probe: MediaProbe,
     tracker: SubjectTrackerPort,
     renderer: VideoRenderPort,
-    storage: TranscriptStoragePort,
+    storage: StorageComposite,
     job_dir: Path,
     render_profiles: Mapping[str, RenderProfile] = RENDER_PROFILES,
     sample_hz: float = DEFAULT_SAMPLE_HZ,
@@ -289,7 +288,7 @@ def _render_profiles(
     probe: MediaProbe,
     tracker: SubjectTrackerPort,
     renderer: VideoRenderPort,
-    storage: TranscriptStoragePort,
+    storage: StorageComposite,
     job_dir: Path,
     sample_hz: float,
     max_clip_seconds: float,
@@ -407,7 +406,7 @@ def _export_from_trajectory(
     variants: tuple[ScriptVariant, ...],
     media: SourceMedia,
     renderer: VideoRenderPort,
-    storage: TranscriptStoragePort,
+    storage: StorageComposite,
     render_dir: Path,
     max_clip_seconds: float,
 ) -> ClipExport:
@@ -597,7 +596,7 @@ def _failed(
     )
 
 
-def _record(export: ClipExport, *, storage: TranscriptStoragePort) -> ClipExport:
+def _record(export: ClipExport, *, storage: StorageComposite) -> ClipExport:
     storage.save_clip_export(export)
     return export
 

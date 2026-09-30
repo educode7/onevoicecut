@@ -12,7 +12,7 @@ import pytest
 from onevoicecut.runtime.storage import (
     FilesystemTranscriptStorage,
 )
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.systems.pipeline.jobs.domain.interfaces.job_store import JobStore
 from onevoicecut.shared.application.principal import Principal
 from onevoicecut.shared.domain.errors import DomainError, JobNotOwned
 from onevoicecut.shared.domain.ids import (
@@ -34,7 +34,7 @@ OPERATOR_A = make_operator_id("a")
 OPERATOR_B = make_operator_id("b")
 
 
-def _admit(storage: TranscriptStoragePort, owner: OperatorId) -> JobRecord:
+def _admit(storage: JobStore, owner: OperatorId) -> JobRecord:
     """Admission through the handler: the caller's identity rides the command."""
     return AdmitJobHandler(storage=storage).handle(
         AdmitJobCommand(

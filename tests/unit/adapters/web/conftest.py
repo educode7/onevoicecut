@@ -16,7 +16,7 @@ from onevoicecut.main import WebDependencies
 from onevoicecut.shared.application.principal import build_authenticator
 from onevoicecut.shared.domain.ids import JobId, make_operator_id
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import AudioExtractorPort
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.systems.pipeline.jobs.domain.interfaces.job_store import JobStore
 from tests.fakes.audio_extractor import FakeAudioExtractorPort
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 
@@ -35,7 +35,7 @@ def auth_headers(token: str = TOKEN_A) -> dict[str, str]:
 
 
 def accepting_extractor(
-    _: TranscriptStoragePort, job_id: JobId
+    _: JobStore, job_id: JobId
 ) -> AudioExtractorPort:
     return FakeAudioExtractorPort(job_id)
 

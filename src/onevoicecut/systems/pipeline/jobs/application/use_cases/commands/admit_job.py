@@ -21,7 +21,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.systems.pipeline.jobs.domain.interfaces.job_store import JobStore
 from onevoicecut.shared.application.principal import Principal
 from onevoicecut.shared.domain.capabilities import (
     ClassificationSupport,
@@ -144,7 +144,7 @@ class AdmitJobHandler:
     def __init__(
         self,
         *,
-        storage: TranscriptStoragePort,
+        storage: JobStore,
         capabilities: Callable[[EngineChoice], DeclaredSupport] | None = None,
         now: Callable[[], float] = time.time,
         new_job_id: Callable[[], JobId] = generate_job_id,

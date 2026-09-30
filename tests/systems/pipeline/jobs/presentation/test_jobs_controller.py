@@ -21,7 +21,7 @@ import pytest
 from fastapi import HTTPException
 
 from onevoicecut.main import filesystem_media_source
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.systems.pipeline.jobs.domain.interfaces.progress_store import JobProgressStore
 from onevoicecut.shared.application.principal import Principal
 from onevoicecut.shared.domain.errors import JobNotFound
 from onevoicecut.shared.domain.ids import make_operator_id
@@ -43,7 +43,7 @@ PRINCIPAL_B = Principal(identity=make_operator_id("rita"), roles=frozenset())
 UNKNOWN_JOB_ID = "01HQ3M8XKJ7VNPQR2ZYWB4TCFD"
 
 
-def _controller(storage: TranscriptStoragePort) -> JobsController:
+def _controller(storage: JobProgressStore) -> JobsController:
     return JobsController(
         admit_handler=AdmitJobHandler(storage=storage),
         ingest_handler=IngestMediaHandler(

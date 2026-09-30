@@ -26,7 +26,7 @@ from dataclasses import dataclass, replace
 
 from fastapi import HTTPException
 
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.systems.pipeline.jobs.domain.interfaces.job_store import JobStore
 from onevoicecut.shared.application.principal import Principal
 from onevoicecut.shared.domain.errors import UnsupportedContainer
 from onevoicecut.shared.domain.ids import JobId
@@ -152,10 +152,10 @@ class IngestMediaHandler:
     def __init__(
         self,
         *,
-        storage: TranscriptStoragePort,
+        storage: JobStore,
         max_upload_bytes: int,
-        media_source_for: Callable[[TranscriptStoragePort, JobId], MediaSourcePort],
-        extractor_for: Callable[[TranscriptStoragePort, JobId], MediaProbePort],
+        media_source_for: Callable[[JobStore, JobId], MediaSourcePort],
+        extractor_for: Callable[[JobStore, JobId], MediaProbePort],
         now: Callable[[], float],
     ) -> None:
         self._storage = storage

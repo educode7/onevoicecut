@@ -34,7 +34,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.systems.pipeline.jobs.domain.interfaces.job_store import JobStore
 from onevoicecut.shared.application.principal import Principal
 from onevoicecut.shared.domain.ids import JobId
 from onevoicecut.systems.pipeline.jobs.domain.jobs import (
@@ -60,7 +60,7 @@ class CancelJobHandler:
     def __init__(
         self,
         *,
-        storage: TranscriptStoragePort,
+        storage: JobStore,
         now: Callable[[], float] = time.time,
     ) -> None:
         self._storage = storage

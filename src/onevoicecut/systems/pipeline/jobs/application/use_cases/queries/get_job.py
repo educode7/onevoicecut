@@ -24,9 +24,11 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.shared.domain.errors import JobNotFound
 from onevoicecut.shared.domain.ids import InvalidIdError, JobId, make_job_id
+from onevoicecut.systems.pipeline.jobs.domain.interfaces.progress_store import (
+    JobProgressStore,
+)
 from onevoicecut.systems.pipeline.jobs.domain.jobs import (
     JobProgress,
     JobRecord,
@@ -60,7 +62,7 @@ class GetJobHandler:
     def __init__(
         self,
         *,
-        storage: TranscriptStoragePort,
+        storage: JobProgressStore,
         now: Callable[[], float] = time.time,
     ) -> None:
         self._storage = storage

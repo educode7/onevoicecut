@@ -32,7 +32,7 @@ from onevoicecut.shared.domain.capabilities import (
     DiarizationSupport,
     WordTimingSupport,
 )
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.systems.pipeline.jobs.domain.interfaces.job_store import JobStore
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionRequest
 from tests.fakes.transcription import (
     FakeTranscriptionPort,
@@ -46,7 +46,7 @@ OPERATOR = make_operator_id("test-operator")
 def _admit(
     *,
     speaker_mode: SpeakerMode,
-    storage: TranscriptStoragePort,
+    storage: JobStore,
     capabilities: Callable[[EngineChoice], DeclaredSupport] | None = None,
 ) -> Admission:
     """The handler shape: dependencies live on the handler, identity on the command."""

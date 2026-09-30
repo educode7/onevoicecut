@@ -23,7 +23,7 @@ across pages.
 
 from dataclasses import dataclass
 
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.systems.pipeline.jobs.domain.interfaces.job_store import JobStore
 from onevoicecut.shared.application.principal import Principal
 from onevoicecut.systems.pipeline.jobs.domain.jobs import JobRecord
 
@@ -53,7 +53,7 @@ class ListJobsQuery:
 class ListJobsHandler:
     """Owns the store; `handle()` owns the narrowing, the slice and nothing else."""
 
-    def __init__(self, *, storage: TranscriptStoragePort) -> None:
+    def __init__(self, *, storage: JobStore) -> None:
         self._storage = storage
 
     def handle(self, query: ListJobsQuery) -> tuple[JobRecord, ...]:

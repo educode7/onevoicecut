@@ -20,7 +20,6 @@ loop.
 
 import time
 
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.shared.domain.ids import JobId
 from onevoicecut.shared.domain.media import SourceMedia
 from onevoicecut.systems.pipeline.jobs.domain.jobs import JobRecord
@@ -48,6 +47,7 @@ from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.tra
     Clock as Clock,
     TranscribeJobCommand as TranscribeJobCommand,
     TranscribeJobHandler as TranscribeJobHandler,
+    TranscribeJobStore as TranscribeJobStore,
 )
 from onevoicecut.systems.pipeline.transcripts.domain.chunking import (
     pending_chunks as pending_chunks,
@@ -66,7 +66,7 @@ def transcribe_job(
     *,
     extractor: AudioExtractorPort,
     transcriber: TranscriptionPort,
-    storage: TranscriptStoragePort,
+    storage: TranscribeJobStore,
     now: Clock = time.time,
     target_chunk_s: float = DEFAULT_TARGET_CHUNK_S,
     chunk_timeout_s: float | None = DEFAULT_CHUNK_TIMEOUT_S,

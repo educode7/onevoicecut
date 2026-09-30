@@ -1,4 +1,4 @@
-"""What the storage port must offer a render, and why a clip id is not enough.
+"""What `ClipStore` must offer a render, and why a clip id is not enough.
 
 `save_chunk_result` set the shape every persisted artifact in this system
 follows: the value carries its own `job_id`, so a caller cannot save one record
@@ -13,7 +13,8 @@ to know -- which is the same reason `export_key` takes both halves.
 
 import inspect
 
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.systems.pipeline.clips.domain.interfaces.clip_store import ClipStore
+from onevoicecut.systems.pipeline.clips.domain.rendering import ClipExport
 
 
 class TestTheArtifactsReader:
@@ -22,31 +23,31 @@ class TestTheArtifactsReader:
     decision. Its first production consumer is the HTTP route slice 13b-iv
     adds, resolving a `candidate_index` back to a `ClipCandidate`."""
 
-    def test_the_port_declares_it(self) -> None:
-        assert hasattr(TranscriptStoragePort, "load_artifacts")
+    def test_the_interface_declares_it(self) -> None:
+        assert hasattr(ClipStore, "load_artifacts")
 
     def test_it_takes_only_a_job_id(self) -> None:
-        signature = inspect.signature(TranscriptStoragePort.load_artifacts)
+        signature = inspect.signature(ClipStore.load_artifacts)
 
         assert list(signature.parameters) == ["self", "job_id"]
 
 
 class TestTheClipExportMethods:
-    def test_the_port_declares_both(self) -> None:
-        assert hasattr(TranscriptStoragePort, "save_clip_export")
-        assert hasattr(TranscriptStoragePort, "load_clip_exports")
+    def test_the_interface_declares_both(self) -> None:
+        assert hasattr(ClipStore, "save_clip_export")
+        assert hasattr(ClipStore, "load_clip_exports")
 
     def test_saving_takes_only_the_export(self) -> None:
         """The export carries its own job id through `clip.job_id`, so there is no
         pair to get wrong -- the rule `save_chunk_result` already follows."""
         parameters = inspect.signature(
-            TranscriptStoragePort.save_clip_export
+            ClipStore.save_clip_export
         ).parameters
 
         assert list(parameters) == ["self", "export"]
 
     def test_loading_takes_a_clip_and_answers_with_every_profile(self) -> None:
-        signature = inspect.signature(TranscriptStoragePort.load_clip_exports)
+        signature = inspect.signature(ClipStore.load_clip_exports)
 
         assert list(signature.parameters) == ["self", "job_id", "clip_id"]
-        assert signature.return_annotation == "tuple[ClipExport, ...]"
+        assert signature.return_annotation == tuple[ClipExport, ...]

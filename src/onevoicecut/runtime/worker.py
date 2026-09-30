@@ -23,13 +23,12 @@ from typing import Protocol, runtime_checkable
 
 from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local.declarations import HF_TOKEN_ENV
 from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.extractor import FfmpegAudioExtractor
-from onevoicecut.runtime.storage import FilesystemTranscriptStorage
+from onevoicecut.runtime.storage import FilesystemTranscriptStorage, StorageComposite
 from onevoicecut.shared.domain.errors import DomainError
 from onevoicecut.shared.domain.ids import InvalidIdError, JobId, make_job_id
 from onevoicecut.systems.pipeline.jobs.domain.jobs import TERMINAL_STATES, JobRecord, JobState
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import AudioExtractorPort
 from onevoicecut.systems.pipeline.clips.domain.interfaces.text_generation import TextGenerationPort
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionPort
 from onevoicecut.runtime.engine_resolver import EngineResolver, production_factories
 from onevoicecut.shared.infrastructure.settings import CHUNK_TIMEOUT_ENV_NAMES, load_env_file
@@ -221,7 +220,7 @@ def run_job(
 
 def _generate_artifacts(
     job_id: JobId,
-    storage: TranscriptStoragePort,
+    storage: StorageComposite,
     generation: GenerationSetup,
     *,
     generator_factory: GeneratorFactory,

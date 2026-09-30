@@ -22,7 +22,7 @@ from onevoicecut.shared.domain.ids import JobId, make_media_id
 from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState
 from onevoicecut.systems.pipeline.jobs.domain.interfaces.media_source import MediaSourcePort
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.systems.pipeline.jobs.domain.interfaces.job_store import JobStore
 from tests.fakes.transcript_storage import FakeTranscriptStoragePort
 from tests.unit.adapters.web.conftest import (
     accepting_extractor,
@@ -133,7 +133,7 @@ async def test_a_hostile_id_never_reaches_the_writer(tmp_path: Path) -> None:
                 owner=None,
             )
 
-    def spy(_: TranscriptStoragePort, job_id: JobId) -> MediaSourcePort:
+    def spy(_: JobStore, job_id: JobId) -> MediaSourcePort:
         reached.append(job_id)
         raise AssertionError(f"the writer was handed {job_id!r}")
 
@@ -182,7 +182,7 @@ async def test_a_non_ulid_that_survives_routing_never_reaches_the_writer(
                 owner=None,
             )
 
-    def spy(_: TranscriptStoragePort, job_id: JobId) -> MediaSourcePort:
+    def spy(_: JobStore, job_id: JobId) -> MediaSourcePort:
         reached.append(job_id)
         raise AssertionError(f"the writer was handed {job_id!r}")
 

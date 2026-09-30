@@ -20,6 +20,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Protocol
 
 from onevoicecut.systems.pipeline.transcripts.domain.chunking import (
     AudioChunk,
@@ -32,11 +33,12 @@ from onevoicecut.systems.pipeline.transcripts.domain.chunking import (
 from onevoicecut.shared.domain.errors import ChunkTimeout, ChunkTooLarge, TranscriptionFailed
 from onevoicecut.shared.domain.ids import JobId
 from onevoicecut.shared.domain.speaker import SpeakerMode
+from onevoicecut.systems.pipeline.jobs.domain.interfaces.job_store import JobStore
 from onevoicecut.systems.pipeline.jobs.domain.jobs import JobRecord, JobState
 from onevoicecut.shared.domain.media import AudioTrack, SourceMedia
 from onevoicecut.systems.pipeline.transcripts.domain.transcript import Transcript, render_message_text
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import AudioExtractorPort
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcript_store import TranscriptStore
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.transcription import TranscriptionPort, TranscriptionRequest
 from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.plan_chunks import (
     DEFAULT_TARGET_CHUNK_S as DEFAULT_TARGET_CHUNK_S,
@@ -51,6 +53,28 @@ from onevoicecut.systems.pipeline.transcripts.application.use_cases.commands.sti
 )
 
 SOURCE_LANGUAGE = "es"
+
+
+class TranscribeJobStore(TranscriptStore, JobStore, Protocol):
+    """Storage as one loop sees it: this system's chunks plus the job record.
+
+    `handle` spans two modules by nature — the plan, the results and the
+    transcript are `transcripts`, the record, the heartbeat and the
+    cancellation flag are `jobs` — so one handler cannot be typed against
+    either narrow Protocol alone. Both are visible from here (`transcripts.
+    application` naming `jobs.domain` is the one direction AB-07 leaves open,
+    and this module already imports `jobs.domain` for `JobRecord`), so the seam
+    is assembled from the two sources rather than redeclared: every method
+    keeps the one definition its own module gave it, and a change to either
+    half still reaches every caller of this one.
+
+    The composition roots pass their storage object through unchanged — it is
+    the union of the same Protocols — so nothing outside this file learns the
+    seam exists.
+    """
+
+    ...
+
 
 # Per chunk, never per job. A job runs for hours by design, so a total deadline
 # would abort correct work; a chunk that has not returned in this long is stuck.
@@ -101,7 +125,7 @@ class TranscribeJobHandler:
         *,
         extractor: AudioExtractorPort,
         transcriber: TranscriptionPort,
-        storage: TranscriptStoragePort,
+        storage: TranscribeJobStore,
         plan_handler: PlanChunksHandler,
         stitch_handler: StitchTranscriptHandler,
         now: Clock = time.time,
@@ -473,7 +497,7 @@ def _extract(
     media: SourceMedia,
     *,
     extractor: AudioExtractorPort,
-    storage: TranscriptStoragePort,
+    storage: TranscribeJobStore,
     now: Clock,
 ) -> AudioTrack:
     _advance(job, JobState.EXTRACTING, storage=storage, now=now)
@@ -485,7 +509,7 @@ def _plan(
     track: AudioTrack,
     *,
     transcriber: TranscriptionPort,
-    storage: TranscriptStoragePort,
+    storage: TranscribeJobStore,
     now: Clock,
     plan_handler: PlanChunksHandler,
     target_chunk_s: float = DEFAULT_TARGET_CHUNK_S,
@@ -524,7 +548,7 @@ def _stitch(
     plan: ChunkPlan,
     *,
     transcriber: TranscriptionPort,
-    storage: TranscriptStoragePort,
+    storage: TranscribeJobStore,
     now: Clock,
     stitch_handler: StitchTranscriptHandler,
 ) -> JobRecord:
@@ -561,7 +585,7 @@ def _advance(
     job: JobRecord,
     state: JobState,
     *,
-    storage: TranscriptStoragePort,
+    storage: TranscribeJobStore,
     now: Clock,
 ) -> JobRecord:
     """Update, never create: the worker owns a job the web process already admitted."""
@@ -574,7 +598,7 @@ def _finish(
     job: JobRecord,
     state: JobState,
     *,
-    storage: TranscriptStoragePort,
+    storage: TranscribeJobStore,
     now: Clock,
     error: str | None = None,
 ) -> JobRecord:

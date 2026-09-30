@@ -14,9 +14,9 @@ TRANSCRIBING only after extraction and planning are done — so for a job in tha
 state, the age of the heartbeat *is* how long the current chunk has been running.
 That is precisely the quantity a per-chunk timeout is defined over. Watching
 `results/` mtime instead, as the task originally sketched, would reach around
-`TranscriptStoragePort` into the filesystem from the composition root to
-reconstruct a signal the port already publishes — and it would measure from the
-moment a chunk *finished* rather than the moment the current one *started*.
+storage into the filesystem from the composition root to reconstruct a signal
+it already publishes — and it would measure from the moment a chunk *finished*
+rather than the moment the current one *started*.
 
 Two conditions must hold together, and the second is not decoration:
 
@@ -51,7 +51,7 @@ from onevoicecut.systems.pipeline.jobs.domain.jobs import (
     JobRecord,
     JobState,
 )
-from onevoicecut.ports.transcript_storage import TranscriptStoragePort
+from onevoicecut.runtime.storage import StorageComposite
 from onevoicecut.systems.pipeline.transcripts.transcripts_module_api import pending_chunks
 
 # Two hours. Sized from the longest gap the loop can produce between heartbeats:
@@ -143,7 +143,7 @@ def process_is_alive(pid: int) -> bool:
 
 def worker_is_alive(
     job: JobRecord,
-    storage: TranscriptStoragePort,
+    storage: StorageComposite,
     *,
     is_alive: LivenessProbe = process_is_alive,
     now: float,
@@ -190,7 +190,7 @@ def kill_worker(pid: int) -> None:
 
 
 def watchdog_once(
-    storage: TranscriptStoragePort,
+    storage: StorageComposite,
     *,
     chunk_timeout_s: float,
     now: Callable[[], float] = time.time,
@@ -226,7 +226,7 @@ def watchdog_once(
 
 
 def reap_exited_workers(
-    storage: TranscriptStoragePort,
+    storage: StorageComposite,
     *,
     exited: tuple[tuple[JobId, int], ...],
     now: Callable[[], float] = time.time,
@@ -290,7 +290,7 @@ def reap_exited_workers(
 
 
 async def watchdog_supervisor(
-    storage: TranscriptStoragePort,
+    storage: StorageComposite,
     *,
     chunk_timeout_s: float,
     interval_s: float,
@@ -331,7 +331,7 @@ async def watchdog_supervisor(
 
 def _is_stalled(
     job: JobRecord,
-    storage: TranscriptStoragePort,
+    storage: StorageComposite,
     *,
     chunk_timeout_s: float,
     at: float,
@@ -354,7 +354,7 @@ def _is_stalled(
 
 def _record_timeout(
     job: JobRecord,
-    storage: TranscriptStoragePort,
+    storage: StorageComposite,
     *,
     chunk_timeout_s: float,
     at: float,
@@ -387,7 +387,7 @@ def _record_timeout(
 
 
 def _chunk_in_flight(
-    job_id: JobId, storage: TranscriptStoragePort
+    job_id: JobId, storage: StorageComposite
 ) -> ChunkResult | None:
     """The first planned chunk with no completed result — what the worker held.
 

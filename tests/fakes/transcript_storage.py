@@ -1,4 +1,4 @@
-"""Fake conforming to TranscriptStoragePort — in-memory dicts + a real export file.
+"""Fake conforming to the three narrow storage Protocols — in-memory dicts + a real export file.
 
 It records the calls it received. That is not decoration: the core loop's central
 claim is that a chunk result is committed *as it completes*, and ordering is the
