@@ -1158,28 +1158,55 @@ page-union forms of VIS-03, VIS-04, VIS-05. Bounds per design decision (settled)
 default 20, `ge=1, le=100`; `offset` default 0, `ge=0, le=10_000`; pagination applies **after**
 the server-side `mine` filter.
 
-- [ ] 5b.1 RED: VIS-10 — authenticated `GET /api/v1/jobs?limit=101` responds 422 and no
+- [x] 5b.1 RED: VIS-10 — authenticated `GET /api/v1/jobs?limit=101` responds 422 and no
       listing is computed. `[unit 5b]`
-- [ ] 5b.2 RED: VIS-11 — non-integer `limit`, `limit=0`, negative `limit`, negative or
+- [x] 5b.2 RED: VIS-11 — non-integer `limit`, `limit=0`, negative `limit`, negative or
       non-integer `offset`, and `offset` above 10000 each respond 422 with no listing work.
       `[unit 5b]`
-- [ ] 5b.3 RED: VIS-09 — 5 jobs on disk, `limit=2&offset=0` returns at most 2 items with
+- [x] 5b.3 RED: VIS-09 — 5 jobs on disk, `limit=2&offset=0` returns at most 2 items with
       owner attribution identical to an unpaginated listing; **omitted `limit` returns a
       bounded default page of 20** (design decision — never the full listing). `[unit 5b]`
-- [ ] 5b.4 RED: VIS-12 — `mine` filter composes with pagination: with 3 jobs of "a" and
+- [x] 5b.4 RED: VIS-12 — `mine` filter composes with pagination: with 3 jobs of "a" and
       others of "b", `mine=true&limit=2` pages contain only "a"'s jobs and the union equals
       exactly "a"'s jobs; filter-then-slice order pinned (handler slices the already-filtered
       tuple; the unscoped listing underneath is never re-scoped). `[unit 5b]`
-- [ ] 5b.5 RED: VIS-13/VIS-14 — every JSON key in the wrapper and items is declared on the
+- [x] 5b.5 RED: VIS-13/VIS-14 — every JSON key in the wrapper and items is declared on the
       response schema; a planted undeclared field fails the default run naming it.
       `[unit 5b]`
-- [ ] 5b.6 GREEN: bind route query parameters (`limit: Query(20, ge=1, le=100)`,
+- [x] 5b.6 GREEN: bind route query parameters (`limit: Query(20, ge=1, le=100)`,
       `offset: Query(0, ge=0, le=10_000)`, existing `mine`); extend `ListJobsQuery` with
       limit/offset slicing after the mine filter; make `JobListResponse` an explicit allow-list
       (no `total`/echo fields). Update the restated VIS-03/04/05 tests to page through and
       assert completeness across the union. `[unit 5b]`
-- [ ] 5b.7 Verify: suite + mypy; commit
+- [x] 5b.7 Verify: suite + mypy; commit
       `feat(jobs): bounded pagination and allow-list listing on GET /api/v1/jobs`. `[unit 5b]`
+
+> **Slice 5b disclosure (measured, 2026-09-29).** RED was **12 failed / 1 passed**
+> before implementation: VIS-10, VIS-11 (x7), VIS-09, the omitted-limit default
+> page, VIS-12 and VIS-14 all failed. **VIS-13 passed on both sides by
+> construction** - it serializes keys that exist only on declared fields - so it is
+> a survivorship pin in the same shape as AV-08, recorded rather than claimed as a
+> TDD cycle. **VIS-14 only became RED once `extra="forbid"` was the target**: under
+> pydantic's default `extra="ignore"` the planted field was silently dropped and the
+> test reported `DID NOT RAISE ValidationError`, which is exactly the failure mode
+> VIS-14 exists to name.
+>
+> Two defects were found while writing the RED tests and fixed before GREEN. The
+> union walk had no stop condition independent of pagination working, so it **hung
+> instead of failing** on pre-migration behaviour; it is now capped and carries a
+> per-page bound that fails fast when `limit` is ignored. And `_seed_jobs` restarted
+> its id counter, so two seeds in one test would have collided on the same ULIDs.
+> The `owner` field was also annotated `str | None` against an `OperatorId` domain
+> type, and VIS-05's page count was asserted against the short trailing page the
+> walk necessarily costs (`jobs + 1`).
+>
+> VIS-03/04/05 were restated by the delta to "the union of its pages" and had been
+> reading a single response; per 5b.6 they now walk the union at `page_size=1`.
+>
+> 479 changed lines (168 tracked + 311 new) over 6 files against
+> `review.budget_lines: 800` - inside the budget, no `size:exception`. Suite
+> **2233 passed / 44 deselected / 0 skipped**; mypy clean over **380** files.
+> Commit `93e6b4b`.
 
 ---
 
