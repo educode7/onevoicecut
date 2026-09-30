@@ -26,10 +26,13 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.storage.filesystem_transcript_storage import (
+from onevoicecut.runtime.storage import (
     FilesystemTranscriptStorage,
 )
-from onevoicecut.adapters.storage.serialization import decode_transcript, encode_transcript
+from onevoicecut.systems.pipeline.transcripts.infrastructure.storage.transcript_store import (
+    decode_transcript,
+    encode_transcript,
+)
 from onevoicecut.shared.domain.errors import CorruptedRecord
 from onevoicecut.shared.domain.ids import make_job_id, make_media_id, make_operator_id
 from onevoicecut.shared.domain.speaker import SpeakerMode

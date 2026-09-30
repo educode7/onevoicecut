@@ -21,7 +21,7 @@ from urllib.parse import quote
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from onevoicecut.adapters.storage.filesystem_transcript_storage import (
+from onevoicecut.runtime.storage import (
     FilesystemTranscriptStorage,
 )
 from onevoicecut.main import WebDependencies, create_app

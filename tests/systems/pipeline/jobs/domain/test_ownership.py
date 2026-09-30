@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.storage.filesystem_transcript_storage import (
+from onevoicecut.runtime.storage import (
     FilesystemTranscriptStorage,
 )
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort

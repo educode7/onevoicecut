@@ -25,7 +25,7 @@ from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.cloud.openai_wh
     CLOUD_API_KEY_ENV,
     ENGINE_NAME,
 )
-from onevoicecut.adapters.storage.filesystem_transcript_storage import (
+from onevoicecut.runtime.storage import (
     FilesystemTranscriptStorage,
 )
 from onevoicecut.shared.domain.errors import EngineUnavailable, ExtractionFailed

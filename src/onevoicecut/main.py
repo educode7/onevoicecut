@@ -33,9 +33,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from onevoicecut.systems.pipeline.transcripts.infrastructure.asr.local.declarations import HF_TOKEN_ENV
-from onevoicecut.adapters.storage.filesystem_transcript_storage import (
-    FilesystemTranscriptStorage,
-)
+from onevoicecut.runtime.storage import FilesystemTranscriptStorage
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.systems.pipeline.clips.domain.rendering import RenderProfile
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice

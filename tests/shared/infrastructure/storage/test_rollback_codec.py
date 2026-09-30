@@ -24,7 +24,7 @@ from enum import StrEnum
 
 import pytest
 
-from onevoicecut.adapters.storage.serialization import encode_job
+from onevoicecut.systems.pipeline.jobs.infrastructure.storage.job_store import encode_job
 from onevoicecut.shared.domain.errors import CorruptedRecord
 from onevoicecut.shared.domain.ids import make_job_id, make_media_id, make_operator_id
 from onevoicecut.shared.infrastructure.storage.core import (

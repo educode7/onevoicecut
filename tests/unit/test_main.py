@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from onevoicecut.adapters.storage.filesystem_transcript_storage import (
+from onevoicecut.runtime.storage import (
     FilesystemTranscriptStorage,
 )
 from onevoicecut.main import WebDependencies

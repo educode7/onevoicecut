@@ -21,7 +21,7 @@ from typing import NoReturn
 
 import pytest
 
-from onevoicecut.adapters.storage.filesystem_transcript_storage import (
+from onevoicecut.runtime.storage import (
     FilesystemTranscriptStorage,
 )
 from onevoicecut.shared.domain.errors import GenerationFailed

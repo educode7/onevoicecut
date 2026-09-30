@@ -21,10 +21,8 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.storage.filesystem_transcript_storage import (
-    HEARTBEAT,
-    FilesystemTranscriptStorage,
-)
+from onevoicecut.runtime.storage import FilesystemTranscriptStorage
+from onevoicecut.shared.infrastructure.storage.core import HEARTBEAT
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
 from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState

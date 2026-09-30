@@ -32,6 +32,37 @@ from onevoicecut.systems.pipeline.clips.presentation.controllers.v1.clip_control
 from onevoicecut.systems.pipeline.clips.presentation.routes.v1.clip_routes import (
     build_router,
 )
+# The two composition roots consume clips through this file rather than reaching
+# into `application/` themselves (Deviation 3): `runtime/worker.py` drives
+# generation, `runtime/render_worker.py` drives subtitle cues, the trajectory and
+# the render, and neither may construct a handler its own way. Re-exported
+# `X as X` for mypy's `no_implicit_reexport`, so an importer naming a symbol
+# here is also the import that fails the day it moves.
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import (
+    DEFAULT_SCRIPT_TARGETS as DEFAULT_SCRIPT_TARGETS,
+    GenerateArtifactsCommand as GenerateArtifactsCommand,
+    GenerateArtifactsHandler as GenerateArtifactsHandler,
+    resolve_script_targets as resolve_script_targets,
+)
+from onevoicecut.systems.pipeline.clips.application.use_cases.commands.render_clip import (
+    DEFAULT_MAX_CLIP_SECONDS as DEFAULT_MAX_CLIP_SECONDS,
+    RenderClipCommand as RenderClipCommand,
+    RenderClipHandler as RenderClipHandler,
+    check_clip_range as check_clip_range,
+)
+from onevoicecut.systems.pipeline.clips.application.use_cases.queries.build_subtitle_cues import (
+    BuildSubtitleCuesHandler as BuildSubtitleCuesHandler,
+    BuildSubtitleCuesQuery as BuildSubtitleCuesQuery,
+)
+from onevoicecut.systems.pipeline.clips.application.use_cases.queries.plan_trajectory import (
+    PlanTrajectoryHandler as PlanTrajectoryHandler,
+    PlanTrajectoryQuery as PlanTrajectoryQuery,
+)
+from onevoicecut.systems.pipeline.clips.application.use_cases.queries.render_profiles import (
+    RENDER_PROFILES as RENDER_PROFILES,
+    RenderProfilesHandler as RenderProfilesHandler,
+    RenderProfilesQuery as RenderProfilesQuery,
+)
 
 if TYPE_CHECKING:
     from onevoicecut.main import WebDependencies

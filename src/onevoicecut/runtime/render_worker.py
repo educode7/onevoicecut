@@ -42,10 +42,7 @@ from pathlib import Path
 from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.extractor import FfmpegAudioExtractor
 from onevoicecut.systems.pipeline.clips.infrastructure.ffmpeg.subtitles import render_ass
 from onevoicecut.systems.pipeline.clips.infrastructure.ffmpeg.video_render import FfmpegVideoRenderer
-from onevoicecut.adapters.storage.filesystem_transcript_storage import (
-    RENDER_DIRNAME,
-    FilesystemTranscriptStorage,
-)
+from onevoicecut.runtime.storage import RENDER_DIRNAME, FilesystemTranscriptStorage
 from onevoicecut.shared.domain.errors import (
     CorruptedRecord,
     DomainError,
@@ -85,27 +82,18 @@ from onevoicecut.systems.pipeline.clips.domain.interfaces.subject_tracker import
 from onevoicecut.ports.transcript_storage import TranscriptStoragePort
 from onevoicecut.systems.pipeline.clips.domain.interfaces.video_render import RenderRequest, VideoRenderPort
 from onevoicecut.runtime.tracker_resolver import resolve_tracker
-# Temporary composition wiring: 4e's `clips_module_api` is where the clips
-# handlers are supposed to be constructed, until then this composition root
-# builds them itself (4c.2).
-from onevoicecut.systems.pipeline.clips.application.use_cases.queries.build_subtitle_cues import (
+from onevoicecut.systems.pipeline.clips.clips_module_api import (
     BuildSubtitleCuesHandler,
     BuildSubtitleCuesQuery,
-)
-from onevoicecut.systems.pipeline.clips.application.use_cases.queries.plan_trajectory import (
+    DEFAULT_MAX_CLIP_SECONDS,
     PlanTrajectoryHandler,
     PlanTrajectoryQuery,
-)
-from onevoicecut.systems.pipeline.clips.application.use_cases.commands.render_clip import (
-    DEFAULT_MAX_CLIP_SECONDS,
+    RENDER_PROFILES,
     RenderClipCommand,
     RenderClipHandler,
-    check_clip_range,
-)
-from onevoicecut.systems.pipeline.clips.application.use_cases.queries.render_profiles import (
-    RENDER_PROFILES,
     RenderProfilesHandler,
     RenderProfilesQuery,
+    check_clip_range,
 )
 
 ExtractorFactory = Callable[[Path, JobId], AudioExtractorPort]

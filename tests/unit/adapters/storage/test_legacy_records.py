@@ -13,11 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.storage.filesystem_transcript_storage import (
-    JOB_RECORD,
-    FilesystemTranscriptStorage,
-)
-from onevoicecut.adapters.storage.serialization import encode_job
+from onevoicecut.runtime.storage import FilesystemTranscriptStorage
+from onevoicecut.shared.infrastructure.storage.core import JOB_RECORD
+from onevoicecut.systems.pipeline.jobs.infrastructure.storage.job_store import encode_job
 from onevoicecut.shared.domain.ids import JobId, make_job_id, make_media_id, make_operator_id
 from onevoicecut.shared.domain.speaker import SpeakerMode
 from onevoicecut.systems.pipeline.jobs.domain.jobs import EngineChoice, JobRecord, JobState

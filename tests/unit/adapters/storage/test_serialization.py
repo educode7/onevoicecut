@@ -12,18 +12,22 @@ from pathlib import Path
 
 import pytest
 
-from onevoicecut.adapters.storage.serialization import (
+from onevoicecut.systems.pipeline.clips.infrastructure.storage.clip_store import (
     decode_artifacts,
-    decode_chunk_plan,
-    decode_chunk_result,
+    encode_artifacts,
+)
+from onevoicecut.systems.pipeline.jobs.infrastructure.storage.job_store import (
     decode_job,
     decode_media,
-    decode_transcript,
-    encode_artifacts,
-    encode_chunk_plan,
-    encode_chunk_result,
     encode_job,
     encode_media,
+)
+from onevoicecut.systems.pipeline.transcripts.infrastructure.storage.transcript_store import (
+    decode_chunk_plan,
+    decode_chunk_result,
+    decode_transcript,
+    encode_chunk_plan,
+    encode_chunk_result,
     encode_transcript,
 )
 from onevoicecut.shared.domain.media import SourceMedia
