@@ -18,10 +18,15 @@ alike.
 from typing import Annotated
 from urllib.parse import unquote
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 
 from onevoicecut.shared.application.principal import Authenticator, Principal
 from onevoicecut.shared.presentation.security import make_current_principal
+from onevoicecut.systems.pipeline.jobs.application.use_cases.queries.list_jobs import (
+    DEFAULT_PAGE_LIMIT,
+    MAX_PAGE_LIMIT,
+    MAX_PAGE_OFFSET,
+)
 from onevoicecut.systems.pipeline.jobs.presentation.controllers.v1.job_controller import (
     JobsController,
 )
@@ -90,7 +95,12 @@ def build_router(
         return controller.admit(principal, body)
 
     @router.get("", response_model=JobListResponse)
-    def listing(principal: CurrentPrincipal, mine: bool = False) -> JobListResponse:
+    def listing(
+        principal: CurrentPrincipal,
+        mine: bool = False,
+        limit: int = Query(DEFAULT_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT),
+        offset: int = Query(0, ge=0, le=MAX_PAGE_OFFSET),
+    ) -> JobListResponse:
         """The shared board: every job, attributed, hidden from nobody.
 
         One ministry team cuts one church's sermons, so "is Sunday's sermon
@@ -102,8 +112,15 @@ def build_router(
         No route accepts an operator identity as a parameter — a
         client-supplied one has nowhere to arrive, so a legacy record (owner
         None) can never match anybody.
+
+        The bounds live in `Query(...)` rather than in the handler on purpose:
+        a malformed `limit` is refused with a 422 here, before any listing
+        work is asked of the store. The defaults and ceilings are sourced from
+        the use case so the two cannot drift apart.
         """
-        return controller.listing(principal, mine=mine)
+        return controller.listing(
+            principal, mine=mine, limit=limit, offset=offset
+        )
 
     @router.get("/{job_id}", response_model=JobStatusResponse)
     def status(job_id: str, principal: CurrentPrincipal) -> JobStatusResponse:

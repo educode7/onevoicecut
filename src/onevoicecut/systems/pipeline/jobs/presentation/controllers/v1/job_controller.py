@@ -43,6 +43,7 @@ from onevoicecut.systems.pipeline.jobs.application.use_cases.queries.get_job imp
     GetJobQuery,
 )
 from onevoicecut.systems.pipeline.jobs.application.use_cases.queries.list_jobs import (
+    DEFAULT_PAGE_LIMIT,
     ListJobsHandler,
     ListJobsQuery,
 )
@@ -132,16 +133,23 @@ class JobsController:
             warnings=admission.warnings,
         )
 
-    def listing(self, principal: Principal, *, mine: bool = False) -> JobListResponse:
+    def listing(
+        self,
+        principal: Principal,
+        *,
+        mine: bool = False,
+        limit: int = DEFAULT_PAGE_LIMIT,
+        offset: int = 0,
+    ) -> JobListResponse:
         """The shared board, projected into rows.
 
         `mine` is the handler's branch — it narrows the records before they
-        arrive here — so this layer only maps what came back. Items stay
-        record-derived: no progress, no per-job scan, one directory listing
-        per poll.
+        arrive here, and `limit`/`offset` are sliced after that narrowing, so
+        this layer only maps what came back. Items stay record-derived: no
+        progress, no per-job scan, one directory listing per poll.
         """
         jobs = self._list_jobs.handle(
-            ListJobsQuery(principal=principal, mine=mine)
+            ListJobsQuery(principal=principal, mine=mine, limit=limit, offset=offset)
         )
         return JobListResponse(
             jobs=[

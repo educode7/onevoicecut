@@ -127,6 +127,12 @@ class JobListItem(BaseModel):
     created_at: float
     updated_at: float
 
+    # `forbid`, not the pydantic default `ignore` (VIS-13/VIS-14). Dropping an
+    # undeclared field silently would leave the response looking correct while
+    # the code that built it believed it had sent something — the refusal has
+    # to name the field or nobody finds out.
+    model_config = ConfigDict(extra="forbid")
+
 
 class JobListResponse(BaseModel):
     """A wrapper object, not a bare array (D10): pagination, totals, whatever
@@ -134,3 +140,9 @@ class JobListResponse(BaseModel):
     shape."""
 
     jobs: list[JobListItem]
+
+    # An explicit allow-list, and deliberately *no* `total` or echoed
+    # `limit`/`offset`: a total costs a second full listing to count, and the
+    # page union is what completeness is asserted against. Same refusal rule
+    # as the item above.
+    model_config = ConfigDict(extra="forbid")

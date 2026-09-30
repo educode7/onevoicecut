@@ -68,58 +68,97 @@ async def admit(client: AsyncClient, token: str) -> str:
     return job_id
 
 
+async def page_through(
+    http: AsyncClient, token: str, *, page_size: int
+) -> tuple[list[dict[str, Any]], int]:
+    """Every item across every page, plus how many pages it took.
+
+    These scenarios were restated from "exactly N in one response" to "exactly
+    N across the union of pages", so the tests that prove them have to walk
+    that union rather than read one response. A page size deliberately smaller
+    than the job count is what makes the walk real — and the per-page bound
+    fails fast if `limit` is ignored instead of honored, so this cannot
+    silently degenerate into a single unpaginated read.
+    """
+    items: list[dict[str, Any]] = []
+    offset = 0
+    pages = 0
+    while True:
+        response = await http.get(
+            "/api/v1/jobs",
+            params={"limit": str(page_size), "offset": str(offset)},
+            headers=auth_headers(token),
+        )
+        assert response.status_code == 200, response.text
+        page = response.json()["jobs"]
+        assert len(page) <= page_size, (
+            f"page at offset {offset} returned {len(page)} items for "
+            f"limit={page_size}: the bound is not being applied"
+        )
+        pages += 1
+        items.extend(page)
+        if len(page) < page_size:
+            return items, pages
+        offset += page_size
+        assert pages <= 100, "the listing never yielded a short page"
+
+
 async def test_the_listing_returns_every_operators_jobs_attributed(
     client: tuple[AsyncClient, FakeTranscriptStoragePort],
 ) -> None:
-    """VIS-03: the board shows both operators' work, and each row says whose
-    it is — attribution is what makes a shared server legible."""
+    """VIS-03: the board shows both operators' work — through the union of its
+    pages, not in one convenient response — and each row says whose it is.
+    Attribution is what makes a shared server legible."""
     http, _ = client
     a_id = await admit(http, TOKEN_A)
     b_id = await admit(http, TOKEN_B)
 
-    response = await http.get("/api/v1/jobs", headers=auth_headers(TOKEN_A))
+    items, pages = await page_through(http, TOKEN_A, page_size=1)
 
-    assert response.status_code == 200
-    payload = response.json()
-    items = {item["job_id"]: item for item in payload["jobs"]}
-    assert set(items) == {a_id, b_id}
-    assert items[a_id]["owner"] == OPERATOR_A
-    assert items[b_id]["owner"] == OPERATOR_B
+    assert pages > 1, "one job per page means this walked a real union"
+    by_id = {item["job_id"]: item for item in items}
+    assert set(by_id) == {a_id, b_id}
+    assert by_id[a_id]["owner"] == OPERATOR_A
+    assert by_id[b_id]["owner"] == OPERATOR_B
 
 
 async def test_legacy_jobs_surface_with_null_owner(
     client: tuple[AsyncClient, FakeTranscriptStoragePort],
 ) -> None:
     """VIS-04: records persisted before this change list with `owner: null` —
-    present, attributed to nobody, hidden from nobody."""
+    present, attributed to nobody, hidden from nobody, wherever the page they
+    land on falls."""
     http, storage = client
     storage.create_job(a_legacy_record(LEGACY_JOB_ID))
 
-    response = await http.get("/api/v1/jobs", headers=auth_headers(TOKEN_A))
+    items, _ = await page_through(http, TOKEN_A, page_size=1)
 
-    assert response.status_code == 200
-    items = {item["job_id"]: item for item in response.json()["jobs"]}
-    assert items[LEGACY_JOB_ID]["owner"] is None
+    by_id = {item["job_id"]: item for item in items}
+    assert by_id[LEGACY_JOB_ID]["owner"] is None
 
 
 async def test_the_listing_hides_nothing(
     client: tuple[AsyncClient, FakeTranscriptStoragePort],
 ) -> None:
-    """VIS-05: N mixed records list exactly N, and no caller-identity scoping
-    removes items — operator A and operator B see the same complete board."""
+    """VIS-05: N mixed records appear exactly N times across the union, and no
+    caller-identity scoping removes items — operator A and operator B page
+    through to the same complete board.
+
+    Exactly-once is asserted through a list, not a set: a set would collapse
+    the very duplication this is here to rule out."""
     http, storage = client
     a_id = await admit(http, TOKEN_A)
     b_id = await admit(http, TOKEN_B)
     storage.create_job(a_legacy_record(LEGACY_JOB_ID))
 
-    seen: list[set[str]] = []
+    expected = {a_id, b_id, LEGACY_JOB_ID}
     for token in (TOKEN_A, TOKEN_B):
-        response = await http.get("/api/v1/jobs", headers=auth_headers(token))
-        assert response.status_code == 200
-        seen.append({item["job_id"] for item in response.json()["jobs"]})
-
-    for ids in seen:
-        assert ids == {a_id, b_id, LEGACY_JOB_ID}
+        items, pages = await page_through(http, token, page_size=1)
+        # The walk necessarily ends on a short page, so it costs jobs + 1
+        # fetches; what matters here is that it needed more than one.
+        assert pages > 1, "one item per page means this walked a real union"
+        ids = [item["job_id"] for item in items]
+        assert sorted(ids) == sorted(expected)
 
 
 async def test_a_foreign_job_is_readable_with_attribution(
