@@ -1318,7 +1318,7 @@ Closes: proposal success criteria — CLAUDE.md + `openspec/config.yaml` context
 layout and HTTP surface; no stale hexagonal claims remain; `fca_config.yaml` matches the
 shipped tree.
 
-- [ ] 6b.1 Rewrite the CLAUDE.md architecture sections: FCA tree (`shared/`, `systems/pipeline/
+- [x] 6b.1 Rewrite the CLAUDE.md architecture sections: FCA tree (`shared/`, `systems/pipeline/
       {jobs,transcripts,clips}/`, four layers, `main.py` composition root, parallel `runtime/`
       roots), the seven-ports table restated as per-module `domain/interfaces` Protocols with
       the OQ3 split, module map, entrypoint `onevoicecut.main:get_app`, `/api/v1` HTTP surface
@@ -1327,18 +1327,51 @@ shipped tree.
       intact. Verification: grep CLAUDE.md for stale paths (`usecases/`, `ports/`,
       `adapters/web`, unversioned `/api/` examples) — only historical/archive references may
       remain. `[unit 6b]`
-- [ ] 6b.2 Update the `openspec/config.yaml` `context` block: architecture description (FCA,
+      — observed: **0 hits** for `usecases/`, `ports/`, `adapters/web`; every `/api/` hit is
+      `/api/v1` under a negative-lookahead scan (`/api/(?!v1)` returns nothing). Fixed along the
+      way: `domain/jobs.py`, `domain/ids.py`, `domain/transcript.py`, `domain/errors.py`,
+      `runtime/settings.py`, `adapters/web`, `adapters/ffmpeg/argv.py`, the old
+      `tests/unit/domain/` example path, the archived-change path, "eight capabilities" → 17
+      canonical, counts 2120/2076/34/10/256 → **2244/44/0/373**, "No task is open" scoped to
+      the archived change, `MediaProbePort` added to the ports table, heading "The seven ports"
+      → "The ports", and `JobProgressStore` restated against its shipped docstring. Binding
+      non-goals untouched.
+- [x] 6b.2 Update the `openspec/config.yaml` `context` block: architecture description (FCA,
       module-aware AST guard, `main.py` entrypoint), style notes pointing at shared domain
       errors path; keep test commands, markers, and domain constraints unchanged. `[unit 6b]`
-- [ ] 6b.3 Verify README end-to-end: entrypoint command, `/api/v1` examples, and env-var
+      — observed: architecture paragraph rewritten to FCA (`main.py` entrypoint, three modules ×
+      four layers, `shared/` kernel, parallel `runtime/` roots, AB-01…AB-12 walker); style notes
+      now name `src/onevoicecut/shared/domain/errors.py` and "infrastructure never leaks provider
+      exceptions". `test_command`, `build_command`, markers and domain constraints byte-identical.
+- [x] 6b.3 Verify README end-to-end: entrypoint command, `/api/v1` examples, and env-var
       notes consistent with the shipped tree (path literals already flipped in 5a — this task
       checks prose around them). `[unit 6b]`
-- [ ] 6b.4 Cross-check `fca_config.yaml` against the shipped tree (modules, versions, security,
+      — observed: entrypoint `onevoicecut.main:get_app --factory` and all `/api/v1` examples
+      correct. Fixed prose: dead `tests/unit/usecases/test_plan_chunks.py` example →
+      `tests/systems/pipeline/transcripts/application/use_cases/commands/test_plan_chunks.py`
+      (test name verified present), "No real ASR engine is wired" → engines gated on
+      `ONEVOICECUT_LOCAL_MODEL_SIZE` / `CLOUD_ASR_API_KEY` (exit codes 0/1/2/3 verified in
+      `runtime/worker.py`), "Not built yet: either real ASR engine, script generation, and any
+      browser UI" → browser UI only (local/cloud ASR, generation and rendering all shipped), and
+      the hexagonal Layout block → the FCA tree.
+- [x] 6b.4 Cross-check `fca_config.yaml` against the shipped tree (modules, versions, security,
       tooling) — AV-04 test already enforces the registry/route equality; this is the human
       read for fields the test does not cover. `[unit 6b]`
-- [ ] 6b.5 Verify: suite + mypy (config context is tooling-read); commit
+      — observed: **no drift**, file unchanged. Modules `jobs`/`transcripts`/`clips` each with
+      `v1 active` match the tree; `roles: []` correct (`require_roles` unused in `src`);
+      `docs_in_production: false` correct (`docs_url=None, redoc_url=None`); `rate_limiting: none`
+      correct. Two disclosures, neither a fix here: `tooling.linter: ruff` is design-pinned
+      (design.md) but ruff is installed/configured nowhere, and `transcripts` declares `v1 active`
+      while owning no router (design-intended; AV-04 compares versions, not module participation).
+- [x] 6b.5 Verify: suite + mypy (config context is tooling-read); commit
       `docs: rewrite architecture, HTTP surface, and config context for FCA layout`.
       `[unit 6b]`
+      — observed: full default run with the ffmpeg bin prepended to `PATH` —
+      **2244 passed, 44 deselected, 0 skipped** (2 warnings); `mypy src tests` — **Success: no
+      issues found in 373 source files**; `tests\test_architecture.py tests\test_fca_config.py -q`
+      — **55 passed**. Diff **241 changed lines** (CLAUDE.md 190, README 31, config.yaml 20)
+      against the 400 budget. Landed as `47bc9dd`, `docs: rewrite architecture, HTTP surface, and
+      config context for FCA layout`, three files, no `.atl/` or `.opencode/` staged.
 
 ---
 
