@@ -227,10 +227,20 @@ folder's location (9 git renames). Not touched: `src/`, `tests/`, `openspec/conf
 `fca_config.yaml`, `.env`, `.atl/`, `.opencode/`. No historical artifact was rewritten —
 archive moved bytes, it did not edit them.
 
-**Commit status at report time:** staged but **not committed** — the measured staged diff
-exceeds the session's 400-line review budget, and the launch prompt requires a STOP with
-the measured number plus a size decision before any over-budget commit. Delivery (push/PR)
-remains the operator's decision.
+**Commits (operator size decision, 2026-09-30):** the one-shot staged diff measured
+**768 changed lines (733 insertions + 35 deletions)** — over the session's 400-line review
+budget — so the operator chose to split it into three under-budget commits, each measured
+before creation and created strictly in this order:
+
+| Commit | Message | Changed lines |
+|--------|---------|---------------|
+| `12977b6` | `docs(openspec): archive refactor-fca-layout and add its archive report` | 247 (9 R100 renames, 0 content change, + this report) |
+| `b0cf422` | `docs(specs): promote api-versioning and architecture-boundary delta specs` | 267 |
+| `07cdb9e` | `docs(specs): promote job-cancellation, job-visibility, and operator-authentication deltas` | 254 (219 +/35 −) |
+
+This paragraph itself landed in a fourth follow-up commit recording the split. Sanity after
+the split: `pytest tests\test_architecture.py tests\test_fca_config.py -q` → **55 passed**.
+Delivery (push/PR) remains the operator's decision.
 
 ## SDD Cycle Complete
 
