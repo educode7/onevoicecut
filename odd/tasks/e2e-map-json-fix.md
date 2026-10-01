@@ -87,7 +87,7 @@ Out:
   *(Verification observed below; the commit was made by the orchestrator —
   `c309f82 fix(clips): survive a fenced MAP answer from the local LLM`, 9 files,
   +321/−18 — because the unit's task contract forbids the writer committing.)*
-- [ ] **T7 — make the score contract reach the model.** Found by the follow-up
+- [x] **T7 — make the score contract reach the model.** Found by the follow-up
   e2e run: the fence fix worked, generation advanced into schema validation and
   then refused with `a moment's score 8.5 is outside the 0..1 range`. The
   domain bounds `Moment.score` to `0..1` because ranking is comparison, but
@@ -127,8 +127,9 @@ Out:
 
 ## Acceptance criteria
 
-- `run_map` against the real Ollama server produces `artifacts.json` for the
-  e2e job (observed in the follow-up e2e run, not in this unit).
+- [x] `run_map` against the real Ollama server produces `artifacts.json` for the
+  e2e job — **observed end to end in the confirming run recorded under
+  Progress**.
 - FOLD and SCRIPT payloads are byte-identical to today's.
 - The default suite and `mypy` are green with zero skips attributable to this
   change.
@@ -179,3 +180,53 @@ Out:
   discarded, zero findings) and the review is owed again once that gate is
   fixed. Delivery follows ordinary repository policy; this record exists so the
   missing receipt is visible rather than silent.
+- **E2E: the pipeline runs punt a punta.** Confirmed on a fresh job over the
+  fixed tree (`c309f82` + `0550979`), job `01M3W5VAHXW0F20V39C8MX76P7`, on a
+  fresh server started from `%TEMP%\opencode\e2e` so the corrupted repo `.env`
+  cannot reach boot (the exported `ONEVOICECUT_OPERATOR_TOKENS` overrides it
+  via `load_env_file(override=False)`):
+  - `POST /jobs` → **201**; `PUT .../media` → **204**; transcription →
+    `completed` in **~14 s** (single-chunk synthetic sermon, local `small` on
+    cpu).
+  - **`artifacts.json` written, 4055 bytes** — the acceptance criterion. Neither
+    defect recurred: no fence error, and the one candidate scored **0.85**,
+    inside the now-stated `0..1`. Summary + 1 candidate + 4 script variants
+    (tiktok/instagram/youtube/facebook). File verified **strict UTF-8** (76
+    non-ASCII bytes decode cleanly; the mojibake seen in a PowerShell console
+    is a display artifact of the ANSI default, not a file defect).
+  - `POST .../clips` → **202** (`clip_id 01M3W6CZMKS3AND151XV7PV3K9`,
+    `profiles: ["vertical"]`), render drain claimed it and finished in ~5 min:
+    state **`done`**, quality `upscaled` ×2.673, subtitles `segment_level`,
+    captions `confirmed_speech`, tracking `low_confidence`.
+  - Output file: `render/vertical/01M3W6CZMKS3AND151XV7PV3K9.mp4` — **h264
+    1080×1920 + AAC, 11.160 s, 2,728,249 bytes** (duration equals the
+    candidate's `start_s 0.0` / `end_s 11.16`), with a matching `.ass`
+    (PlayRes 1080×1920) and the `.cmds` filter script beside it.
+  - Job ends `completed`, `error: null`.
+  - **Two client-side gotchas found while running it**, both in the harness and
+    not in the product: PowerShell 5.1 strips embedded double quotes from
+    native argv, so a JSON body passed as `-d '{...}'` arrives as `{}` and
+    FastAPI answers **422** — write the body to a file and pass
+    `--data-binary "@file"`; and `Invoke-WebRequest -InFile` aborts the 10 MB
+    upload before it reaches the server (`Error inesperado de envío`, never
+    logged by uvicorn) — `curl.exe --data-binary @file` uploads cleanly.
+- **RDD review for this unit is owed and remains blocked by the environment.**
+  The native review (`review-09539367570b1f7f`, high tier, 4 lenses, consent
+  granted by the operator) started and then failed at every lens across **two
+  sanctioned attempts — 8/8 identical**: each `review-*` sub-agent returned
+  `Error from provider (Console): OpenCode's free tier can only be used from
+  within OpenCode`. A fresh exact-lineage STATUS re-offered the same four bound
+  slots before the second attempt, which is what permits a relaunch; after the
+  repeat failure no further retry was made, per "never retry indefinitely".
+  Root cause was read (not guessed) from the config: `general` and `review-*`
+  inherit the **same** model and carry **no** deny rule that differs in a way
+  that explains it — the differentiator is the
+  `opencode-review-transport.ts` hook, which spawns
+  `gentle-ai review opencode-transport` to materialise the prompt and replaces
+  the child's system prompt with a one-line isolation string; the provider then
+  refuses the child's request. **This is a model-provider/client-runtime
+  failure, not a Gentle AI defect**, so it earns no provider-defect report and
+  no reviewer result may be synthesised. The lineage is left in `reviewing`
+  rather than abandoned, because abandoning destroys resume capability and the
+  operator's earlier disposition was given for a *different* lineage; releasing
+  it is a one-command decision that is still theirs to make.
