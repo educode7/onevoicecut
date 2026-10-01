@@ -22,10 +22,13 @@ three places to remember.
 
 import ast
 import inspect
+import json
+import re
 from pathlib import Path
 
 import pytest
 
+from onevoicecut.shared.domain.errors import GenerationFailed
 from onevoicecut.systems.pipeline.clips.domain.generation import ClipCandidate, GenerationResult, ScriptVariant
 from onevoicecut.systems.pipeline.clips.application.use_cases.commands import generate_artifacts
 from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_artifacts import (
@@ -34,6 +37,7 @@ from onevoicecut.systems.pipeline.clips.application.use_cases.commands.generate_
     _fold_prompt,
     _map_prompt,
     _script_prompt,
+    parse_map_response,
 )
 
 MODULE = Path(inspect.getsourcefile(generate_artifacts) or "")
@@ -198,3 +202,83 @@ class TestEveryPromptIsBuiltTheSameWay:
         assert {"_map_prompt", "_fold_prompt", "_script_prompt"} <= set(builders)
         for name in ("_map_prompt", "_fold_prompt", "_script_prompt"):
             assert "_prompt" in builders[name], f"{name} builds its own framing"
+
+
+class TestTheScoreContractReachesTheModel:
+    """`Moment.score` is bounded so ranking compares like with like, but a bound
+    the model is never told is a bound it cannot respect: the e2e run answered
+    `8.5` to an instruction that only said `float`, and the refusal was right
+    while the prompt was wrong.
+
+    The bounds are extracted from the two messages themselves rather than
+    imported from a constant and compared against it — a test holding the same
+    constant on both sides of `==` would pass on a prompt that never mentions
+    it. Prompt, refusal and enforced behaviour are three places, and this pins
+    all three against each other.
+    """
+
+    _BOUNDS = re.compile(r"(\d+(?:\.\d+)?)\.\.(\d+(?:\.\d+)?)")
+
+    @staticmethod
+    def _window() -> MapWindow:
+        return MapWindow(segment_ids=(0,), text="[s0000] hola")
+
+    @staticmethod
+    def _answer(score: object) -> str:
+        return json.dumps(
+            {
+                "summary": "resumen",
+                "moments": [
+                    {
+                        "segment_ids": [0],
+                        "hook": "gancho",
+                        "quote": "cita",
+                        "rationale": "motivo",
+                        "score": score,
+                    }
+                ],
+            }
+        )
+
+    def _refusal_for(self, score: object) -> str:
+        with pytest.raises(GenerationFailed) as refusal:
+            parse_map_response(self._answer(score), self._window())
+        return str(refusal.value)
+
+    def _stated_bounds(self, message: str) -> tuple[float, float]:
+        match = self._BOUNDS.search(message)
+        assert match is not None, f"no score bounds stated in {message!r}"
+        return float(match.group(1)), float(match.group(2))
+
+    def test_the_instruction_states_the_bounds_the_refusal_quotes(self) -> None:
+        """The defect, pinned from both ends: the refusal says `0..1`, so the
+        prompt that produced the score must say the same `0..1` — otherwise the
+        model is refused against a contract it was never shown."""
+        refusal = self._refusal_for(8.5)
+
+        assert self._stated_bounds(_map_prompt(self._window())) == self._stated_bounds(
+            refusal
+        )
+        # The refusal reports what the model actually sent, not a rescaled
+        # reading: a normalised 8.5 would hide the disagreement it exists to stop.
+        assert "8.5" in refusal
+
+    def test_the_bounds_stated_are_the_bounds_enforced(self) -> None:
+        """The numbers the prompt states are the numbers `_read_moment` enforces
+        — inclusive endpoints, refusal just outside. A prompt describing one
+        range while the validator applies another is the same drift as a prompt
+        describing none."""
+        low, high = self._stated_bounds(_map_prompt(self._window()))
+
+        for endpoint in (low, high):
+            parse_map_response(self._answer(endpoint), self._window())
+
+        for outside in (low - 0.1, high + 0.1):
+            with pytest.raises(GenerationFailed):
+                parse_map_response(self._answer(outside), self._window())
+
+    def test_one_constant_states_the_bounds_for_both_messages(self) -> None:
+        """One shared value interpolated by both, so the instruction and the
+        refusal cannot be edited into describing different ranges."""
+        assert generate_artifacts.SCORE_RANGE_TEXT in _map_prompt(self._window())
+        assert generate_artifacts.SCORE_RANGE_TEXT in self._refusal_for(8.5)

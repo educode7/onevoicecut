@@ -59,6 +59,20 @@ RESPONSE_SHAPE = (
     '"quote": str, "rationale": str, "score": float}]}'
 )
 
+# The ranking scale, in one place. Ranking is comparison, so the scale has to
+# mean the same thing for every moment — but a bound the model is never told is
+# a bound it cannot respect: an end-to-end run answered `8.5` to an instruction
+# that only said `float`, and the refusal was right while the prompt was wrong.
+# The instruction asks for a score and `_read_moment` refuses one, and both
+# quote `SCORE_RANGE_TEXT`, which is derived from the very bounds the check
+# applies — so "the range the model was told" and "the range the validator
+# enforces" is not a state this module can get out of sync. Neither half ever
+# coerces back into range: a 0..10 reading cannot tell 8.5 from 87, and silently
+# rescaling would hide the disagreement the validator exists to stop.
+SCORE_MIN = 0.0
+SCORE_MAX = 1.0
+SCORE_RANGE_TEXT = f"{SCORE_MIN:g}..{SCORE_MAX:g}"
+
 # How many clip candidates survive ranking. Few enough that an operator reviews
 # all of them, which is the point of ranking rather than listing.
 DEFAULT_MAX_CLIP_CANDIDATES = 8
@@ -69,7 +83,9 @@ _MAP_INSTRUCTION = (
     "Resume el siguiente fragmento de una predicacion e identifica los "
     "momentos que merecen un clip corto. Referencia cada momento unicamente "
     "por identificador de segmento, nunca por tiempo. "
-    f"Responde en {RESPONSE_SHAPE}."
+    f"Responde en {RESPONSE_SHAPE}. "
+    f"El score de cada momento es un decimal dentro de {SCORE_RANGE_TEXT}; "
+    "no uses ninguna otra escala."
 )
 _FOLD_INSTRUCTION = (
     "Combina los dos resumenes parciales siguientes en uno solo, sin repetir "
@@ -373,12 +389,12 @@ def _read_moment(raw: object, window: MapWindow) -> Moment:
     score = raw.get("score")
     if not isinstance(score, (int, float)) or isinstance(score, bool):
         raise GenerationFailed(f"a moment's score was not a number: {score!r}")
-    if not 0.0 <= float(score) <= 1.0:
+    if not SCORE_MIN <= float(score) <= SCORE_MAX:
         # Ranking is comparison, so the scale has to mean the same thing for
         # every moment. One scored 87 alongside one scored 0.9 tops every list.
         raise GenerationFailed(
-            f"a moment's score {score} is outside the 0..1 range every other "
-            f"moment is ranked on"
+            f"a moment's score {score} is outside the {SCORE_RANGE_TEXT} range "
+            f"every other moment is ranked on"
         )
 
     text = {field: raw.get(field) for field in ("hook", "quote", "rationale")}
