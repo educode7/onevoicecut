@@ -78,8 +78,8 @@ The default run never calls a billed API and never loads model weights. Markers:
 Run one file, or one test:
 
 ```powershell
-.venv\Scripts\python.exe -m pytest tests/unit/usecases/test_plan_chunks.py
-.venv\Scripts\python.exe -m pytest tests/unit/usecases/test_plan_chunks.py::test_byte_cap_shortens_the_stride
+.venv\Scripts\python.exe -m pytest tests/systems/pipeline/transcripts/application/use_cases/commands/test_plan_chunks.py
+.venv\Scripts\python.exe -m pytest tests/systems/pipeline/transcripts/application/use_cases/commands/test_plan_chunks.py::test_byte_cap_shortens_the_stride
 ```
 
 ## Running it
@@ -169,8 +169,9 @@ record.
 `requirements.txt` pins dependencies and there is no `pyproject.toml`. `pytest`
 sets the same path itself via `pytest.ini`.
 
-**It will not transcribe anything yet.** No real ASR engine is wired, so a
-spawned worker exits `3` and says so rather than failing later. Exit codes:
+**It transcribes only when an engine is configured.** With neither
+`ONEVOICECUT_LOCAL_MODEL_SIZE` nor `CLOUD_ASR_API_KEY` set, a spawned worker exits `3`
+and says so rather than failing later. Exit codes:
 `0` completed, `1` failed, `2` cancelled, `3` nothing usable to run.
 
 Killing the worker mid-job is safe. Re-running the same command resumes: every
@@ -184,19 +185,23 @@ upload to a transcript on disk exists and is exercised end to end by
 `tests/integration/test_ingest_to_transcript.py` — real HTTP, real filesystem,
 real ffmpeg, fake ASR.
 
-**Not built yet: either real ASR engine, script generation, and any browser UI.**
-The HTTP API is there; nothing renders it, and nothing transcribes for real.
+**Not built yet: any browser UI.** The HTTP API is there and authenticated; nothing
+renders it. Real ASR (local faster-whisper or cloud Whisper), script generation and
+vertical-clip rendering are all wired.
 
 ## Layout
 
 ```
 src/onevoicecut/
-  domain/     entities and errors; zero third-party imports
-  ports/      the Protocol definitions; imports domain only
-  usecases/   orchestration; imports domain and ports only
-  adapters/   ffmpeg and filesystem storage today; web, ASR and LLM to come
-  runtime/    composition root — the only place adapters are constructed
+  main.py     web composition root — entrypoint onevoicecut.main:get_app
+  shared/     domain kernel, principal, settings, security, storage core, ffmpeg runner
+  systems/
+    pipeline/ one bounded context: jobs, transcripts, clips — each with domain/ and
+              domain/interfaces/, application/use_cases/{commands,queries}/,
+              infrastructure/ and presentation/
+  runtime/    parallel composition roots — worker, render worker, supervisor, resolvers
 ```
 
-`tests/test_architecture.py` fails the build if `domain`, `usecases` or `ports`
-ever imports `adapters` or `runtime`. The boundary is a test, not a convention.
+`tests/test_architecture.py` fails the build if a layer imports outward (AB-01..AB-05),
+if `shared/` ever imports `systems.*` (AB-08), or if adapter construction appears
+outside a composition root (AB-09, AB-10). The boundary is a test, not a convention.

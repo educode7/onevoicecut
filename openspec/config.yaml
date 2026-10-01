@@ -3,10 +3,17 @@ schema: spec-driven
 context: |
   Tech stack: Python 3.12, venv + pip (split requirements files + frozen lock), FastAPI/Uvicorn,
     pydantic. ffmpeg is a SYSTEM binary, never a pip dependency.
-  Architecture: hexagonal. src/onevoicecut/{domain,ports,usecases} is the core (domain has zero
-    third-party imports); adapters/{ffmpeg,storage,web} and runtime/ exist and are green. runtime/ is
-    the composition root — the only place adapters may be constructed. The boundary is enforced by
-    tests/test_architecture.py, an ast walker that fails if the core imports adapters/runtime.
+  Architecture: FastAPI Clean Architecture (FCA). src/onevoicecut/{main.py,shared,systems,runtime}.
+    main.py is the web composition root (entrypoint `onevoicecut.main:get_app`); one system
+    `pipeline` holds modules jobs/transcripts/clips, each with `domain/` plus `domain/interfaces/`,
+    `application/use_cases/{commands,queries}/`, `infrastructure/` and
+    `presentation/{schemas,routes,controllers}/v1`, plus a domain-agnostic `shared/` kernel whose
+    `shared/domain` is innermost; `runtime/` holds the parallel separate-process composition roots
+    (worker, render worker, supervisor, resolvers). Dependencies point inward
+    (presentation -> application -> domain; infrastructure -> application/domain) and `shared/`
+    never imports `systems.*`. The boundary is enforced by tests/test_architecture.py, a
+    module-aware AST walker with twelve rule groups AB-01..AB-12 that fails the default run on a
+    planted violation.
     Pipeline: upload video/audio -> ffmpeg extract + chunk -> transcribe (local or cloud ASR,
     selected per job) -> stitch -> structured Transcript -> .txt export + LLM summary, timestamped
     clip candidates and N script variants for short-form social/ad video.
@@ -18,8 +25,9 @@ context: |
   Testing: pytest with --strict-markers; markers integration/localmodel/paid. The default run
     excludes `paid` and `localmodel`, so it never invokes a billed API or loads real model weights.
     mypy strict over src and tests. Strict TDD: every change is RED before GREEN.
-  Style: frozen slotted dataclasses in domain; typing.Protocol for ports (not ABCs); domain errors in
-    domain/errors.py raised across port boundaries — adapters never leak provider exceptions upward.
+  Style: frozen slotted dataclasses in domain; typing.Protocol for interfaces (not ABCs); domain errors in
+    src/onevoicecut/shared/domain/errors.py raised across port boundaries — infrastructure never leaks
+    provider exceptions upward.
     No silent degradation: an adapter that cannot diarize refuses, and one that cannot classify
     non-speech reports `uncertain`, never `speech`.
   Repo: git repository, default branch `main` (initialized 2026-08-17), remote

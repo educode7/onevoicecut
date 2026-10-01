@@ -7,7 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 A shared-server app — several operators, one machine — that turns multi-hour Spanish source video into a
 structured transcript, then into a summary plus timestamped clip candidates with short scripts, then into
 rendered vertical clips ready to upload by hand. Two non-goals frame everything downstream of the
-transcript. **Nothing is ever published**: `PublishPort` is declared and deliberately unimplemented.
+transcript. **Nothing is ever published**: `PublishPort` is declared and deliberately unimplemented
+in the specs — and verified absent from the tree, no module declares it (design.md module-map footnote).
 **No frame or word in an output clip may be one the source sermon did not contain** — no avatars, no
 synthesized footage, no dubbing, no B-roll, no stock beds; reframing real footage is editing and
 inventing a speaker is fabrication, and rev 4 separated the two on purpose. The stopping point used to
@@ -36,8 +37,8 @@ Windows paths (`.venv\Scripts\`), no POSIX `bin/`.
 .venv\Scripts\python.exe -m mypy src tests
 
 # Single test file / single test
-.venv\Scripts\python.exe -m pytest tests/unit/domain/test_chunking.py
-.venv\Scripts\python.exe -m pytest tests/unit/domain/test_chunking.py::test_name
+.venv\Scripts\python.exe -m pytest tests/systems/pipeline/transcripts/domain/test_chunking.py
+.venv\Scripts\python.exe -m pytest tests/systems/pipeline/transcripts/domain/test_chunking.py::test_planned_chunk_holds_bounds
 
 # Install
 .venv\Scripts\python.exe -m pip install -r requirements.txt -r requirements-dev.txt
@@ -92,44 +93,89 @@ core), and no requirements file exists or may exist for it.
 
 ## Architecture
 
-Hexagonal, with the boundary enforced by a test rather than by convention.
+FastAPI Clean Architecture (FCA), with the boundary enforced by a test rather than by convention.
 
 ```
 src/onevoicecut/
-  domain/     # zero third-party imports; frozen slotted dataclasses only
-  ports/      # typing.Protocol definitions; imports domain only
-  usecases/   # imports domain + ports only — all orchestration lives here
-  adapters/   # web/ ffmpeg/ storage/ asr/local/ asr/cloud/ vision/ llm/
-  runtime/    # composition root — the ONLY place adapters are constructed
+  main.py     # the web composition root: get_app factory, token-map parse, DomainError table
+  shared/     # domain-agnostic kernel
+    domain/           # errors.py ids.py capabilities.py media.py speaker.py — zero third-party imports
+    application/      # principal.py — Principal, Authenticator, parse_operator_tokens
+    infrastructure/   # settings.py (the only environment reader), storage/core.py, ffmpeg/process.py
+    presentation/     # security.py — CurrentPrincipal, require_roles
+  systems/pipeline/   # one bounded context, three modules
+    jobs/  transcripts/  clips/
+      domain/           # frozen slotted dataclasses + domain/interfaces/ (typing.Protocol)
+      application/      # use_cases/commands/ (writes) and use_cases/queries/ (reads), one per file
+      infrastructure/   # module adapters: storage facades, ffmpeg, ASR, vision, llm
+      presentation/     # schemas/v1, routes/v1, controllers/v1
+      {module}_module_api.py   # the module's wiring surface, imported only by composition roots
+  runtime/    # the parallel, separate-process composition roots (proposal Deviation 3)
 ```
 
-`runtime/` holds `app.py` (web composition root, the three supervisor loops, reconcile),
+Dependencies point inward: `presentation → application → domain`, `infrastructure → application/domain`,
+and a module's `domain` imports only the standard library plus `shared/domain`. `shared/` must never
+import `systems.*`. Composition roots are `main.py`, the three `*_module_api.py` files, and `runtime/` —
+adapter construction and dependency binding happen nowhere else.
+
+`runtime/` holds `app.py` (worker spawning, the drain and render-drain sweeps, reconcile),
 `supervisor.py` (liveness, the per-chunk watchdog, reaping), `engine_resolver.py`,
-`tracker_resolver.py`, `settings.py`, `worker.py` and `render_worker.py`. The last two are each a
-composition root in their own right: a separate process, reading its own environment.
+`tracker_resolver.py`, `storage.py` (`FilesystemTranscriptStorage` + the `StorageComposite` a root
+annotates storage with), `worker.py` and `render_worker.py`. The last two are each a composition root
+in their own right: a separate process, reading its own environment. `runtime/` and `main.py` are
+parallel roots — module wiring is imported *by* them, never the reverse.
 
-`tests/test_architecture.py` walks `domain`, `usecases`, and `ports` with `ast` and fails if any of them
-imports `onevoicecut.adapters` or `onevoicecut.runtime`. It parses source text rather than importing, so it
-works before those packages exist. Do not weaken it.
+### Module map (shipped)
 
-### The seven ports
+| Module | `commands/` (writes) | `queries/` (reads) | `domain/` | `domain/interfaces/` | HTTP (v1) |
+| --- | --- | --- | --- | --- | --- |
+| `jobs` | `admit_job`, `ingest_media`, `cancel_job`, `resume_job` | `get_job`, `list_jobs` | `jobs.py`, `ownership.py` | `JobStore`, `JobProgressStore`, `MediaSourcePort`, `MediaProbePort`, `PendingChunks` | 5 job operations |
+| `transcripts` | `plan_chunks`, `transcribe_job`, `stitch_transcript` | — | `chunking.py`, `transcript.py` | `TranscriptStore`, `AudioExtractorPort`, `TranscriptionPort` | none (worker-driven) |
+| `clips` | `generate_artifacts`, `request_clip_export`, `render_clip`, `purge_job_artifacts` | `render_profiles`, `plan_trajectory`, `build_subtitle_cues` | `generation.py`, `rendering.py`, `framing.py` | `ClipStore`, `TextGenerationPort`, `SubjectTrackerPort`, `VideoRenderPort` | 3 clip operations |
+| `shared/` | `application/principal.py` | — | `errors.py`, `ids.py`, `capabilities.py`, `media.py`, `speaker.py` | — | bearer auth for all operations |
 
-| Port | Contract |
-| --- | --- |
-| `MediaSourcePort` | **The one async port.** Used only by the web adapter, never by the worker. |
-| `AudioExtractorPort` | `probe`/`extract`/`slice`. ffmpeg lives behind this and nowhere else. |
-| `TranscriptionPort` | `AudioChunk` → segments. **Returned times are chunk-local**, not absolute. Declares `capabilities()`. |
-| `TextGenerationPort` | Generic `complete()`. Knows nothing about summaries, clips, or chunking. |
-| `TranscriptStoragePort` | Job record, chunk plan, per-chunk results, transcript, artifacts. `save_chunk_result` MUST be atomic — resume is built on it. |
-| `VideoRenderPort` | `RenderRequest` → one file. **One ffmpeg process; no raw frames cross a process boundary.** Only `request.span` is cut, so a clip's cost never depends on the length of the sermon it came from. |
-| `SubjectTrackerPort` | `detect()` over a span at a sample rate. **Times are clip-local; boxes are source-frame pixels.** Declares `capabilities()`. The real adapter (`adapters/vision/`) decodes in-process through PyAV — never a subprocess pipe of raw frames — and runs torchvision's Faster R-CNN over every Nth frame downscaled to ≤640px, scoped to the span. Its probe declares `REQUIRES_SETUP` on a bare checkout, so every clip still reaches the proven `TrackingUnavailable` path instead of a process that cannot start. |
+Entrypoint: `PYTHONPATH=src uvicorn onevoicecut.main:get_app --factory`.
 
-Ports are `typing.Protocol`, not ABCs: adapters satisfy them structurally, with no import from the core.
+`tests/test_architecture.py` walks the tree with `ast` — rules are data, held in `RULE_GROUPS` as
+twelve groups **AB-01…AB-12**: presentation must not import infrastructure (AB-01); application must
+not import presentation (AB-02); a module's `domain` may not import a layer above it or `shared/`'s
+outer layers (AB-03), FastAPI or Pydantic (AB-04), or `adapters`/`runtime` (AB-05); no cross-module
+`domain`/`infrastructure` imports (AB-06, AB-07); `shared/` must not import `systems.*` (AB-08); and
+adapter construction stays in composition roots — AB-09 on presentation, AB-10 on application.
+Coverage grows with migration and may never shrink for code that still exists (AB-11), and
+`AB12_PLANTS` pins exactly one planted violation to each registered group so the guard itself is
+proven RED before GREEN (AB-12). It parses source text rather than importing. Do not weaken it.
+
+### The ports — per-module `domain/interfaces` Protocols
+
+Each port lives in the module that owns its domain types (OQ3 for the storage seam), and a
+composition root binds the implementations structurally.
+
+| Interface | Module | Contract |
+| --- | --- | --- |
+| `MediaSourcePort` | `jobs` | **The one async port.** Used only by the web adapter, never by the worker. |
+| `MediaProbePort` | `jobs` | The probe-only slice of the extractor: `probe` (container, duration, audio stream, picture), raised as `UnsupportedContainer`. Admission asks it before a job may be queued, so `jobs` never names `transcripts`' full extractor. |
+| `AudioExtractorPort` | `transcripts` | `probe`/`extract`/`slice`. ffmpeg lives behind this and nowhere else. |
+| `TranscriptionPort` | `transcripts` | `AudioChunk` → segments. **Returned times are chunk-local**, not absolute. Declares `capabilities()`. |
+| `TextGenerationPort` | `clips` | Generic `complete()`. Knows nothing about summaries, clips, or chunking. |
+| `JobStore` / `TranscriptStore` / `ClipStore` | `jobs` / `transcripts` / `clips` | The old `TranscriptStoragePort` split into three narrow Protocols — **12 / 9 / 7 methods**, no overlap, unioning to exactly the port's 28. Job record and heartbeats; chunk plan, per-chunk results, transcript, export; artifacts, exports, render claims. `save_chunk_result` MUST be atomic — resume is built on it. |
+| `VideoRenderPort` | `clips` | `RenderRequest` → one file. **One ffmpeg process; no raw frames cross a process boundary.** Only `request.span` is cut, so a clip's cost never depends on the length of the sermon it came from. |
+| `SubjectTrackerPort` | `clips` | `detect()` over a span at a sample rate. **Times are clip-local; boxes are source-frame pixels.** Declares `capabilities()`. The real adapter (`clips/infrastructure/vision/`) decodes in-process through PyAV — never a subprocess pipe of raw frames — and runs torchvision's Faster R-CNN over every Nth frame downscaled to ≤640px, scoped to the span. Its probe declares `REQUIRES_SETUP` on a bare checkout, so every clip still reaches the proven `TrackingUnavailable` path instead of a process that cannot start. |
+
+`jobs` also declares `JobProgressStore` — a `JobStore` plus the two reads (`load_chunk_plan`,
+`load_chunk_results`) that `get_job` derives progress from, declared in `jobs` so the application
+reaches neither `transcripts.domain` nor a write method it must not have (AB-07 forbids the first
+with a test, and leaving `save_transcript` out of the type proves the read is read-only) — and
+`PendingChunks`. The three storage Protocols are satisfied by three facades over one domain-agnostic
+`StorageCore` (`shared/infrastructure/storage/core.py`), and a composition root annotates the union
+as `StorageComposite` (`runtime/storage.py`) — itself a `Protocol`, so a test may hand it a fake with
+no data directory behind it. Ports are `typing.Protocol`, not ABCs: adapters satisfy them
+structurally, with no import from the layer that declares them.
 
 ### Load-bearing decisions
 
-These were argued in `openspec/changes/video-transcription-pipeline/design.md`. Reversing one is a design
-change, not a refactor.
+These were argued in `openspec/changes/archive/2026-09-24-video-transcription-pipeline/design.md`.
+Reversing one is a design change, not a refactor.
 
 - **Immutability**: every domain entity is `@dataclass(frozen=True, slots=True)`.
 - **Timestamps are never discarded** at the ASR boundary. `Transcript` is the source of truth; the `.txt`
@@ -171,7 +217,7 @@ change, not a refactor.
   recycled pid; either one orphans a job forever. The worker is the sole writer of the heartbeat, at
   claim time and every chunk boundary — liveness has to be a side effect of doing work, not of being
   loaded into memory.
-- **State-set membership lives in `domain/jobs.py`** (`WORKER_BOUND_STATES`, `TERMINAL_STATES`), because
+- **State-set membership lives in `systems/pipeline/jobs/domain/jobs.py`** (`WORKER_BOUND_STATES`, `TERMINAL_STATES`), because
   reconcile, the capacity gate and cancel classification all branch on it and three derivations drift.
 - **Filtering non-speech out of the decode is only half the job.** The local adapter runs the
   voice-activity pass twice over the same samples: once inside the decode, to starve the hallucination,
@@ -220,26 +266,26 @@ change, not a refactor.
 - Client filenames are **metadata only**, never a path component. Storage path is `jobs/{ulid}/source`
   — extensionless, so not even a suffix is the client's to choose.
 - All paths are `Path.resolve()`-checked to be inside the job directory before any spawn.
-- `job_id` is validated against the ULID regex in `domain/ids.py` before touching the filesystem.
+- `job_id` is validated against the ULID regex in `shared/domain/ids.py` before touching the filesystem.
 - Content type is validated by `ffprobe`, never by extension.
 
 ## Workflow
 
 This repo runs **Spec-Driven Development** (`openspec/`) with **strict TDD** (`strict_tdd: true`).
 
-- `openspec/changes/video-transcription-pipeline/` holds `proposal.md`, `design.md`, ten
-  `specs/*/spec.md`, and `tasks.md`. **Read `tasks.md` before implementing** — it is the ordered,
+- The change in flight, `openspec/changes/refactor-fca-layout/`, holds `proposal.md`, `design.md`,
+  five `specs/*/spec.md`, and `tasks.md`. **Read `tasks.md` before implementing** — it is the ordered,
   RED-before-GREEN checklist, and it names the spec scenario each task closes. Archived changes land
   under `openspec/changes/archive/<date>-<name>/`, and their delta specs are promoted to canonical
-  `openspec/specs/<capability>/spec.md` — eight capabilities are canonical today.
+  `openspec/specs/<capability>/spec.md` — 17 capabilities are canonical today.
 - Every task pair is RED first: write the failing test, then the implementation. **All 396
-  checkboxes in `tasks.md` are checked** — slice 13c-ii closed the last five; what the change still
-  owes is named under Current state below as gaps, not as tasks.
+  checkboxes in the archived `video-transcription-pipeline/tasks.md` are checked** — slice 13c-ii
+  closed the last five; what that change still owes is named under Current state below as gaps.
 - The original review budget was **400 lines** per slice. Slice 1 overran to 1,273 lines under
   an accepted one-time exception; the rest were re-estimated from that measured cost. The measured
   ratio is tests 56% / `src` 36% / config 8% — budget accordingly, tests dominate.
 - `delivery_strategy: auto-chain`, `chain_strategy: stacked-to-main`. The plan no longer lands as the
-  23 units it was first drawn as: slices have been re-split at their seams until `tasks.md` carries
+  23 units it was first drawn as: slices have been re-split at their seams until that `tasks.md` carries
   **61 `## Slice` headings**, so a reviewable unit is a sub-slice (7a-ii, 13b-iv-b), not a slice.
 - **Measure the diff before committing a slice, not after.** The ×4 rule came from nine early slices that
   overran **3.2x to 5.1x, mean ≈ 4.0x**. It no longer describes how this repo works: the six units since
@@ -257,27 +303,20 @@ This repo runs **Spec-Driven Development** (`openspec/`) with **strict TDD** (`s
 
 ### Current state
 
-One change is in flight. `video-transcription-pipeline` is green through **slice 13c-ii**, and the
-last unit landed was 13c-ii (the real adapter's contract test); `tasks.md` is fully checked, so what
-the change still owes is the four gaps named below, not a task. `multi-operator-access` is
-**archived** at
-`openspec/changes/archive/2026-09-17-multi-operator-access/`, its seven delta specs promoted to
-canonical `openspec/specs/`. Measured on this tree: **2120 tests — 2076 in the default run, 34
-`localmodel`, 10 `paid`, zero skips — mypy clean over 256 source files.**
+One change is in flight: `refactor-fca-layout`, which moved the tree from hexagonal to FCA — this
+file's architecture section describes the result. The two earlier changes are **archived**,
+`multi-operator-access` at `openspec/changes/archive/2026-09-17-multi-operator-access/` and
+`video-transcription-pipeline` at
+`openspec/changes/archive/2026-09-24-video-transcription-pipeline/`, their delta specs promoted to
+canonical `openspec/specs/` — 17 capabilities are canonical today. Measured on this tree: **2244
+passed, 44 deselected, zero skips in the default run — mypy clean over 373 source files.**
 
-On disk today are `domain/` (nine modules: `chunking`, `errors`, `framing`, `generation`, `ids`,
-`jobs`, `media`, `rendering`, `transcript`), `ports/` (the seven plus `capabilities`), fifteen use
-cases (`admit_job`, `build_subtitle_cues`, `cancel_job`, `generate_artifacts`, `ingest_media`,
-`ownership`, `plan_chunks`, `plan_trajectory`, `purge_job_artifacts`, `render_clip`,
-`render_profiles`, `request_clip_export`, `resume_job`, `stitch_transcript`, `transcribe_job`),
-`adapters/ffmpeg/` (`argv`, `extractor`, `process`, `sendcmd`, `subtitles`, `video_render`),
-`adapters/storage/`, `adapters/web/` (`app`, `auth`, `schemas`, `routers/jobs`), both ASR adapters
-(`asr/local/faster_whisper_adapter` + `declarations` + `diarization`,
-`asr/cloud/openai_whisper_adapter`), the vision adapter
-(`vision/torchvision_tracker_adapter` + `declarations`), the LLM adapter
-(`llm/ollama_generator` + `probe`), `runtime/`
-(`app`, `engine_resolver`, `render_worker`, `settings`, `supervisor`, `tracker_resolver`,
-`worker`), `tests/{fakes,unit,integration,contract}/` and `scripts/`.
+On disk today: `shared/` (domain kernel, principal, settings, security, the domain-agnostic storage
+core and ffmpeg process runner), `main.py`, `systems/pipeline/{jobs,transcripts,clips}/` — each with
+`domain/` plus `domain/interfaces/`, `application/use_cases/{commands,queries}/`, `infrastructure/`
+and `presentation/{schemas,routes,controllers}/v1` — and the parallel `runtime/` roots (`app`,
+`engine_resolver`, `render_worker`, `storage`, `supervisor`, `tracker_resolver`, `worker`). Tests sit
+under `tests/{shared,systems,integration,contract,unit,fakes}/`, and `scripts/` holds the dev tool.
 
 One thing is still missing:
 
@@ -361,11 +400,13 @@ lands in the job directory, and with the two LLM variables set and Ollama servin
 proves the device at construction, so this is a clean `EngineUnavailable` at engine resolution naming the
 variable — not a job that dies mid-chunk. Installing the CUDA runtime is the other way out.
 
-Configuration is read once, in `runtime/settings.py` (`env_prefix="ONEVOICECUT_"`), and nothing below
+Configuration is read once, in `shared/infrastructure/settings.py` (`env_prefix="ONEVOICECUT_"`), and nothing below
 `runtime/` reads the environment at all. Each composition root that reads the environment — the web
 factory and the worker entrypoint — first loads a gitignored `.env` beside the app via
 `load_env_file()` with `override=False`, so a real exported variable always wins over the file;
-`.env.example` names every variable. The variables:
+`.env.example` names every variable. `ONEVOICECUT_OPERATOR_TOKENS` is a `SecretStr`: no `repr` or
+`str` of `Settings` ever carries a token value (AUTH-16), and the one `get_secret_value()` call in
+the system is in `main.py`, at token-map parse (AUTH-17). The variables:
 
 | Variable | Default | Why that default |
 | --- | --- | --- |
@@ -405,7 +446,9 @@ would be a setting silently applying to one and not the other.
 
 Eight HTTP operations across seven paths, **all of them authenticated** — a bearer token parsed from
 `ONEVOICECUT_OPERATOR_TOKENS`, fail-closed at boot. The five job-level ones: `POST /api/v1/jobs` (admit,
-201), `GET /api/v1/jobs` (shared listing with owner attribution and a server-side `?mine=true` filter),
+201), `GET /api/v1/jobs` (shared listing with owner attribution, a server-side `?mine=true` filter, and
+bounded pagination — `limit` default 20 with `ge=1, le=100`, `offset` with `ge=0, le=10_000`; a malformed
+bound is a 422 before any listing runs, and completeness is the union of pages, never one response),
 `GET /api/v1/jobs/{id}` (chunk-level progress; read-only, and a test enforces that it writes nothing),
 `PUT /api/v1/jobs/{id}/media` (raw-body streaming upload, 204) and `POST /api/v1/jobs/{id}/cancel`. Then
 three for clips: `POST /api/v1/jobs/{id}/clips` (202 — writes one `PENDING` export per distinct profile
@@ -429,15 +472,15 @@ Four things about the upload path are load-bearing and easy to undo by accident:
 
 - The filename travels **percent-encoded** in an `X-Filename` header. HTTP header values are ASCII and
   Spanish filenames are the normal case here, not an edge case.
-- No `UploadFile`/`File`/`Form` is imported anywhere in `adapters/web` — a structural test enforces it,
-  because an absence cannot be proven by a request.
+- No `UploadFile`/`File`/`Form` is imported anywhere under either module's `presentation/` tree — a
+  structural test enforces it, because an absence cannot be proven by a request.
 - The upload commits by **rename** from a sibling `.part`. Writing to the destination directly truncates
   it before the first byte arrives, so a failed retry would destroy the upload that had succeeded.
 - The stored source is **extensionless** (`jobs/{ulid}/source`). Content type comes from `ffprobe`, and
   the media record's `container` reads `"unverified"` only until that probe runs.
 
 ffmpeg 9.0.1 is installed (winget, `Gyan.FFmpeg`), so the `integration`-marked tests run rather than
-skip — the flag set in `adapters/ffmpeg/argv.py` is verified against the real binaries, not just argued.
+skip — the flag set in `systems/pipeline/transcripts/infrastructure/ffmpeg/argv.py` is verified against the real binaries, not just argued.
 
 **And a stale `$env:Path` quietly takes that away.** The binaries live at
 `%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_...\ffmpeg-9.0.1-full_build\bin`, and that
@@ -449,8 +492,8 @@ result reporting 36 skips proves nothing about the ffmpeg surface. Diagnose with
 ffmpeg is uninstalled from a shallow recursive scan. To force a real run inside a stale session,
 prepend the bin directory to `$env:Path` in the same command that launches pytest. Slice 13b-iv-b's own
 note in `tasks.md` — "1894 passed, 41 skipped" — was written from exactly such a run and is not
-evidence about the ffmpeg surface; the same suite measured today against the same tree reports **1939
-passed, 30 deselected, zero skips**.
+evidence about the ffmpeg surface; the same suite measured today against the same tree reports **2244
+passed, 44 deselected, zero skips**.
 
 Three supervised tasks run for the app's lifetime, on deliberately different clocks. The **job drain**
 sweeps every five seconds, reaping exited workers before it serves the queue. The **watchdog** sweeps
@@ -465,8 +508,9 @@ something an operator can read. Sharing one loop would also mean sharing one `ex
 that raised would strand every queued job on the machine, which is exactly the coupling the watchdog's
 own paragraph refuses. Each loop logs its own bad sweep, sleeps, and goes round again.
 
-No task is open — `tasks.md` is fully checked. **Nothing is waiting on anyone but the author** for
-the gaps named below, which are known-and-deliberate rather than scheduled work.
+In the archived `video-transcription-pipeline`, no task is open — its `tasks.md` is fully checked.
+**Nothing is waiting on anyone but the author** for the gaps named below, which are
+known-and-deliberate rather than scheduled work.
 
 The 9.3/9.4 group closed: the gated acceptances were done by the operator on their own HuggingFace
 account (all four repos the 3.1 checkpoint pulls), `pyannote.audio==4.0.7` was pinned from that real
@@ -528,7 +572,7 @@ two domain gaps are recorded but not yet built.
 One decision is deliberately left open for slice 10a: whether MAP windowing excludes `UNCERTAIN`
 segments or marks them the way the `.txt` export does. Excluding risks an empty summary on a
 non-classifying engine; marking risks the model ignoring the marker. See the `speech_segments`
-docstring in `domain/transcript.py`.
+docstring in `systems/pipeline/transcripts/domain/transcript.py`.
 
 ## Conventions
 
@@ -537,7 +581,7 @@ docstring in `domain/transcript.py`.
 - Module docstrings state *why* the module exists or what invariant it protects, not what it contains.
   Match that density; do not add narration comments.
 - Top-level names name the problem (`chunking`, `jobs`, `transcript`), not the framework.
-- Errors are domain types in `domain/errors.py`, all deriving from `DomainError`, raised across port
+- Errors are domain types in `shared/domain/errors.py`, all deriving from `DomainError`, raised across port
   boundaries. Adapters translate library exceptions into these — never leak a provider exception upward.
 - Source audio is Spanish only. No multi-language, no code-switching.
 - Never commit media, model weights, or `.env` — `.gitignore` already covers them.
