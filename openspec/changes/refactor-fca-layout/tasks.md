@@ -1380,18 +1380,49 @@ shipped tree.
 Closes: proposal success-criteria sweep; prepares `sdd-archive` (delta specs are already
 written — five capabilities updated in this change — promotion happens at archive time).
 
-- [ ] 6c.1 Run and record every proposal success criterion: default suite green (no paid/local
+- [x] 6c.1 Run and record every proposal success criterion: default suite green (no paid/local
       default-run invocations), mypy strict clean, architecture guard fails on planted
       violation (6a.2 evidence), all eight operations on `/api/v1` with auth semantics
       byte-equivalent, pagination bounds proven, `extra="forbid"` proven, runtime bodies
       unchanged except imports (4f receipt + chain-wide `git diff` over `runtime/`), load-bearing
       decisions untouched, `fca_config.yaml` matches tree, docs current. `[unit 6c]`
-- [ ] 6c.2 Archive-prep notes for `sdd-archive`: confirm the five delta specs in
+      — observed: full sweep recorded in `closure-notes.md` §6c.1. Suite **2244 passed / 44
+      deselected / 0 skipped**; marker separation **paid 10 + localmodel 34 = 44** (all
+      excluded); mypy **373 source files clean**; 6a.2 cited (**13/13 groups RED** on real-src
+      plants, current guard `test_architecture.py` **51 passed**, no plant re-created). Eight
+      operations: route-table gate **18 passed** with exactly 8 cases + 7 byte-identical 401s;
+      AV **11 passed**; precedence (`test_main` 12, cancel 12, upload 8); OWN-05 matrix 9;
+      clip parity 6; unversioned-path re-grep = 0 served (15 hits all Ollama/AV-03 literals).
+      Pagination **13 + 8** (VIS-09/10/11 incl. offset-above-maximum, default 20, union
+      completeness). `extra="forbid"`: 2-of-2 request schemas at source + AV-06/07 green.
+      Runtime classified **35 import-only / 19 `storage:` annotation / 16 attributed other**
+      over 70 hunks (`2dc6a80..HEAD` = `9a737db..HEAD`); 4f receipt holds (2+2 import hunks,
+      storage.py additive); one non-slice finding: win32 liveness fix `3500cd3` in supervisor.
+      `design.md` single commit `9a737db` (decisions untouched); fca_config matches tree;
+      docs stale-path greps 0.
+- [x] 6c.2 Archive-prep notes for `sdd-archive`: confirm the five delta specs in
       `specs/*/spec.md` reflect the shipped state (AV/AUTH/VIS/CXL/AB as implemented), list any
       drift found; record that OQ1 (archive order vs `video-transcription-pipeline`) remains an
       orchestrator sequencing choice, not a code dependency. `[unit 6c]`
-- [ ] 6c.3 Verify + commit (notes/config only, no product code): `chore(fca): closure
+      — observed: five delta specs read in full against the tree — **AV, AUTH, CXL: no drift**;
+      **AB**: one prose/guard asymmetry (D4 — `jobs/domain/jobs.py:6` imports
+      `transcripts.domain.chunking`, permitted by owner-anchored AB-07 while the requirement
+      prose reads as a blanket ban); **VIS**: textual drift (D5 — both open questions still
+      listed as unanswered though design closed them, and the shipped `offset le=10_000` bound
+      is un-named in the spec though tested). Full drift list **D1–D7** recorded in
+      `closure-notes.md` §6c.2: D1 `PublishPort` claim (`script-generation/spec.md:172` vs 0
+      occurrences in `src/`, design.md:396 says absent), D2 `fca_config.yaml` pins ruff
+      (installed nowhere), D3 `transcripts` `v1 active` with no router (design-intended), D4/D5
+      above, D6 stale `worker.py:265` composition comment (prose only), D7 proposal criterion-7
+      wording vs chain-wide classification. Nothing fixed in 6c. OQ1 recorded as orchestrator
+      sequencing choice — no code dependency; `sdd-archive` may run in either order.
+- [x] 6c.3 Verify + commit (notes/config only, no product code): `chore(fca): closure
       verification and archive preparation`. `[unit 6c]`
+      — observed: two commits, neither touching `src/`, `tests/`, or `openspec/config.yaml` —
+      `8338594` (`chore(fca): closure verification and archive preparation`) contains
+      `closure-notes.md` only, **251 changed lines** against the 400 budget; this tick commit
+      (`docs(openspec): tick slice 6c check-offs`) contains `tasks.md` only. `.atl/` and
+      `.opencode/` left unstaged; no stale `MM` after either `git add` (numstat verified).
 
 ---
 
