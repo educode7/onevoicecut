@@ -150,7 +150,7 @@ class TestTheWorkerEntrypoint:
     ) -> None:
         """Exit 3 is still right when nothing is configured — but the operator now
         gets the name of the thing to set, not a statement about "this build"."""
-        monkeypatch.delenv(LOCAL_MODEL_SIZE_ENV, raising=False)
+        monkeypatch.setenv(LOCAL_MODEL_SIZE_ENV, "")
 
         assert worker.main(_argv(tmp_path)) == EXIT_UNUSABLE
         assert LOCAL_MODEL_SIZE_ENV in capsys.readouterr().err
@@ -161,7 +161,7 @@ class TestTheWorkerEntrypoint:
         """A worker with no engine must not claim the record, write a pid, or
         move the job out of QUEUED — the drain would count a slot as busy for a
         process about to exit."""
-        monkeypatch.delenv(LOCAL_MODEL_SIZE_ENV, raising=False)
+        monkeypatch.setenv(LOCAL_MODEL_SIZE_ENV, "")
         monkeypatch.setattr(
             worker,
             "run_job",

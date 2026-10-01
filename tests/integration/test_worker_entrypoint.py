@@ -24,7 +24,14 @@ from onevoicecut.shared.domain.media import SourceMedia
 from onevoicecut.systems.pipeline.transcripts.domain.transcript import SegmentKind
 from onevoicecut.systems.pipeline.transcripts.domain.interfaces.audio_extractor import AudioExtractorPort
 from onevoicecut.runtime.engine_resolver import EngineResolver
-from onevoicecut.runtime.worker import EXIT_FAILED, EXIT_OK, EXIT_UNUSABLE, main
+from onevoicecut.runtime.worker import (
+    CLOUD_API_KEY_ENV,
+    EXIT_FAILED,
+    EXIT_OK,
+    EXIT_UNUSABLE,
+    LOCAL_MODEL_SIZE_ENV,
+    main,
+)
 from tests.fakes.audio_extractor import FakeAudioExtractorPort
 from tests.fakes.transcription import FakeTranscriptionPort, FlakyFakeTranscriptionPort
 
@@ -183,6 +190,17 @@ def test_an_unknown_job_is_reported_not_crashed(data_dir: Path) -> None:
     assert exit_code == EXIT_FAILED
 
 
-def test_a_build_with_no_engine_configured_says_so(data_dir: Path) -> None:
-    """Real engines land in 7a/8a. Until then, saying so beats failing later."""
+def test_a_build_with_no_engine_configured_says_so(
+    data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Real engines land in 7a/8a. Until then, saying so beats failing later.
+
+    Both engine variables blanked rather than deleted: `main` loads the
+    machine's `.env` before it decides, and a key holding `""` is both
+    unconfigured and already present — so the file cannot fill it back in and
+    make this build usable inside the call the refusal is asserted on.
+    """
+    monkeypatch.setenv(LOCAL_MODEL_SIZE_ENV, "")
+    monkeypatch.setenv(CLOUD_API_KEY_ENV, "")
+
     assert main(["--job-id", JOB_ID, "--data-dir", str(data_dir)]) == EXIT_UNUSABLE

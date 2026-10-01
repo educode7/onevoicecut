@@ -82,13 +82,13 @@ def data_dir(tmp_path: Path) -> Path:
 
 
 def _only_cloud(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(LOCAL_MODEL_SIZE_ENV, raising=False)
+    monkeypatch.setenv(LOCAL_MODEL_SIZE_ENV, "")
     monkeypatch.setenv(CLOUD_API_KEY_ENV, API_KEY)
 
 
 def _nothing(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(LOCAL_MODEL_SIZE_ENV, raising=False)
-    monkeypatch.delenv(CLOUD_API_KEY_ENV, raising=False)
+    monkeypatch.setenv(LOCAL_MODEL_SIZE_ENV, "")
+    monkeypatch.setenv(CLOUD_API_KEY_ENV, "")
 
 
 class TestTheFactoryMap:
