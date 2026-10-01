@@ -88,6 +88,21 @@ class TestOneCallPerCandidateTargetPair:
         )
         assert port.calls == []
 
+    def test_the_script_call_never_asks_for_json(self) -> None:
+        """A script body is prose. The JSON grammar that protects MAP's answer
+        would make a SCRIPT call impossible to answer, so the mode travels with
+        the call, not with the adapter."""
+        port = FakeTextGenerationPort(replies=("guion",))
+
+        write_script_variants(
+            (_candidate(),),
+            generate=port,
+            targets=_targets(),
+            max_output_tokens=OUTPUT_TOKENS,
+        )
+
+        assert [call.json_mode for call in port.calls] == [False]
+
 
 class TestWhatEachCandidateComesBackWith:
     def test_a_variant_per_target(self) -> None:

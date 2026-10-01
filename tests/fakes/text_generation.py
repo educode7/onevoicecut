@@ -26,6 +26,7 @@ class GenerationCall:
     prompt: str
     max_output_tokens: int
     temperature: float
+    json_mode: bool = False
 
 
 class FakeTextGenerationPort:
@@ -50,7 +51,12 @@ class FakeTextGenerationPort:
         return MODEL_ID
 
     def complete(
-        self, prompt: str, *, max_output_tokens: int, temperature: float = 0.2
+        self,
+        prompt: str,
+        *,
+        max_output_tokens: int,
+        temperature: float = 0.2,
+        json_mode: bool = False,
     ) -> str:
         # Recorded before the failure check: a test asserting "it retried three
         # times" reads this list, and a fake that logged only successes could not
@@ -60,6 +66,7 @@ class FakeTextGenerationPort:
                 prompt=prompt,
                 max_output_tokens=max_output_tokens,
                 temperature=temperature,
+                json_mode=json_mode,
             )
         )
 

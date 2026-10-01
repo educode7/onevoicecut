@@ -307,9 +307,14 @@ def parse_map_response(raw: str, window: MapWindow) -> MapPartial:
     fabricated a reference may well have fabricated the sentence around it, and
     the prose is not checkable the way an id is; silently discarding the evidence
     while keeping the text is the worse of the two failures.
+
+    A surrounding markdown fence is stripped before the load — the fence is
+    presentation, not the contract: any provider may dress its JSON in one,
+    while the schema check is what actually protects the ids, scores and types
+    that follow.
     """
     try:
-        payload = json.loads(raw)
+        payload = json.loads(_strip_fence(raw))
     except ValueError as error:
         raise GenerationFailed(
             f"the model did not answer with {RESPONSE_SHAPE}: {error}"
@@ -330,6 +335,26 @@ def parse_map_response(raw: str, window: MapWindow) -> MapPartial:
         summary=payload["summary"],
         moments=tuple(_read_moment(raw, window) for raw in raw_moments),
     )
+
+
+def _strip_fence(raw: str) -> str:
+    """`raw` itself unless the *whole* answer is a ``` fence, then its body.
+
+    Stripped, never trusted: prose outside a surrounding fence is still refused
+    (the load fails on it), and whatever the fence contained faces the same
+    JSON load and the same schema check as a bare answer — the fence decides
+    nothing about whether a response is acceptable.
+    """
+    text = raw.strip()
+    if len(text) < 6 or not text.startswith("```") or not text.endswith("```"):
+        return raw
+    body = text[3:-3]
+    first_line, newline, rest = body.partition("\n")
+    if first_line.strip().lower() == "json":
+        # An optional language tag on the opening fence line, presentation
+        # like the ticks around it.
+        body = rest if newline else ""
+    return body.strip()
 
 
 def _read_moment(raw: object, window: MapWindow) -> Moment:
@@ -486,7 +511,13 @@ def _map_one(
     model has seen and return two partials repeating each other.
     """
     try:
-        raw = generate.complete(_map_prompt(window), max_output_tokens=max_output_tokens)
+        # `json_mode` because MAP's answer is a schema `parse_map_response`
+        # enforces — the transport constrains the grammar so the fence or
+        # preamble that broke a three-hour job cannot happen on the wire.
+        # Per call: FOLD and SCRIPT are prose and stay unconstrained.
+        raw = generate.complete(
+            _map_prompt(window), max_output_tokens=max_output_tokens, json_mode=True
+        )
     except ContextLengthExceeded as error:
         if len(window.segment_ids) < 2:
             raise ContextLengthExceeded(

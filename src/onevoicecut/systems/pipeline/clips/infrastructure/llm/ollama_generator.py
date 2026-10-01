@@ -81,9 +81,14 @@ class OllamaTextGenerator:
         return self._model
 
     def complete(
-        self, prompt: str, *, max_output_tokens: int, temperature: float = 0.2
+        self,
+        prompt: str,
+        *,
+        max_output_tokens: int,
+        temperature: float = 0.2,
+        json_mode: bool = False,
     ) -> str:
-        payload = self._post(prompt, max_output_tokens, temperature)
+        payload = self._post(prompt, max_output_tokens, temperature, json_mode)
 
         response = payload.get("response")
         if not isinstance(response, str):
@@ -108,19 +113,28 @@ class OllamaTextGenerator:
         run, so a pool left open would outlive the run that opened it."""
         self._client.close()
 
-    def _post(self, prompt: str, max_output_tokens: int, temperature: float) -> Any:
+    def _post(
+        self, prompt: str, max_output_tokens: int, temperature: float, json_mode: bool
+    ) -> Any:
+        body: dict[str, Any] = {
+            "model": self._model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_output_tokens,
+            },
+        }
+        # Only when asked: `format: json` constrains the grammar server-side,
+        # which is what MAP needs and exactly what the prose callers must never
+        # get. The exact payload is a tested contract, so the key is absent —
+        # not null — on every other call.
+        if json_mode:
+            body["format"] = "json"
         try:
             response = self._client.post(
                 GENERATE_PATH,
-                json={
-                    "model": self._model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": temperature,
-                        "num_predict": max_output_tokens,
-                    },
-                },
+                json=body,
                 timeout=httpx.Timeout(
                     self._timeout_s, connect=min(CONNECT_TIMEOUT_S, self._timeout_s)
                 ),

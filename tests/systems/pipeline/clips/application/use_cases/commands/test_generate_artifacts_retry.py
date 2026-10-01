@@ -60,7 +60,12 @@ class SizeBoundModel:
         return "size-bound-fake"
 
     def complete(
-        self, prompt: str, *, max_output_tokens: int, temperature: float = 0.2
+        self,
+        prompt: str,
+        *,
+        max_output_tokens: int,
+        temperature: float = 0.2,
+        json_mode: bool = False,
     ) -> str:
         self.prompts.append(prompt)
         if estimate_tokens(prompt) > self._limit:

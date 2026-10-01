@@ -58,6 +58,35 @@ class TestTheRequest:
             }
         ]
 
+    def test_json_mode_adds_the_format_key(self) -> None:
+        """The transport half of surviving a model that fences its answer: the
+        server constrains its grammar to JSON only when asked, and MAP is the
+        one caller whose answer must be JSON."""
+        seen: list[dict[str, Any]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(json.loads(request.content))
+            return _reply('{"summary": "s", "moments": []}')
+
+        _generator(httpx.MockTransport(handler)).complete(
+            "prompt", max_output_tokens=64, json_mode=True
+        )
+
+        assert seen[0]["format"] == "json"
+
+    def test_the_default_payload_carries_no_format_key(self) -> None:
+        """Absent, never defaulted: the exact payload is a tested contract, and
+        the prose callers (FOLD, SCRIPT) must never be JSON-constrained."""
+        seen: list[dict[str, Any]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(json.loads(request.content))
+            return _reply("hola")
+
+        _generator(httpx.MockTransport(handler)).complete("p", max_output_tokens=8)
+
+        assert "format" not in seen[0]
+
     def test_it_posts_to_the_generate_endpoint(self) -> None:
         seen: list[str] = []
 

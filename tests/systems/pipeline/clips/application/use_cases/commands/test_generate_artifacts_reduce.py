@@ -140,6 +140,46 @@ class TestIdsAreCheckedAgainstTheirWindow:
             )
 
 
+class TestTheFenceIsPresentationNotTheContract:
+    """A model may wrap its JSON in a markdown fence. The fence is how the
+    answer is dressed, never what protects the artifact — the schema check is,
+    and it runs on whatever the fence contained."""
+
+    def test_a_json_fenced_answer_parses(self) -> None:
+        """qwen2.5:7b-instruct answers exactly like this against the real
+        server, and refusing it stranded a finished three-hour transcription
+        with no artifacts."""
+        raw = "```json\n" + _response("predico sobre la fe", 1) + "\n```"
+
+        partial = parse_map_response(raw, _window(1, 2))
+
+        assert partial.cited_ids == (1,)
+
+    def test_a_bare_fenced_answer_parses(self) -> None:
+        """The same wrapper without the language tag — presentation varies
+        between providers; the contract does not."""
+        raw = "```\n" + _response("predico sobre la fe", 1) + "\n```"
+
+        partial = parse_map_response(raw, _window(1, 2))
+
+        assert partial.cited_ids == (1,)
+
+    def test_a_prose_preamble_outside_a_fence_is_refused(self) -> None:
+        """Tolerance is for a fence that *surrounds* the whole answer. Prose in
+        front of one is the model not answering the shape it was asked for, and
+        admitting it would carry the preamble into the summary."""
+        raw = "Aqui va el resumen:\n```json\n" + _response("x") + "\n```"
+
+        with pytest.raises(GenerationFailed):
+            parse_map_response(raw, _window(1, 2))
+
+    def test_a_fence_holding_invalid_json_is_refused(self) -> None:
+        """The fence is stripped, never trusted: whatever it wraps still faces
+        the same load and the same schema check."""
+        with pytest.raises(GenerationFailed):
+            parse_map_response("```json\n{oops}\n```", _window(1, 2))
+
+
 class TestTheMapPass:
     def test_one_call_per_window(self) -> None:
         # Cites nothing: the fake repeats its last reply, and a reply citing a
@@ -176,6 +216,16 @@ class TestTheMapPass:
         assert run_map((), generate=port, max_output_tokens=OUTPUT_TOKENS) == ()
         assert port.calls == []
 
+    def test_the_map_call_asks_for_json(self) -> None:
+        """The transport half of the fix: MAP's answer is a schema the parser
+        enforces, so the server constrains the grammar instead of trusting the
+        prompt to keep the model on it."""
+        port = FakeTextGenerationPort(replies=(_response("parcial"),))
+
+        run_map((_window(0),), generate=port, max_output_tokens=OUTPUT_TOKENS)
+
+        assert port.calls[0].json_mode is True
+
 
 class TestTheReduceFold:
     def test_a_single_partial_needs_no_fold(self) -> None:
@@ -200,6 +250,18 @@ class TestTheReduceFold:
             reduce_summaries(partials, generate=port, max_output_tokens=OUTPUT_TOKENS)
             == "resumen final"
         )
+
+    def test_the_fold_never_asks_for_json(self) -> None:
+        """A fold's answer is prose — the running summary in words. A JSON
+        grammar would refuse exactly that, which is why the mode is per call
+        and never a property of the adapter."""
+        port = FakeTextGenerationPort(replies=("resumen final",))
+
+        reduce_summaries(
+            _partials("uno", "dos"), generate=port, max_output_tokens=OUTPUT_TOKENS
+        )
+
+        assert [call.json_mode for call in port.calls] == [False]
 
     def test_it_folds_sequentially_rather_than_all_at_once(self) -> None:
         """Eighty-seven partials do not fit in a context window any more than the
