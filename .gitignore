@@ -50,3 +50,6 @@ models/
 Thumbs.db
 .DS_Store
 .claude/
+.atl/
+.opencode/
+.codegraph/
