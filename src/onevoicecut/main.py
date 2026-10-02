@@ -268,9 +268,7 @@ def create_app(deps: WebDependencies, *, lifespan: Lifespan = None) -> FastAPI:
     )
     from onevoicecut.systems.pipeline.jobs.jobs_module_api import build_jobs_router
 
-    app = FastAPI(
-        title="transcribe", docs_url=None, redoc_url=None, lifespan=lifespan
-    )
+    app = FastAPI(title="transcribe", lifespan=lifespan)
     app.include_router(build_jobs_router(deps))
     app.include_router(build_clips_router(deps))
     app.add_exception_handler(DomainError, handle_domain_error)
