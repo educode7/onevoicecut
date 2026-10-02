@@ -102,10 +102,16 @@ after GREEN, because it is unsafe to run against the pre-fix code.
       alive on the real kernel path, and that the probe closes the handle it
       opened (CloseHandle spy; the leak would compound every five seconds).
 - [x] WL-6 Verification: see Verification results below.
-- [ ] WL-7 One work-unit commit (fix + tests + this document), Conventional
+- [x] WL-7 One work-unit commit (fix + tests + this document), Conventional
       Commits, no attribution, no push/PR/merge. Commit identity is recorded in
       the Engram mirror after the commit exists (a document cannot contain the
       hash of the commit that introduces it).
+      *Observed: `3500cd3 fix(runtime): stop the win32 liveness probe
+      broadcasting Ctrl+C` — exactly the three files (this document 169 lines,
+      `src/onevoicecut/runtime/supervisor.py`, `tests/unit/runtime/
+      test_process_liveness_probe.py`), 363 insertions / 7 deletions, and
+      `git ls-files` confirms the document is tracked. The box was left open
+      only because it could not carry its own commit hash at write time.*
 
 ## Acceptance criteria
 
