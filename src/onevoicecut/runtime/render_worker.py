@@ -68,6 +68,7 @@ from onevoicecut.systems.pipeline.clips.domain.rendering import (
     CaptionCoverage,
     ClipExport,
     ClipState,
+    RENDERABLE_STATES,
     RenderedClip,
     RenderProfile,
     SubtitleCue,
@@ -105,13 +106,6 @@ DEFAULT_SAMPLE_HZ = 4.0
 EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_UNUSABLE = 2
-
-# Both count as "picked up and about to be worked": PENDING is the ordinary
-# first claim, RENDERING is a re-pickup of a claim the render drain sweep
-# judged abandoned. Either way this process is about to do the work, so
-# either way the claim has to be refreshed -- an abandoned-claim re-pickup
-# that never re-wrote it would read as abandoned again on the very next sweep.
-_CLAIMABLE_STATES = (ClipState.PENDING, ClipState.RENDERING)
 
 
 def _range_disagreement(pending: tuple[ClipExport, ...]) -> CorruptedRecord | None:
@@ -177,7 +171,13 @@ def render_pending_exports(
     Runs `_render_profiles`, the one render-loop implementation this module
     carries.
     """
-    claimed = tuple(export for export in pending if export.state in _CLAIMABLE_STATES)
+    # Both members of `RENDERABLE_STATES` count as "picked up and about to be
+    # worked": PENDING is the ordinary first claim, RENDERING is a re-pickup
+    # of a claim the render drain sweep judged abandoned. Either way this
+    # process is about to do the work, so either way the claim has to be
+    # refreshed -- an abandoned-claim re-pickup that never re-wrote it would
+    # read as abandoned again on the very next sweep.
+    claimed = tuple(export for export in pending if export.state in RENDERABLE_STATES)
     for export in claimed:
         storage.save_clip_export(replace(export, state=ClipState.RENDERING))
     if claimed:

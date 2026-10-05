@@ -33,7 +33,7 @@ from onevoicecut.systems.pipeline.transcripts.infrastructure.ffmpeg.extractor im
 from onevoicecut.systems.pipeline.clips.infrastructure.ffmpeg.video_render import render_timeout_for
 from onevoicecut.shared.domain.ids import ClipId, JobId
 from onevoicecut.systems.pipeline.jobs.domain.jobs import WORKER_BOUND_STATES, JobRecord, JobState
-from onevoicecut.systems.pipeline.clips.domain.rendering import ClipExport, ClipState
+from onevoicecut.systems.pipeline.clips.domain.rendering import RENDERABLE_STATES, ClipExport, ClipState
 from onevoicecut.runtime.storage import StorageComposite
 
 # Re-exported, not merely used: liveness moved to `supervisor.py` when the
@@ -362,14 +362,26 @@ def _render_group_is_live(
     identical formula `FfmpegVideoRenderer` uses to time out that same render,
     via `render_timeout_for` -- not a second guess at how long a render may
     take, which would drift from the timeout that actually kills the process.
-    Every export in one clip shares one range (`render_worker._range_
+
+    **One claim covers the whole batch.** The worker writes it once and then
+    renders every pending profile sequentially in one process, so a single
+    profile's timeout is not the bound -- the batch's remaining budget is, one
+    `render_timeout_for` per profile still owed, which is the exact sum of the
+    per-call caps those sequential calls each face. Counting the remaining
+    rows rather than the group's size lets the budget shrink as profiles
+    finish, so an abandoned worker does not hold its slot past the work it has
+    left. Every export in one clip shares one range (`render_worker._range_
     disagreement` is what enforces that once a render actually runs), so the
-    first export's span speaks for the group.
+    first export's span still speaks for the group.
     """
     if not any(export.state is ClipState.RENDERING for export in group):
         return False
     job_id, clip_id = key
-    stale_after_s = render_timeout_for(
+    # The guard above guarantees at least one row is still owed -- `RENDERING`
+    # is itself renderable -- so no floor is needed to keep this budget
+    # non-zero for a group this function has not already dismissed.
+    remaining = sum(1 for export in group if export.state in RENDERABLE_STATES)
+    stale_after_s = remaining * render_timeout_for(
         group[0].source_end_s - group[0].source_start_s
     )
     return storage.render_claim_is_fresh(

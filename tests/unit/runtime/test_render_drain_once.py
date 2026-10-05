@@ -265,6 +265,66 @@ class TestLivenessIsAClaimNotAPid:
 
         assert launched == [(OLDEST, CLIP_A)]
 
+    def test_a_multi_profile_batch_inside_its_own_budget_is_still_live(
+        self,
+        storage: FakeTranscriptStoragePort,
+        launched: list[tuple[JobId, ClipId]],
+    ) -> None:
+        """The claim is older than one profile's budget but well inside a
+        two-profile batch's, so the worker rendering them in sequence is
+        still working and relaunching it would put two writers on one MP4."""
+        storage.save_clip_export(
+            an_export(OLDEST, CLIP_A, profile="vertical", state=ClipState.RENDERING)
+        )
+        storage.save_clip_export(
+            an_export(OLDEST, CLIP_A, profile="square", state=ClipState.RENDERING)
+        )
+        storage.write_render_claim(OLDEST, CLIP_A, at_s=NOW - (STALE_AFTER_S + 1.0))
+
+        sweep(storage, launched, cap=5, now=lambda: NOW)
+
+        assert launched == []
+
+    def test_a_multi_profile_batch_past_its_whole_budget_is_relaunched(
+        self,
+        storage: FakeTranscriptStoragePort,
+        launched: list[tuple[JobId, ClipId]],
+    ) -> None:
+        """Two profiles buy two timeouts, not immunity: past the whole
+        batch's budget the claim is stale all the same, so a dead worker
+        still frees its slot."""
+        storage.save_clip_export(
+            an_export(OLDEST, CLIP_A, profile="vertical", state=ClipState.RENDERING)
+        )
+        storage.save_clip_export(
+            an_export(OLDEST, CLIP_A, profile="square", state=ClipState.RENDERING)
+        )
+        storage.write_render_claim(OLDEST, CLIP_A, at_s=NOW - (2 * STALE_AFTER_S + 1.0))
+
+        sweep(storage, launched, cap=5, now=lambda: NOW)
+
+        assert launched == [(OLDEST, CLIP_A)]
+
+    def test_finished_profiles_drop_out_of_the_budget(
+        self,
+        storage: FakeTranscriptStoragePort,
+        launched: list[tuple[JobId, ClipId]],
+    ) -> None:
+        """The budget counts the rows the batch still owes, not the rows the
+        group has always had: one profile left to render keeps the single
+        profile's timeout even though the group holds two rows."""
+        storage.save_clip_export(
+            an_export(OLDEST, CLIP_A, profile="vertical", state=ClipState.RENDERING)
+        )
+        storage.save_clip_export(
+            an_export(OLDEST, CLIP_A, profile="square", state=ClipState.DONE)
+        )
+        storage.write_render_claim(OLDEST, CLIP_A, at_s=NOW - (STALE_AFTER_S + 1.0))
+
+        sweep(storage, launched, cap=5, now=lambda: NOW)
+
+        assert launched == [(OLDEST, CLIP_A)]
+
 
 class TestOrdering:
     def test_eligible_clips_launch_oldest_first(

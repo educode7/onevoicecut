@@ -100,6 +100,16 @@ class ClipState(StrEnum):
     FAILED = "failed"
 
 
+RENDERABLE_STATES = frozenset({ClipState.PENDING, ClipState.RENDERING})
+"""States a render batch still owes.
+
+The exact set `render_worker`'s claim covers, and the same set the render
+drain's staleness budget counts when it multiplies one `render_timeout_for`
+per profile remaining. Two separate derivations of one rule is how the drain's
+count and the worker's claim come to disagree.
+"""
+
+
 @dataclass(frozen=True, slots=True)
 class OutputSpec:
     """The delivery target: what the rendered file is supposed to be.
