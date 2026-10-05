@@ -93,6 +93,25 @@ fresh native review candidate.
 - 2026-10-05: feature document created after diagnosis; branch
   `fix/render-claim-batch-staleness` cut from `6a9547d`. Next: delegate T1-T3
   to one writer.
+- 2026-10-05 (writer): T1-T3 done, strict RED -> GREEN.
+  RED observed: `python -m pytest tests/unit/runtime/test_render_drain_once.py
+  -q -k "budget"` -> `1 failed, 2 passed` with
+  `assert [('01HQ3M8XKJ7VNPQR2ZYWB4TCA1', '01HQ3M8XKJ7VNPQR2ZYWB4TCB1')] == []`
+  (the batch was relaunched while still inside its budget). GREEN after the
+  fix: `3 passed`. Verification (all observed):
+  `tests/unit/runtime/test_render_drain_once.py`: `23 passed`;
+  `python -m pytest -m "not paid and not localmodel"`: `2262 passed, 44
+  deselected, 0 skips`; bare `python -m pytest -q`: `2296 passed, 10 skipped`
+  (the 10 are the `paid` cloud-contract tests skipping on an unset
+  `CLOUD_ASR_API_KEY`, untouched by this diff); `mypy src tests`: `Success: no
+  issues found in 375 source files`. Work-unit commit: `08e9d25`.
+  Route: delegated direct (writer trigger: 4 non-trivial files).
+- 2026-10-05: parent spot check re-ran `tests/unit/runtime/test_render_drain_once.py`
+  -> `23 passed`. RDD assessment for `6a9547d..08e9d25`
+  (`--committed-only`): risk `medium` (`executable_change` on
+  `src/onevoicecut/runtime/app.py`), `review_due: false`,
+  `review_due_reason: under_budget` — the slice stays pending (206 of ~400
+  authored changed lines) and the reviewed boundary remains `6a9547d`.
 - 2026-10-05: T1-T3 done by the writer — RED observed (the in-budget
   two-profile group was relaunched), then `RENDERABLE_STATES` shared between
   the worker's claim and the drain's `remaining * render_timeout_for(span)`
