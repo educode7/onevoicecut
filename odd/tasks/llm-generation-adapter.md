@@ -93,7 +93,13 @@ render-profile measurement, UI work.
       settings table gains the two/three new vars; Ollama documented as a system service beside
       ffmpeg; test counts refreshed), `.env.example` (commented assignments for the new vars),
       requirements files untouched (httpx already core; Ollama never a pip dep).
-- [ ] T7 (orchestrator): native review cycle(s) per RDD, merge to main, push on user approval.
+- [x] T7 (orchestrator): native review cycle(s) per RDD, merge to main, push on user approval.
+      Observed: lineage `review-bce4e3b1e9a34add` ran one correction cycle (reliability CRITICAL
+      `except Exception → GenerationFailed` floor, commit `8204afc`), was validated by the targeted
+      validator, then approved and acknowledged — its authority is burned, evidenced by the
+      terminal-consumption record `307fcda3…` in `.git/gentle-ai/review-transactions/terminal-consumption/v1/`.
+      The six feature commits `054abf3..8204afc` are ancestors of `main`, and `main` equals
+      `origin/main` at the time of this record, so merge and push are both done.
 
 ## Acceptance criteria
 
@@ -138,3 +144,7 @@ render-profile measurement, UI work.
   Verification (all foreground, this tree): default suite `2076 passed, 44 deselected, 0 skips`
   (2120 collected); `mypy src tests` clean over 256 files; localmodel e2e `2 passed in 10.70s`
   against the live server, and `2 skipped` against a dead port (honest-skip proven both ways).
+- 2026-10-05: T7 ticked after re-verifying it from repository evidence rather than memory: the
+  lineage's authority is burned (`terminal-consumption/v1/307fcda3…` names
+  `review-bce4e3b1e9a34add`), `054abf3..8204afc` are ancestors of `main`, and `main` equals
+  `origin/main`. The box had been left open by a stale task file, not by unfinished work.
